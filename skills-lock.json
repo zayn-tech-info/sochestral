@@ -13,6 +13,12 @@
       "skillPath": "skills/audit/SKILL.md",
       "computedHash": "52621740bc6bfde5b4ca778958fd7ac65cd400e377bd0338128db5c3e63a32aa"
     },
+    "auth-implementation-patterns": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/developer-essentials/skills/auth-implementation-patterns/SKILL.md",
+      "computedHash": "f97118b792830d928ce691a44d0f38fb55a2032e2fa15b22b482c229d2853e87"
+    },
     "check": {
       "source": "JavaScript-Mastery-Pro/skills",
       "sourceType": "github",
@@ -42,6 +48,12 @@
       "sourceType": "github",
       "skillPath": "plugins/developer-kit-typescript/skills/drizzle-orm-patterns/SKILL.md",
       "computedHash": "d63e6d73a9f579b505a5694af2f3b3200c2b5eeea147e88b9b6d1e5fce23bcbb"
+    },
+    "hono": {
+      "source": "yusukebe/hono-skill",
+      "sourceType": "github",
+      "skillPath": "skills/hono/SKILL.md",
+      "computedHash": "220e5e1b12bbaeec49ec362b6e2262d77632d0536e9758bba9acbbc323fef990"
     },
     "postgres-drizzle": {
       "source": "ccheney/robust-skills",

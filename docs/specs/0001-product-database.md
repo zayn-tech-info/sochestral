@@ -1,7 +1,7 @@
 # 0001. Product database (Postgres)
 
 **Date**: 2026-07-17
-**Status**: Proposed
+**Status**: Accepted
 
 ## Summary
 
@@ -181,10 +181,10 @@ Review loop transition helpers are out of this feature’s ship list. This featu
 
 Approach: Tracer Bullet (thin end to end proof: migrate → provision user → draft row exists).
 
-1. Scaffold `packages/database` with Drizzle schema for `users` and `drafts` (defaults, check constraints, cascade), drizzle-kit config, and `DATABASE_URL` loading that fails fast if missing, satisfies **AC-1**, **AC-2**, **AC-5**, **AC-6**, **AC-7**
-2. Generate and apply the first Postgres migration; document the local Docker URL on port `5433`, satisfies **AC-1**, **AC-2**, **AC-5**
-3. Implement id helpers, `provisionUser` (canonical email + `EMAIL_TAKEN`), provision script (arg / `PROVISION_EMAIL`), `listDraftsByUserId`, and test insert path; add tests for provision, duplicate email, cascade delete, and draft insert/read, satisfies **AC-3**, **AC-4**, **AC-7**, **AC-8**
-4. Smoke check against the running Docker Postgres (migrate + provision once), satisfies **AC-1**, **AC-3**, **AC-5**
+1. [x] Scaffold `packages/database` with Drizzle schema for `users` and `drafts` (defaults, check constraints, cascade), drizzle-kit config, and `DATABASE_URL` loading that fails fast if missing, satisfies **AC-1**, **AC-2**, **AC-5**, **AC-6**, **AC-7**
+2. [x] Generate and apply the first Postgres migration; document the local Docker URL on port `5433`, satisfies **AC-1**, **AC-2**, **AC-5**
+3. [x] Implement id helpers, `provisionUser` (canonical email + `EMAIL_TAKEN`), provision script (arg / `PROVISION_EMAIL`), `listDraftsByUserId`, and test insert path; add tests for provision, duplicate email, cascade delete, and draft insert/read, satisfies **AC-3**, **AC-4**, **AC-7**, **AC-8**
+4. [x] Smoke check against the running Docker Postgres (migrate + provision once), satisfies **AC-1**, **AC-3**, **AC-5**
 
 ## Consequences
 

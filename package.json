@@ -1,0 +1,18 @@
+{
+  "name": "sochestral",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "db:generate": "pnpm --filter @sochestral/database generate",
+    "db:migrate": "pnpm --filter @sochestral/database migrate",
+    "db:provision": "pnpm --filter @sochestral/database provision",
+    "db:set-password": "pnpm --filter @sochestral/auth set-password",
+    "dev:api": "pnpm --filter @sochestral/api dev",
+    "test:database": "pnpm --filter @sochestral/database test",
+    "test:auth": "pnpm --filter @sochestral/auth test",
+    "test:api": "pnpm --filter @sochestral/api test"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -33,8 +33,8 @@ Treat the following as shipped in the external SocialMCP repo. This SaaS scope o
 
 | # | Feature | Phase | Status |
 |---|---------|-------|--------|
-| 1 | Product database (Postgres) | Foundation | in-progress |
-| 2 | Auth / session and MCP JWT issuance | Foundation | planned |
+| 1 | Product database (Postgres) | Foundation | done |
+| 2 | Auth / session and MCP JWT issuance | Foundation | done |
 | 3 | Orchestration backend skeleton | Slice 1 | planned |
 | 4 | Thin web OAuth and account connect UI | Slice 1 | planned |
 | 5 | Review mode publish loop | Slice 1 | planned |
@@ -53,26 +53,36 @@ Treat the following as shipped in the external SocialMCP repo. This SaaS scope o
 
 ## Foundation
 
-### 1. Product database (Postgres) · full · in-progress
+### 1. Product database (Postgres) · full · done
 
 Hosted product data lives here: users, business profiles, subscription tier, channel links (WhatsApp / Telegram), structured memory/rules, and product-side draft/approval state. SocialMCP keeps its own execution DB for tokens, posts, schedules, and publish logs.
 **Done when:** product schema runs on Postgres; migrations apply cleanly; no product profile, billing, chat, or memory tables are written into the MCP database.
 **Note:** Postgres is the right choice for concurrent hosted users, backups, and growth. Do not invent a dual-DB abstraction for MCP SQLite inside this repo — call SocialMCP over its API/MCP contract.
 **Spec:** [0001](../specs/0001-product-database.md)
+**Code:** `packages/database`
 - [x] Design it (spec): `/architect product database (Postgres)`
-- [ ] Build it: `/develop product database (Postgres)`
-  - [ ] Scaffold `packages/database` schema, drizzle-kit, fail fast `DATABASE_URL` (AC-1, AC-2, AC-5, AC-6, AC-7)
-  - [ ] First Postgres migration + local Docker URL docs on port 5433 (AC-1, AC-2, AC-5)
-  - [ ] Provision helper/script, draft list/insert for tests, unit tests (AC-3, AC-4, AC-7, AC-8)
-  - [ ] Smoke migrate + provision against Docker Postgres (AC-1, AC-3, AC-5)
-- [ ] Verify it: `/check verify product database (Postgres)`
-- [ ] Test it: `/test product database (Postgres)`
+- [x] Build it: `/develop product database (Postgres)`
+  - [x] Scaffold `packages/database` schema, drizzle-kit, fail fast `DATABASE_URL` (AC-1, AC-2, AC-5, AC-6, AC-7)
+  - [x] First Postgres migration + local Docker URL docs on port 5433 (AC-1, AC-2, AC-5)
+  - [x] Provision helper/script, draft list/insert for tests, unit tests (AC-3, AC-4, AC-7, AC-8)
+  - [x] Smoke migrate + provision against Docker Postgres (AC-1, AC-3, AC-5)
+- [x] Verify it: `/check verify product database (Postgres)`
+- [x] Test it: `/test product database (Postgres)`
 
-### 2. Auth / session and MCP JWT issuance · needs a decision · full
+### 2. Auth / session and MCP JWT issuance · full · done
 
 Product login and session for the hosted app. When the orchestration layer calls SocialMCP, it issues a short-lived MCP JWT with `sub` = the same `userId` string stored in SaaS Postgres, signed with the shared `JWT_SECRET`.
 **Done when:** a signed-in SaaS user maps to one stable `userId`; product sessions never leak platform tokens; orchestration can obtain a valid MCP Bearer token for that user without using `user_local_default` in production.
-- [ ] Design it (spec): `/architect auth session and MCP JWT issuance`
+**Spec:** [0002](../specs/0002-auth-session-mcp-jwt/index.md)
+**Code:** `packages/auth`, `packages/api`, `web/src/app/login`
+- [x] Design it (spec): `/architect auth session and MCP JWT issuance`
+- [x] Build it: `/develop auth session and MCP JWT issuance`
+  - [x] Migrate `password_hash` + `sessions` table (AC-1)
+  - [x] Password/session helpers + `mintMcpJwt` + set password CLI (AC-2, AC-7, AC-8, AC-9)
+  - [x] Hono API login/logout/me/mcp-token routes (AC-3, AC-4, AC-5, AC-6, AC-7, AC-8)
+  - [x] Minimal Next login page + smoke path (AC-3, AC-5, AC-7, AC-10)
+- [x] Verify it: `/check verify auth session and MCP JWT issuance`
+- [x] Test it: `/test auth session and MCP JWT issuance`
 
 ## Slice 1: Core publish loop
 
