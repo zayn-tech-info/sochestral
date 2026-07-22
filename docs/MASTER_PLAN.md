@@ -1,0 +1,243 @@
+# SocialMCP SaaS — Master Plan
+
+## 1. Product Definition
+
+An AI agent that acts as an autonomous social media manager for non-technical
+business owners. The user never sees code, client IDs, or configuration
+files. They talk to the agent in plain language; the agent produces content,
+schedules it, publishes it, and manages replies/comments/mentions on their
+behalf, learning and correcting itself from user feedback over time.
+
+The existing SocialMCP MCP server (Threads full ops, LinkedIn publish-only)
+is the execution layer this product is built on top of. This plan covers
+everything above that layer: the SaaS product, multi-tenant support, the
+onboarding agent, orchestration, memory, and the GUI.
+
+### What this product is not (v1 scope guard)
+
+- Not a "manage every platform" product on day one. Threads + LinkedIn first,
+Instagram/Facebook after the multi-tenant rework, others later.
+- Not a fully autonomous system on day one. New users start in
+review-before-publish mode and graduate to autonomous mode once the agent
+has a track record with their account.
+- Not a custom-trained model. The reasoning layer is Claude/GPT with tool
+use, function calling, and per-user structured memory — no fine-tuning.
+
+---
+
+
+
+## 2. Core Architecture
+
+```
+User (chat UI, non-technical)
+   │
+   ▼
+Orchestration Backend (Node/Express or Next.js API routes)
+   │
+   ├─► Postgres — user accounts, business profiles, memory/rules memory/skill,
+   │              content history, scheduled posts and maybe more
+   ├─► Redis + BullMQ — job queue: scheduled posts, webhook processing,
+   │              async video/image generation
+   ├─► LLM (Claude/GPT, function calling) — decision layer only,
+   │              never executes code directly
+   ├─► SocialMCP tool layer — the actual action functions
+   │              (create_post, schedule_post, reply_to_comment, etc.)
+   ├─► Platform APIs — Threads, LinkedIn (Instagram/Facebook later)
+   │              via per-user OAuth tokens, not shared credentials
+   └─► Generation APIs — Runway/HeyGen/Pika (video), Ideogram/Flux (image) or any other capable models that would be used, called async via job queue, results stored in R2/S3
+```
+
+
+
+### Key principle: the LLM decides, the code executes
+
+The model never generates and runs arbitrary code. It is given a fixed set of tools (the MCP tool layer) and returns structured decisions ("call schedule_post with these args"). The backend validates and executes. This is a security requirement, not just a design preference — letting a model-generated action run unvalidated against a real social account is how a bad output becomes a real published mistake.
+
+---
+
+
+
+## 3. Multi-Tenancy (prerequisite for everything else)
+
+The current MCP is single-tenant (`user_local_default`). This is the first
+real engineering task, not a footnote:
+
+- Add `userId` foreign key to: `connected_accounts`, `oauth_sessions`,
+`posts`, `post_variants`, `scheduled_posts`, `publish_logs`,
+`analytics_snapshots`
+- Every tool handler must resolve identity from the calling context
+(session/user token) instead of assuming a default user
+- OAuth flow: one developer app per platform under Us(the builder of the product)(not per user) — users hit a standard consent screen and never see client ID/secret, same pattern as Buffer/Later/Hootsuite
+- Token storage stays per-user, encrypted, as already implemented —
+just keyed by real user IDs instead of one default
+
+---
+
+
+
+## 4. The Onboarding Agent (separate from the operator agent)
+
+Two distinct agent roles:
+
+1. **Setup agent** — runs once (and re-runs when the user wants to update
+  their profile). Its only job is turning a plain-language conversation  into a structured profile. Non-technical users describe their business,  voice, and rules, skill (What the agent should be capable of doing)conversationally; the setup agent extracts and writes  structured data.
+2. **Operator agent** — runs on every trigger (cron, webhook, user message).
+  Reads the structured profile + memory, decides actions, calls tools.
+
+
+
+### What the setup agent captures
+
+- Business description (free text, in the user's own words)
+- Voice/tone — captured by generating 3 sample posts and having the user
+correct them, faster and more reliable than asking abstract questions
+like "describe your tone"
+- Explicit do-not rules (competitors, banned topics, banned words and whatever is the user's prefrence)
+- Posting cadence preference
+- Platform connections (OAuth, one click per platform)
+- Approval mode: review-before-publish (default for new users) vs full autonomous (unlocked after a trust threshold), meaning the agent as to work over time before the user can be allow to switch to autonomus mode. we can provide a progress bar of 100% that show the trust level and once it's hits 100% they get notified if they want to switch to autonomus mode and if they don't approval mode is also fine
+
+
+
+### Output: a structured profile object
+
+Stored in Postgres, not as a single blob — structured by category so rules
+don't silently conflict or get buried as they grow:
+
+- `tone_rules`
+- `Skills`
+- `content_type_rules`
+- `do_not_mention`
+- `posting_cadence`
+- `approval_mode`
+- `platform_connections`
+- `and more (they get created base on what user wants, the agent understands the intent a name it as the categories it falls, e.g don't do X -> (agent understand intent, name proceed to naming) "memory/rules")`
+
+---
+
+
+
+## 5. Self-Correcting Memory (the "learns from mistakes" requirement)
+
+This is structured memory with a write-back loop, not fine-tuning.
+Fine-tuning per user is too slow and expensive to react to a single
+correction ("don't use that style") — memory updates should be instant.
+
+### The loop
+
+1. **Feedback capture** — when the user corrects the agent ("don't use
+  emojis," "always mention the founder's name in launch posts"), that
+   correction is parsed into a discrete rule, not left buried in raw
+   chat history.
+2. **Write-back** — the agent updates its own stored profile with that
+  rule. Newer corrections override older conflicting rules.
+3. **Retrieval on every generation** — every content-generation call pulls
+  the current full rule set for that user into context.
+4. **Pre-publish self-check** — before anything goes live, a lightweight
+  review pass checks new output against stored rules. Storing a rule
+   isn't enough; the agent needs to actively check against it before
+   publishing, not just "remember" it exists.
+
+
+
+### Risk to design around
+
+Unchecked self-editing memory can drift or contradict itself over months
+of corrections. Categorized storage (tone, content-type, do-not-mention,
+cadence) rather than a flat growing list prevents old rules from being
+silently buried or conflicting with new ones.
+
+---
+
+
+
+## 6. Request Flow (end to end example)
+
+```
+User: "Post something about our new product launch this week"
+   → Backend loads business profile + rules from Postgres
+   → LLM (with tools: generate_video, generate_image, write_caption,
+     schedule_post, post_now) decides the plan
+   → If video needed: job queued to Runway/HeyGen (async, minutes)
+   → Job completes → asset stored in R2 → linked to post record
+   → Pre-publish self-check against stored rules
+   → Agent presents draft to user (review mode) or auto-publishes
+     (autonomous mode, once trust threshold reached)
+   → On publish: SocialMCP tool layer → platform API via stored
+     per-user OAuth token
+   → Result logged in publish_logs; any user correction feeds back
+     into memory
+```
+
+---
+
+
+
+## 7. Trigger Sources
+
+- **Cron/scheduled jobs** — deterministic, no AI needed to trigger,
+checks what's due to post
+- **Webhooks from platforms** — comment/mention received → triggers an
+agent run to decide how to respond
+- **Direct user messages** — "post about X today"
+
+---
+
+
+
+## 8. What Needs Scaling, and When
+
+Don't over-build early:
+
+- Single Postgres instance + one Redis queue is sufficient at low user
+counts
+- The slow/expensive parts (LLM calls, video generation) are naturally
+rate-limited by third-party APIs, not your infra
+- Worker pool scaling only becomes a real concern once webhook volume or
+scheduled job volume reaches thousands/hour across all users
+
+---
+
+
+
+## 9. Build Order (sequenced, not simultaneous)
+
+1. Fix known MCP bugs (see BUG_FIX_PLAN.md) — do this before extending (We already done that)
+2. Multi-tenant rework of the MCP (Section 3)
+3. OAuth connection flow in the GUI for Threads (already understood)
+  and LinkedIn (This is when we being the work on the GUI)
+4. Setup agent — chat-based onboarding that builds the structured profile
+5. Text/image post generation + scheduling, review-mode only
+6. Structured memory + correction loop (Section 5)
+7. Auto-publish once review-mode output is trusted
+8. Video generation (Runway/HeyGen) wired through job queue + R2 storage
+9. Comment/mention handling (webhooks + reply tools)
+10. Instagram + Facebook adapters (after multi-tenant is proven stable)
+11. Analytics/trend detection last — needs data volume to say anything
+  useful
+
+
+
+### Explicit non-goals for early phases
+
+- No custom/fine-tuned model
+- No full autonomy before review-mode has proven the content quality
+- No new platforms before the multi-tenant rework is complete and stable
+
+---
+
+
+
+## 10. Open Risks (not solved by engineering)
+
+- **Platform policy risk**: Meta/TikTok scrutinize automated-posting
+behavior closely; app review can gate or throttle access; a policy
+change can break functionality independent of code quality. Read
+current automated-behavior policies before building deep on a platform.
+- **Content quality is the actual differentiator**, not scheduling
+(scheduling is a solved problem — Buffer et al.). Long-term tuning
+effort goes here, not into infrastructure.
+- **Trust adoption curve**: review-mode-first is not just safer
+engineering, it is likely the only realistic path to real adoption.
+

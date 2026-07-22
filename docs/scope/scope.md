@@ -1,0 +1,198 @@
+# Scope: Hosted SaaS Product
+
+An AI social media manager for non technical business owners. They talk in plain language (web UI and optional WhatsApp / Telegram). The agent drafts, schedules, and publishes through official platform APIs. Users start in review-before-publish mode and can later unlock more autonomy.
+
+**This repo** is the private hosted product. **SocialMCP** lives in a separate repository (future OSS) and is an **external dependency** this product calls. Do not fork MCP adapters, OAuth token storage, or the publish worker into this repo.
+
+**Build approach:** Tracer Bullet (prove one real path through every layer before widening scope).
+**First vertical path:** provision user → connect accounts → agent drafts → user approves → SocialMCP publishes → show result.
+**Weight profile:** product database, auth/JWT, and orchestration are `full`; subscription tier design is `full`; most channel and agent features are `medium`.
+
+## Already done in SocialMCP (do not rebuild here)
+
+Treat the following as shipped in the external SocialMCP repo. This SaaS scope only consumes them.
+
+- MCP server with tools for Threads, LinkedIn Personal, and Instagram
+- OAuth callback API, CLI connect, scheduled publish worker
+- Execution database (SQLite + Drizzle locally; ops choices stay in that repo): accounts, tokens, posts, schedules, publish logs
+- Multi tenant identity: every tool path scopes by `userId`
+- Product callers authenticate with `Authorization: Bearer` JWT (`sub` = user id, HS256 with shared `JWT_SECRET`)
+- Local BYOA still works via `SOCIALMCP_USER_ID` / `user_local_default`
+- Threads + Instagram webhook ingestion exists (autonomous reply does not)
+
+**Shared contract:** the same `userId` string lives in SaaS Postgres and in the MCP JWT `sub`. Product profiles, billing, chat, and memory never go into the MCP database.
+
+## Repo split
+
+| Repo | Owns |
+|------|------|
+| SocialMCP (separate, future OSS) | Platform OAuth tokens, connected accounts, posts, schedules, publish logs, MCP tools, worker |
+| This SaaS repo (private) | Login/users, business profiles, tiers, orchestration + LLM, review UI, channels, memory, billing later |
+
+## At a glance
+
+| # | Feature | Phase | Status |
+|---|---------|-------|--------|
+| 1 | Product database (Postgres) | Foundation | in-progress |
+| 2 | Auth / session and MCP JWT issuance | Foundation | planned |
+| 3 | Orchestration backend skeleton | Slice 1 | planned |
+| 4 | Thin web OAuth and account connect UI | Slice 1 | planned |
+| 5 | Review mode publish loop | Slice 1 | planned |
+| 6 | Subscription tier model | Slice 2 | planned |
+| 7 | Setup agent and business profile | Slice 2 | planned |
+| 8 | WhatsApp channel for agent chat | Slice 2 | planned |
+| 9 | Telegram channel for agent chat | Slice 2 | planned |
+| 10 | Web product UI | Slice 2 | planned |
+| 11 | Structured memory and correction loop | Slice 3 | planned |
+| 12 | Autonomous mode and trust threshold | Slice 3 | planned |
+| — | Operator comment/mention handling | Deferred | planned |
+| — | Video and image generation pipeline | Deferred | planned |
+| — | Facebook Pages (after MCP adapter exists) | Deferred | planned |
+| — | Analytics and trends | Deferred | planned |
+| — | Payment provider integration | Deferred | planned |
+
+## Foundation
+
+### 1. Product database (Postgres) · full · in-progress
+
+Hosted product data lives here: users, business profiles, subscription tier, channel links (WhatsApp / Telegram), structured memory/rules, and product-side draft/approval state. SocialMCP keeps its own execution DB for tokens, posts, schedules, and publish logs.
+**Done when:** product schema runs on Postgres; migrations apply cleanly; no product profile, billing, chat, or memory tables are written into the MCP database.
+**Note:** Postgres is the right choice for concurrent hosted users, backups, and growth. Do not invent a dual-DB abstraction for MCP SQLite inside this repo — call SocialMCP over its API/MCP contract.
+**Spec:** [0001](../specs/0001-product-database.md)
+- [x] Design it (spec): `/architect product database (Postgres)`
+- [ ] Build it: `/develop product database (Postgres)`
+  - [ ] Scaffold `packages/database` schema, drizzle-kit, fail fast `DATABASE_URL` (AC-1, AC-2, AC-5, AC-6, AC-7)
+  - [ ] First Postgres migration + local Docker URL docs on port 5433 (AC-1, AC-2, AC-5)
+  - [ ] Provision helper/script, draft list/insert for tests, unit tests (AC-3, AC-4, AC-7, AC-8)
+  - [ ] Smoke migrate + provision against Docker Postgres (AC-1, AC-3, AC-5)
+- [ ] Verify it: `/check verify product database (Postgres)`
+- [ ] Test it: `/test product database (Postgres)`
+
+### 2. Auth / session and MCP JWT issuance · needs a decision · full
+
+Product login and session for the hosted app. When the orchestration layer calls SocialMCP, it issues a short-lived MCP JWT with `sub` = the same `userId` string stored in SaaS Postgres, signed with the shared `JWT_SECRET`.
+**Done when:** a signed-in SaaS user maps to one stable `userId`; product sessions never leak platform tokens; orchestration can obtain a valid MCP Bearer token for that user without using `user_local_default` in production.
+- [ ] Design it (spec): `/architect auth session and MCP JWT issuance`
+
+## Slice 1: Core publish loop
+
+Thin but real path: provision user → connect Threads, LinkedIn, and Instagram via web OAuth (product starts connect; **MCP stores tokens**) → agent drafts a post → user approves in review mode → SocialMCP publishes → result shown. No messaging channels or long term memory in this slice yet.
+
+### 3. Orchestration backend skeleton · full
+
+Backend that loads SaaS user context, calls the LLM with a **fixed SocialMCP tool set**, validates tool args, and executes by calling SocialMCP. Model decides; code executes. Never let the model run arbitrary code against a real social account.
+**Done when:** one authenticated product API path can invoke SocialMCP tools such as `validate_post` and `publish_now` for a real tenant `userId` via JWT; tool allowlist and arg validation sit in this repo, not in prompt text alone.
+- [ ] Design it (spec): `/architect orchestration backend skeleton`
+
+### 4. Thin web OAuth and account connect UI · medium
+
+Minimal web surface that starts platform OAuth consent for a tenant user. Connect flow hands off to SocialMCP OAuth; tokens remain in the MCP execution DB. Connect status is visible to the product (via MCP tools or status API). Not a full dashboard yet.
+**Done when:** a tenant user can start connect for Threads, LinkedIn Personal, and Instagram from the product UI; MCP stores encrypted tokens for that `userId`; orchestration can see which platforms are connected.
+- [ ] Design it (spec): `/architect thin web OAuth and account connect UI`
+
+### 5. Review mode publish loop · medium
+
+Default for new users: agent generates a draft in the product, user approves or edits, then publish runs through SocialMCP. No silent auto publish in this slice.
+**Done when:** a tenant user can approve a draft and publish to Threads, LinkedIn, and Instagram in one flow via MCP; publish results (or clear failures) appear in the product UI.
+- [ ] Design it (spec): `/architect review mode publish loop`
+
+## Slice 2: Onboarding, channels, and tiers
+
+Users can manage the product through web UI or optional messaging apps. Neither channel is mandatory.
+
+### 6. Subscription tier model · full
+
+Define tiers and what each tier gates (platforms, post volume, channels, autonomy, generation features). Gate checks live in the product before orchestration assumes unlimited access. Payment provider integration is deferred.
+**Done when:** tier definitions and gate checks are documented in a spec; orchestration can read a user's tier from Postgres and block or allow actions accordingly; payment provider work is explicitly out of this feature.
+- [ ] Design it (spec): `/architect subscription tier model`
+
+### 7. Setup agent and business profile · full
+
+Separate setup agent turns plain language onboarding into structured profile data (tone, rules, cadence, skills, approval mode). Distinct from the operator agent that runs day to day. Profile lives in product Postgres, categorized — not one blob.
+**Done when:** a new user can complete onboarding and the persisted structured profile drives content generation; sample post correction flow captures tone; profile categories are queryable, not a single opaque document.
+- [ ] Design it (spec): `/architect setup agent and business profile`
+
+### 8. WhatsApp channel for agent chat · full
+
+WhatsApp as the primary messaging add-on. Inbound messages trigger the operator agent; outbound sends drafts, approvals, and status. OAuth connect still uses a browser link sent in chat (product starts connect; MCP stores tokens).
+**Done when:** a linked WhatsApp identity maps to one SaaS `userId`; the user can request a draft, approve a post, and receive publish confirmation without opening the web UI.
+- [ ] Design it (spec): `/architect WhatsApp channel for agent chat`
+
+### 9. Telegram channel for agent chat · medium
+
+Telegram as a second messaging add-on. Same channel abstraction as WhatsApp where possible.
+**Done when:** a linked Telegram identity maps to one SaaS `userId`; core operator flows (draft, approve, status) work at parity with WhatsApp for text-first interactions.
+- [ ] Design it (spec): `/architect Telegram channel for agent chat`
+
+### 10. Web product UI · medium
+
+Web UI for users who prefer a browser. Coexists with messaging channels. Covers connect, drafts, approval queue, schedule view, and profile settings. Not required for every action once channels exist.
+**Done when:** a user can complete the same core operator flows on web as on WhatsApp without being forced to use messaging.
+- [ ] Design it (spec): `/architect web product UI`
+
+## Slice 3: Memory and autonomy
+
+### 11. Structured memory and correction loop · medium
+
+User corrections become discrete rules in categorized product storage. Every generation pulls current rules. Pre-publish self-check runs against rules before go live.
+**Done when:** a correction in chat or web updates stored rules in Postgres; the next draft reflects it; conflicting rules resolve with newer wins; rules do not live only in raw chat logs.
+- [ ] Design it (spec): `/architect structured memory and correction loop`
+
+### 12. Autonomous mode and trust threshold · medium
+
+Review mode remains default. Users unlock autonomous publish after a trust threshold (progress toward 100%). User is notified and can opt in or stay in review mode.
+**Done when:** trust score increases from successful reviewed publishes; at threshold the user gets an explicit opt-in prompt; autonomous mode respects tier gates and memory rules, and still publishes only through validated SocialMCP tool calls.
+- [ ] Design it (spec): `/architect autonomous mode and trust threshold`
+
+## Deferred
+
+Out of scope for the current build pass. Kept so the plan stays honest.
+
+- **Operator-driven comment / mention handling**: product orchestration on top of MCP webhook ingestion · needs a decision · medium
+- **Video and image generation pipeline**: async generation jobs and media storage · needs a decision · full
+- **Facebook Pages**: only after a SocialMCP adapter exists; do not build the adapter in this repo · needs a decision · full
+- **Analytics and trend detection**: needs posting volume first · needs a decision · medium
+- **Payment provider integration**: follows subscription tier model spec · full
+- **Anything that belongs only in the open MCP repo**: adapters, token encryption, worker internals, MCP tool implementations
+
+## Legend
+
+**The decision box.** Every feature carries exactly one sub task whose label ends with `(spec)`. `/architect` owns that step.
+
+**Feature lifecycle**
+
+| State | Set by | The feature shows |
+|---|---|---|
+| `planned` · needs a decision | `/scope` | one box: `Design it (spec): /architect <feature>` |
+| `in-progress` (designed) | `/architect` at spec capture | `Design it` ticked; spec linked; `Build it` milestones; `Verify it` + `Test it` |
+| `done` | `/test`, then `/sync` | all boxes ticked |
+| `existing` / already done in SocialMCP | `/scope` context | listed only under “Already done in SocialMCP”; not a build task here |
+
+**Next step** = the first unticked box on the lowest numbered `planned` feature.
+
+**Weight `full`** = fresh model `/check review` warranted before merge.
+
+**Approach** = Tracer Bullet for the whole product unless a feature tag says otherwise.
+
+## References
+
+### Project sources
+
+- `docs/MASTER_PLAN.md` (product vision, agent roles, build order, risks)
+- SocialMCP repo (external): MCP tools, OAuth, worker, execution DB, multi tenant JWT `sub` contract
+- SocialMCP multi tenant identity: already shipped; SaaS must reuse the same `userId` string
+
+### Practices and standards
+
+- Repo split: product owns login, profiles, tiers, orchestration, channels, memory; MCP owns tokens, posts, schedules, publish (basis: hard split above)
+- Tracer Bullet sequencing: prove connect → draft → approve → publish before channels and memory (basis: vertical slice ships real value early)
+- Model decides, code executes: LLM returns tool calls; backend validates before SocialMCP and platform APIs (basis: MASTER_PLAN section 2)
+- Postgres for hosted product data; MCP keeps its own execution DB (basis: concurrency and ownership boundaries)
+
+### Links (web verified)
+
+- [Implementing managed PostgreSQL for multi-tenant SaaS applications](https://docs.aws.amazon.com/prescriptive-guidance/latest/saas-multitenant-managed-postgresql/welcome.html) (AWS Prescriptive Guidance)
+- [WhatsApp Cloud API](https://developers.facebook.com/docs/whatsapp/cloud-api/) (Meta for Developers)
+- [Telegram Bot API](https://core.telegram.org/bots/api) (Telegram)
+- [Model Context Protocol architecture](https://modelcontextprotocol.io/docs/learn/architecture) (modelcontextprotocol.io)
+`)
