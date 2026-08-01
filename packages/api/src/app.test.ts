@@ -3,7 +3,7 @@ import { decodeJwt } from "jose";
 import {
   createDb,
   provisionUser,
-  requireDatabaseUrl,
+  requireTestDatabaseUrl,
   type Database,
 } from "@sochestral/database";
 import {
@@ -29,16 +29,15 @@ describe("auth API routes", () => {
   const previousJwt = process.env.JWT_SECRET;
 
   beforeAll(() => {
-    requireDatabaseUrl();
     process.env.JWT_SECRET = "api-test-jwt-secret";
-    database = createDb();
+    database = createDb(requireTestDatabaseUrl());
     app = createApp(database.db);
   });
 
   afterAll(async () => {
     if (previousJwt === undefined) delete process.env.JWT_SECRET;
     else process.env.JWT_SECRET = previousJwt;
-    await database.client.end({ timeout: 5 });
+    if (database) await database.client.end({ timeout: 5 });
   });
 
   beforeEach(async () => {

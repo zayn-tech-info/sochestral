@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createDb, type Database } from "./client.js";
 import { DatabaseError, EMAIL_TAKEN } from "./errors.js";
-import { requireDatabaseUrl } from "./env.js";
+import { requireDatabaseUrl, requireTestDatabaseUrl } from "./env.js";
 import { insertDraft, listDraftsByUserId } from "./drafts.js";
 import { drafts, users } from "./schema.js";
 import { deleteUser, provisionUser } from "./users.js";
@@ -11,12 +11,11 @@ describe("product database", () => {
   let database: Database;
 
   beforeAll(() => {
-    requireDatabaseUrl();
-    database = createDb();
+    database = createDb(requireTestDatabaseUrl());
   });
 
   afterAll(async () => {
-    await database.client.end({ timeout: 5 });
+    if (database) await database.client.end({ timeout: 5 });
   });
 
   beforeEach(async () => {

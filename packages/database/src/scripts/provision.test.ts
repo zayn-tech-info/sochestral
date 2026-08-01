@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { createDb, type Database } from "../client.js";
-import { requireDatabaseUrl } from "../env.js";
+import { requireTestDatabaseUrl } from "../env.js";
 
 const execFileAsync = promisify(execFile);
 const packageRoot = resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -41,14 +41,14 @@ async function runTsx(
 
 describe("provision CLI (AC-3, AC-4, AC-5)", () => {
   let database: Database;
-  const databaseUrl = () => requireDatabaseUrl();
+  const databaseUrl = () => requireTestDatabaseUrl();
 
   beforeAll(() => {
-    database = createDb();
+    database = createDb(databaseUrl());
   });
 
   afterAll(async () => {
-    await database.client.end({ timeout: 5 });
+    if (database) await database.client.end({ timeout: 5 });
   });
 
   beforeEach(async () => {

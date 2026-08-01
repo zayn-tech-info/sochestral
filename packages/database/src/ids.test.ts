@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { createDraftId, createUserId } from "./ids.js";
+import {
+  createConversationId,
+  createDraftId,
+  createMessageId,
+  createRunId,
+  createToolCallId,
+  createUserId,
+} from "./ids.js";
 
 describe("ids", () => {
   it("createUserId returns opaque user_ prefix suitable as JWT sub (AC-1)", () => {
@@ -19,5 +26,16 @@ describe("ids", () => {
     const drafts = new Set(Array.from({ length: 20 }, () => createDraftId()));
     expect(users.size).toBe(20);
     expect(drafts.size).toBe(20);
+  });
+
+  it.each([
+    [createConversationId, "conv_"],
+    [createMessageId, "msg_"],
+    [createRunId, "run_"],
+    [createToolCallId, "toolcall_"],
+  ])("creates orchestration ids with the %s prefix (AC-6)", (create, prefix) => {
+    const id = create();
+    expect(id).toMatch(new RegExp(`^${prefix}[A-Za-z0-9_-]{21}$`));
+    expect(id).toHaveLength(prefix.length + 21);
   });
 });
