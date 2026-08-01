@@ -35,8 +35,8 @@ Treat the following as shipped in the external SocialMCP repo. This SaaS scope o
 |---|---------|-------|--------|
 | 1 | Product database (Postgres) | Foundation | done |
 | 2 | Auth / session and MCP JWT issuance | Foundation | done |
-| 3 | Orchestration backend skeleton | Slice 1 | planned |
-| 4 | Thin web OAuth and account connect UI | Slice 1 | planned |
+| 3 | Orchestration backend skeleton | Slice 1 | done |
+| 4 | Sochestral chat workspace and connectors UI | Slice 1 | in-progress |
 | 5 | Review mode publish loop | Slice 1 | planned |
 | 6 | Subscription tier model | Slice 2 | planned |
 | 7 | Setup agent and business profile | Slice 2 | planned |
@@ -88,17 +88,38 @@ Product login and session for the hosted app. When the orchestration layer calls
 
 Thin but real path: provision user → connect Threads, LinkedIn, and Instagram via web OAuth (product starts connect; **MCP stores tokens**) → agent drafts a post → user approves in review mode → SocialMCP publishes → result shown. No messaging channels or long term memory in this slice yet.
 
-### 3. Orchestration backend skeleton · full
+### 3. Orchestration backend skeleton · full · done
 
 Backend that loads SaaS user context, calls the LLM with a **fixed SocialMCP tool set**, validates tool args, and executes by calling SocialMCP. Model decides; code executes. Never let the model run arbitrary code against a real social account.
 **Done when:** one authenticated product API path can invoke SocialMCP tools such as `validate_post` and `publish_now` for a real tenant `userId` via JWT; tool allowlist and arg validation sit in this repo, not in prompt text alone.
-- [ ] Design it (spec): `/architect orchestration backend skeleton`
+**Spec:** [0003](../specs/0003-orchestration-backend/index.md)
+**Code:** `packages/orchestration`, `packages/api/src/orchestration-routes.ts`, `packages/database/src/orchestration.ts`; SocialMCP `apps/mcp-server/src/http-server.ts`
+- [x] Design it (spec): `/architect orchestration backend skeleton`
+- [x] Build it: `/develop orchestration backend skeleton`
+  - [x] Add the four-table orchestration data model, ownership queries, idempotency, pagination, and concurrency guards (AC-1, AC-6, AC-8, AC-9)
+  - [x] Expose authenticated HTTP MCP in SocialMCP and add the tenant-scoped product client with its fixed dry-run tool contract (AC-3, AC-4, AC-5, AC-9, AC-11)
+  - [x] Add the Thesean Anthropic provider, explicit platform resolution, bounded context, safe tool loop, and first end-to-end conversation path (AC-1, AC-2, AC-3, AC-7, AC-10, AC-11)
+  - [x] Add authenticated Hono routes, usage limits, retries, stable errors, safe summaries, deletion, and redaction (AC-1, AC-6, AC-7, AC-8, AC-9)
+- [x] Verify it: `/check verify orchestration backend skeleton`
+- [x] Test it: `/test orchestration backend skeleton`
 
-### 4. Thin web OAuth and account connect UI · medium
+### 4. Sochestral chat workspace and connectors UI · medium · in-progress
 
-Minimal web surface that starts platform OAuth consent for a tenant user. Connect flow hands off to SocialMCP OAuth; tokens remain in the MCP execution DB. Connect status is visible to the product (via MCP tools or status API). Not a full dashboard yet.
-**Done when:** a tenant user can start connect for Threads, LinkedIn Personal, and Instagram from the product UI; MCP stores encrypted tokens for that `userId`; orchestration can see which platforms are connected.
-- [ ] Design it (spec): `/architect thin web OAuth and account connect UI`
+First authenticated product experience with a quiet light chat workspace and Settings connectors. The existing orchestration path powers chat. Connect flow hands off to SocialMCP OAuth, and tokens remain in the MCP execution DB. Approval, live publishing, calendar, profile, and analytics remain later features.
+**Done when:** a tenant user can create and continue safe orchestration chats, manage conversation history, start connect for Threads, LinkedIn Personal, and Instagram from Settings, and see live connector status without product code storing OAuth tokens.
+**Spec:** [0004](../specs/0004-chat-connectors-ui/index.md)
+**Code:** `web/src/app/app`, `web/src/components/app`, `packages/api/src/connector-routes.ts`, `packages/orchestration/src/connectors.ts`; SocialMCP `apps/api/src/routes/oauth.ts`
+- [x] Design it (spec): `/architect Sochestral chat workspace and connectors UI`
+- [x] Build it: `/develop Sochestral chat workspace and connectors UI`
+  - [x] Add the tenant scoped connector API and safe SocialMCP contract
+  - [x] Build the responsive authenticated chat workspace
+  - [x] Build Settings connectors and OAuth return handling
+  - [x] Redesign login and finish the Sochestral visual system
+  - [x] Simplify the workspace, remove the right context rail, and move connector state fully into Settings
+  - [x] Add polished product motion, reduced motion behavior, and reliable local preview startup
+  - [x] Render safe Markdown formatting in assistant chat messages
+- [ ] Verify it: `/check verify Sochestral chat workspace and connectors UI`
+- [x] Test it: `/test Sochestral chat workspace and connectors UI`
 
 ### 5. Review mode publish loop · medium
 

@@ -7,7 +7,7 @@ import { sql } from "drizzle-orm";
 import {
   createDb,
   provisionUser,
-  requireDatabaseUrl,
+  requireTestDatabaseUrl,
   type Database,
 } from "@sochestral/database";
 
@@ -43,14 +43,14 @@ async function runTsx(
 
 describe("set-password CLI (AC-2)", () => {
   let database: Database;
-  const databaseUrl = () => requireDatabaseUrl();
+  const databaseUrl = () => requireTestDatabaseUrl();
 
   beforeAll(() => {
-    database = createDb();
+    database = createDb(databaseUrl());
   });
 
   afterAll(async () => {
-    await database.client.end({ timeout: 5 });
+    if (database) await database.client.end({ timeout: 5 });
   });
 
   beforeEach(async () => {

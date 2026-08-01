@@ -11,8 +11,16 @@ import {
   validateSessionToken,
 } from "@sochestral/auth";
 import { getDb, type Database } from "@sochestral/database";
+import {
+  createConnectorService,
+  createOrchestrationService,
+  type ConnectorService,
+  type OrchestrationService,
+} from "@sochestral/orchestration";
+import { registerConnectorRoutes } from "./connector-routes.js";
+import { registerOrchestrationRoutes } from "./orchestration-routes.js";
 
-type Env = {
+export type Env = {
   Variables: {
     db: Database["db"];
   };
@@ -26,8 +34,14 @@ function cookieSecure(): boolean {
   return process.env.NODE_ENV === "production";
 }
 
-export function createApp(db: Database["db"] = getDb().db) {
+export function createApp(
+  db: Database["db"] = getDb().db,
+  orchestrationService?: OrchestrationService,
+  connectorService?: ConnectorService,
+) {
   const app = new Hono<Env>();
+  let resolvedOrchestration = orchestrationService;
+  let resolvedConnectors = connectorService;
 
   app.use(
     "*",
@@ -109,6 +123,15 @@ export function createApp(db: Database["db"] = getDb().db) {
       }
       throw error;
     }
+  });
+
+  registerOrchestrationRoutes(app, db, () => {
+    resolvedOrchestration ??= createOrchestrationService(db);
+    return resolvedOrchestration;
+  });
+  registerConnectorRoutes(app, db, () => {
+    resolvedConnectors ??= createConnectorService();
+    return resolvedConnectors;
   });
 
   return app;

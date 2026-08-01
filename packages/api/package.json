@@ -13,6 +13,7 @@
     "@hono/node-server": "^1.13.8",
     "@sochestral/auth": "workspace:*",
     "@sochestral/database": "workspace:*",
+    "@sochestral/orchestration": "workspace:*",
     "dotenv": "^16.4.7",
     "hono": "^4.7.2"
   },

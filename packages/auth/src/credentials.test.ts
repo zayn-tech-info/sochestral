@@ -3,7 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import {
   createDb,
   provisionUser,
-  requireDatabaseUrl,
+  requireTestDatabaseUrl,
   users,
   type Database,
 } from "@sochestral/database";
@@ -18,12 +18,11 @@ describe("credentials", () => {
   let database: Database;
 
   beforeAll(() => {
-    requireDatabaseUrl();
-    database = createDb();
+    database = createDb(requireTestDatabaseUrl());
   });
 
   afterAll(async () => {
-    await database.client.end({ timeout: 5 });
+    if (database) await database.client.end({ timeout: 5 });
   });
 
   beforeEach(async () => {
@@ -63,6 +62,19 @@ describe("credentials", () => {
     expect(row?.passwordHash).toBeTruthy();
     expect(row?.passwordHash?.startsWith("$argon2")).toBe(true);
     expect(row?.passwordHash).not.toContain("password123");
+  });
+
+  it("setPasswordForUser accepts an id only user reference", async () => {
+    const user = await provisionUser(database.db, "id-only@example.com");
+
+    await setPasswordForUser(database.db, { id: user.id }, "password123");
+
+    const authed = await authenticateEmailPassword(
+      database.db,
+      "id-only@example.com",
+      "password123",
+    );
+    expect(authed?.id).toBe(user.id);
   });
 
   it("authenticateEmailPassword returns the user on success (AC-3)", async () => {

@@ -38,7 +38,7 @@ export async function findUserByIdOrEmail(
 
 export async function setPasswordForUser(
   db: Database["db"],
-  user: User,
+  user: Pick<User, "id">,
   password: string,
 ): Promise<void> {
   const passwordHash = await hashPassword(password);

@@ -15,6 +15,13 @@
       "when": 1784729480981,
       "tag": "0001_living_nomad",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785006686403,
+      "tag": "0002_gifted_the_watchers",
+      "breakpoints": true
     }
   ]
 }

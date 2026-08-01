@@ -3,7 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import {
   createDb,
   provisionUser,
-  requireDatabaseUrl,
+  requireTestDatabaseUrl,
   sessions,
   type Database,
 } from "@sochestral/database";
@@ -27,12 +27,11 @@ describe("session persistence", () => {
   let database: Database;
 
   beforeAll(() => {
-    requireDatabaseUrl();
-    database = createDb();
+    database = createDb(requireTestDatabaseUrl());
   });
 
   afterAll(async () => {
-    await database.client.end({ timeout: 5 });
+    if (database) await database.client.end({ timeout: 5 });
   });
 
   beforeEach(async () => {
