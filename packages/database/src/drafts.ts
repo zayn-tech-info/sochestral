@@ -11,7 +11,7 @@ export type InsertDraftInput = {
   userId: string;
   platform: DraftPlatform;
   body: string;
-  mediaUrls?: string[] | null;
+  mediaUrls?: string[];
 };
 
 export async function insertDraft(
@@ -26,7 +26,7 @@ export async function insertDraft(
       userId: input.userId,
       platform: input.platform,
       body: input.body,
-      mediaUrls: input.mediaUrls ?? null,
+      mediaUrls: input.mediaUrls ?? [],
     })
     .returning();
 

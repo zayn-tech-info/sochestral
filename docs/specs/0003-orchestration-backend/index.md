@@ -5,7 +5,7 @@
 
 ## Summary
 
-This feature adds the first safe conversation path from an authenticated product user to SocialMCP. A Thesean Anthropic model may choose from three approved tools, but Sochestral validates and executes every call. Feature 3 can inspect accounts, validate content, and preview a publish. It cannot publish live, schedule work, or create approval drafts.
+This feature adds the first safe conversation path from an authenticated product user to SocialMCP. A Thesean Anthropic model may choose from three approved tools, but Sochestral validates and executes every call. Feature 3 can inspect accounts, validate content, and preview a publish. It cannot publish live, schedule work, or create approval drafts. The browser may receive ordered safe progress while a turn runs, while the final persisted response remains authoritative.
 
 ## Requirements
 
@@ -19,19 +19,21 @@ This feature adds the first safe conversation path from an authenticated product
 
 - **AC-1**: An authenticated user can create a conversation with a natural language message, safely retry the request with the same request id, add later messages, and read the resulting ordered conversation history. Every read and write is scoped to the session user.
 - **AC-2**: A message that requests social action must name one or more supported platforms explicitly. Supported names are Threads, LinkedIn, and Instagram. Missing, unknown, or ambiguous platform wording returns a stored assistant clarification without calling Thesean or SocialMCP.
-- **AC-3**: When a message has enough context, Sochestral calls Thesean through a provider interface and runs a bounded Anthropic tool loop. The model can request only `list_connected_accounts`, `validate_post`, and `publish_now`. Sochestral validates every tool name and argument with local Zod schemas before execution.
+- **AC-3**: When a message has enough context, Sochestral calls Thesean through a provider interface and runs a bounded Anthropic tool loop. SocialMCP model execution remains limited to `list_connected_accounts`, `validate_post`, and preview only `publish_now`. Feature 5 may add the product local `prepare_review` persistence tool without expanding the MCP execution allowlist. Sochestral validates every tool name and argument with local Zod schemas before execution.
 - **AC-4**: Sochestral calls an authenticated Streamable HTTP SocialMCP endpoint with a fresh 15 minute Bearer JWT minted from the validated session user. SocialMCP verifies the JWT on every request and creates tool context only from JWT `sub`.
 - **AC-5**: Feature 3 never performs a live social action. Every `publish_now` call has `dryRun: true` forced by Sochestral, and any model supplied `confirm` or live publish value is rejected or replaced before execution. The feature does not create product `drafts` rows.
 - **AC-6**: Postgres stores conversations, ordered messages, model runs, and tool calls as separate related records. Stored user and assistant content, tool arguments, tool results, and errors are redacted. Deleting a conversation permanently cascades through all four record types.
-- **AC-7**: A transient Thesean or SocialMCP failure is retried exactly once, then the run is stored as failed and the user receives a safe explanation. Invalid tool names, invalid arguments, authentication failures, and user errors are never retried.
+- **AC-7**: A transient Thesean or SocialMCP failure is retried exactly once, then the run is stored as failed and the user receives a safe explanation. If a provider retry follows visible text, the stream resets that transient model step before replacement text is sent so the browser never appends a duplicate response. Invalid tool names, invalid arguments, authentication failures, and user errors are never retried.
 - **AC-8**: One conversation can have only one running model run. A concurrent message receives `409`. Each user can start at most 50 model runs in any rolling 24 hour window. Model context uses only the newest messages that fit a fixed 6000 token input budget.
 - **AC-9**: Conversation list and message history endpoints use cursor pagination. API responses contain public conversation, message, run, and safe tool summary fields only. Raw provider payloads, prompts, tokens, tool payloads, and internal errors are never returned.
 - **AC-10**: The Thesean integration uses the official `@anthropic-ai/sdk` against `https://api.thesean.ai`, defaults to configurable model `ship-like/claude-sonnet-5`, caps user messages at 8000 characters, caps model output at 1500 tokens, and allows at most four model tool loop steps.
 - **AC-11**: Contract tests compare the three local tool definitions with SocialMCP `tools/list`, and an end to end test proves that one product session user can reach SocialMCP dry run while a different user cannot read the conversation or reuse its tenant context.
+- **AC-12**: Authenticated create and message stream routes emit monotonically ordered safe NDJSON events for turn start, assistant text, validated tool status, optional provider step reset, and terminal completion or failure. Partial text is not persisted. A disconnect stops response writes but does not cancel the in process turn. The terminal event contains the canonical persisted response and no event exposes hidden reasoning, raw provider events, tool arguments, secrets, or unredacted errors.
+- **AC-13**: Every conversation read and completed turn identifies activity by its own request and assistant response. Tool summaries and review groups appear only in the activity entry for the run that created them. A request with no tool call and no review group has no activity entry.
 
 ## Decision
 
-**Chosen option**: Option 2: Sochestral controlled Thesean Anthropic tool loop over authenticated HTTP MCP
+**Chosen option**: Option 2: Sochestral controlled Thesean Anthropic tool loop over authenticated HTTP MCP, with parallel ordered streaming routes
 
 Sochestral owns platform resolution, context selection, tool allowlisting, argument validation, retries, persistence, and execution. Thesean serves the selected Anthropic model, which chooses what approved tool to request. SocialMCP owns connected accounts, platform validation, dry run preview, and tenant scoped execution.
 
@@ -137,13 +139,36 @@ Terminal states do not reopen. A user retry creates a new run from a new message
 
 | Endpoint | Method | Key inputs | Key outputs | Auth | Key errors |
 |---|---|---|---|---|---|
-| `/orchestration/conversations` | POST | `message: string`, `requestId: UUID` required | conversation, user message, assistant message, run summary | session | `401`, `422`, `429`, `502`, `503` |
+| `/orchestration/conversations` | POST | `message: string`, `requestId: UUID` required | conversation, user message, assistant message, run summary, nullable turn activity | session | `401`, `422`, `429`, `502`, `503` |
+| `/orchestration/conversations/stream` | POST | `message: string`, `requestId: UUID` required | ordered NDJSON progress events and canonical terminal response | session | terminal safe event for existing create errors |
 | `/orchestration/conversations` | GET | `cursor?: string`, `limit?: number` | conversation page, next cursor | session | `401`, `422` |
-| `/orchestration/conversations/:id/messages` | POST | `message: string`, `requestId: UUID` required | user message, assistant message, run summary | owner session | `401`, `404`, `409`, `422`, `429`, `502`, `503` |
-| `/orchestration/conversations/:id` | GET | `cursor?: string`, `limit?: number` | conversation, message page, recent public runs and safe tool summaries | owner session | `401`, `404`, `422` |
+| `/orchestration/conversations/:id/messages` | POST | `message: string`, `requestId: UUID` required | user message, assistant message, run summary, nullable turn activity | owner session | `401`, `404`, `409`, `422`, `429`, `502`, `503` |
+| `/orchestration/conversations/:id/messages/stream` | POST | `message: string`, `requestId: UUID` required | ordered NDJSON progress events and canonical terminal response | owner session | terminal safe event for existing message errors |
+| `/orchestration/conversations/:id` | GET | `cursor?: string`, `limit?: number` | conversation, message page, request scoped turn activities | owner session | `401`, `404`, `422` |
 | `/orchestration/conversations/:id` | DELETE | none | empty response | owner session | `401`, `404`, `409` |
 
-Create and message calls return normal synchronous JSON. They do not stream and do not create background jobs. Repeating a terminal request id returns the original stored result. Repeating one while its run is active returns `409`. A terminal external failure returns its stable HTTP error with `{ error, conversationId, runId, assistantMessage }`, so the persisted result is recoverable. List endpoints default to 25 rows and allow at most 50. Cursors are opaque base64url encoded versioned JSON containing the ordering columns. Delete returns `204` after the client has shown its confirmation warning. A running conversation cannot be deleted and returns `409`. The API does not accept `userId`.
+The existing create and message calls keep their normal synchronous JSON contracts for compatibility and retry recovery. Parallel POST streaming routes use `application/x-ndjson`, one JSON object per line, `Cache-Control: no-store, no-transform`, and `X-Accel-Buffering: no`. They do not create background jobs. Authentication, ownership, and request validation errors discovered before streaming starts use the existing HTTP status and safe JSON error. After `turn_started`, the HTTP status remains `200` and any terminal failure is represented by `turn_failed`.
+
+Every event has a monotonically increasing `sequence` and one of these safe public shapes:
+
+| Kind | Additional fields | Meaning |
+|---|---|---|
+| `turn_started` | `conversation`, `userMessage`, nullable `run` | the user mutation and any model run are persisted |
+| `assistant_delta` | `step`, `delta` | projected text for one transient model step |
+| `step_reset` | `step` | discard text already shown for the retried or nonterminal step |
+| `tool_started` | `toolCall` | validated public tool identity and persisted pending state |
+| `tool_completed` | `toolSummary` | persisted allowlisted tool outcome |
+| `review_groups` | `reviewGroups` | current safe public review groups after local preparation |
+| `turn_completed` | `response` | canonical persisted `TurnResponse`, identical in shape to the JSON route |
+| `turn_failed` | `error`, optional `conversationId`, `runId`, and `assistantMessage` | stable safe code and persisted failure fields when available |
+
+One encoded line may not exceed 64 KiB. The browser allows at most 128 KiB of unparsed buffered input and treats an oversized, malformed, unknown, duplicate, or nonmonotonic event as an uncertain transport result. It does not render that frame and recovers through the original request id.
+
+The model adapter uses the installed Anthropic SDK streaming interface, assembles the complete final message and tool calls for the existing orchestration loop, and reports only safe text deltas through provider neutral callbacks. Tool input deltas and hidden reasoning never cross the adapter boundary. A transient retry after visible output emits `step_reset` for the current model step before replacement deltas. A step that ends in tool use also resets its transient text before validated tool status appears because only the final no tool step becomes the persisted assistant response. Partial text stays in memory and is never written to Postgres.
+
+Client disconnect or navigation stops stream writes only. The already started in process execution continues to its persisted terminal state. A later request with the same request id returns the stored terminal result or `409` while the run remains active. Process crash behavior remains unchanged because this feature adds no queue or worker. Repeating a terminal request id returns the original stored result. A terminal external failure remains recoverable through its stable safe response. List endpoints default to 25 rows and allow at most 50. Cursors are opaque base64url encoded versioned JSON containing the ordering columns. Delete returns `204` after the client has shown its confirmation warning. A running conversation cannot be deleted and returns `409`. The API does not accept `userId`.
+
+Conversation reads return `turnActivities` only for assistant messages present in that message page. Each entry contains `requestMessageId`, `assistantMessageId`, `runId`, ordered safe `toolSummaries`, and owned public `reviewGroups`. The service derives the request from `orchestration_runs.trigger_message_id`, pairs it with the terminal assistant message stored immediately after that request, groups tool calls by `run_id`, and resolves a local `prepare_review` group only from its persisted trusted `reviewGroupId` result. Empty activity is omitted. Existing conversation wide `toolSummaries` and `reviewGroups` fields remain temporarily for compatibility, but new web rendering uses only `turnActivities`.
 
 **Value sourcing**:
 
@@ -163,6 +188,14 @@ Create and message calls return normal synchronous JSON. They do not stream and 
 | Preview publish | dry run flag | forced `true` by Sochestral, never trusted from model |
 | Complete run | token usage | Anthropic response usage fields when available |
 | Complete run | duration | monotonic application timer |
+| Order stream events | sequence | per response counter allocated by trusted API code |
+| Stream assistant text | step and delta | orchestration step counter plus Anthropic text delta projected by the model adapter |
+| Reset a retried step | step id | trusted orchestration model step identifier after visible transient output |
+| Stream tool state | public tool name and safe status | validated persisted tool call and allowlisted safe summary |
+| Reconcile browser state | canonical turn response | persisted terminal orchestration result |
+| Associate activity | request and assistant message ids | persisted run trigger message and its terminal assistant message sequence |
+| Associate tool summaries | run id | persisted orchestration tool call foreign key |
+| Associate review group | review group id | trusted persisted `prepare_review` tool result, checked against an owned conversation group |
 | Return tool summary | safe status and preview facts | allowlisted projection of redacted MCP result |
 | Apply daily limit | count | runs created through conversations owned by user in previous 24 hours |
 | Paginate | next cursor | base64url encoded version 1 JSON from last returned `(updated_at, id)` or `(sequence, id)` values |
@@ -172,6 +205,7 @@ Create and message calls return normal synchronous JSON. They do not stream and 
 - `list_connected_accounts` is read only.
 - `validate_post` checks content and platform rules.
 - `publish_now` is preview only. Sochestral overwrites `dryRun` with `true` and removes or rejects `confirm`.
+- Feature 5 may expose `prepare_review` as a product local persistence tool. It is not sent to SocialMCP and does not expand this model execution allowlist. Any model initiated SocialMCP `publish_now` remains preview only.
 - Platform resolution happens before Thesean. `Threads` maps to `threads`, `LinkedIn` and `LinkedIn Personal` map to `linkedin_personal`, and `Instagram` maps to `instagram`. Multiple explicit supported platforms are allowed. Missing, unknown, or unclear platform wording asks for clarification.
 - Local Zod schemas are the enforcement boundary. Prompt instructions are guidance only.
 - MCP results are untrusted data. They are never appended as system instructions.
@@ -218,6 +252,12 @@ Create and message calls return normal synchronous JSON. They do not stream and 
 - At most one run is `running` per conversation.
 - A run has one trigger user message and zero or more tool calls.
 - Message sequence is unique and monotonic inside one conversation.
+- Stream event sequence is unique and monotonic inside one response.
+- Partial assistant text is transient. Only the final redacted assistant message is persisted and authoritative.
+- A stream exposes only projected assistant text, validated public tool state, safe review groups, and terminal public response fields.
+- A tool summary or review group belongs to exactly one returned turn activity.
+- A turn activity is omitted when its run created no tool call and no review group.
+- Pagination returns activity only for assistant messages in the current message page.
 - Only the three fixed tool names can cross the MCP boundary.
 - `publish_now` always reaches SocialMCP with `dryRun: true`.
 - No feature 3 path writes `drafts`, schedules, platform tokens, posts, or publish logs in product Postgres.
@@ -252,6 +292,10 @@ Create and message calls return normal synchronous JSON. They do not stream and 
 - Auth and permission: another session user receives `404` for conversation read, write, and delete, and cannot cause a JWT for the owner, verifies **AC-1**, **AC-4**, **AC-11**.
 - Safety: the Thesean model requests an unknown tool or live `publish_now`; no unsafe MCP call occurs and no raw payload appears in API or logs, verifies **AC-3**, **AC-5**, **AC-9**.
 - Deletion: deleting an idle conversation removes its messages, runs, and tool calls permanently, verifies **AC-6**.
+- Streaming: fragmented assistant deltas arrive in order, a transient retry resets only its current step, validated tool state follows text without leaking arguments, and the terminal event matches persisted history, verifies **AC-7**, **AC-9**, and **AC-12**.
+- Disconnect recovery: closing the response does not cancel the turn, and retrying the same request id returns the terminal result or the active conflict without starting a second run, verifies **AC-1**, **AC-8**, and **AC-12**.
+- Activity ownership: two requests with different tool behavior return separate activity entries beneath their own assistant messages, while a request that calls no tool returns none, verifies **AC-9** and **AC-13**.
+- Activity pagination: loading an older message page returns only activities associated with assistant messages on that page and does not repeat newer activity, verifies **AC-1**, **AC-9**, and **AC-13**.
 
 ## Build plan
 
@@ -264,6 +308,8 @@ Approach: Tracer Bullet. First prove one authenticated message through persisten
 5. Add chained Hono conversation routes with session ownership, synchronous responses, cursor pagination, active run conflict handling, and permanent cascade delete, satisfies **AC-1**, **AC-6**, **AC-8**, **AC-9**.
 6. Add rolling usage protection, transient retry policy, stable errors, safe tool summaries, and content and log redaction, satisfies **AC-7**, **AC-8**, **AC-9**, **AC-10**.
 7. Add database, route, provider, MCP contract, cross tenant, failure, concurrency, and end to end dry run tests, satisfies **AC-1** through **AC-11**.
+8. [ ] Add provider stream callbacks, ordered Hono NDJSON routes, retry step reset, disconnect safe execution, and contract tests, satisfies **AC-1**, **AC-3**, **AC-7**, **AC-9**, and **AC-12**.
+9. [ ] Add request scoped turn activity projections for JSON reads, message responses, and streaming completion, with page correct repository queries and contract tests, satisfies **AC-1**, **AC-6**, **AC-9**, and **AC-13**.
 
 ## Consequences
 
@@ -276,11 +322,12 @@ Approach: Tracer Bullet. First prove one authenticated message through persisten
 
 **Negative and tradeoffs**:
 
-- Synchronous requests can be slow because one response may include several external calls.
+- One turn may still be slow because it can include several external calls, but ordered progress is visible while it runs.
 - The product and SocialMCP deployments must share one JWT secret and compatible tool schemas.
 - Full redacted history increases Postgres storage until user deletion.
 - A temporary fixed daily limit is less flexible than the later subscription tier model.
-- No streaming means the user receives no partial progress during a long run.
+- Transient streamed state adds reconciliation and retry reset complexity even though persistence remains final only.
+- Request scoped activity adds a derived response projection, but needs no database migration because run and tool ownership are already persisted.
 
 **Neutral**:
 

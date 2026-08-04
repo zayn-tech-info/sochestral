@@ -2,10 +2,12 @@ export {
   createOrchestrationService,
   DefaultOrchestrationService,
   type OrchestrationService,
+  type OrchestrationMediaService,
   type PublicConversation,
   type PublicMessage,
   type PublicRun,
   type PublicToolCall,
+  type PublicTurnActivity,
   type TurnResponse,
 } from "./service.js";
 export {
@@ -39,6 +41,7 @@ export { redactRecord, redactText, redactValue } from "./redaction.js";
 export {
   ALLOWED_TOOL_NAMES,
   MODEL_TOOLS,
+  prepareReviewInputSchema,
   safeToolSummary,
   validateToolInput,
   type AllowedToolName,
@@ -57,3 +60,23 @@ export {
   type ConnectorSummary,
   type PublicConnectorAccount,
 } from "./connectors.js";
+export {
+  createReviewService,
+  DefaultReviewService,
+  getPublicReviewGroups,
+  prepareReview,
+  ReviewError,
+  type PublicReviewAttempt,
+  type PublicReviewDraft,
+  type PublicReviewGroup,
+  type ReviewService,
+  type ReviewMediaService,
+} from "./review.js";
+export {
+  DEFAULT_PUBLISHING_CONSENT_VERSION,
+  hasExplicitLivePublishIntent,
+  PublishingPreferenceError,
+  PublishingPreferenceService,
+  type PublicPublishingPreference,
+  type PublishingAuthoritySnapshot,
+} from "./publishing.js";

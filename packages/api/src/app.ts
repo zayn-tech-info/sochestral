@@ -14,11 +14,19 @@ import { getDb, type Database } from "@sochestral/database";
 import {
   createConnectorService,
   createOrchestrationService,
+  createReviewService,
+  PublishingPreferenceService,
+  StreamableHttpSocialMcpGateway,
   type ConnectorService,
   type OrchestrationService,
+  type ReviewService,
 } from "@sochestral/orchestration";
 import { registerConnectorRoutes } from "./connector-routes.js";
 import { registerOrchestrationRoutes } from "./orchestration-routes.js";
+import { registerReviewRoutes } from "./review-routes.js";
+import { registerPublishingRoutes } from "./publishing-routes.js";
+import { registerMediaRoutes } from "./media-routes.js";
+import { MediaService } from "./media-storage.js";
 
 export type Env = {
   Variables: {
@@ -38,10 +46,39 @@ export function createApp(
   db: Database["db"] = getDb().db,
   orchestrationService?: OrchestrationService,
   connectorService?: ConnectorService,
+  reviewService?: ReviewService,
 ) {
   const app = new Hono<Env>();
   let resolvedOrchestration = orchestrationService;
   let resolvedConnectors = connectorService;
+  let resolvedReview = reviewService;
+  let mediaService: MediaService | undefined;
+
+  function getMediaService(): MediaService {
+    mediaService ??= new MediaService(db);
+    return mediaService;
+  }
+
+  function getReviewService(): ReviewService {
+    if (!resolvedReview) {
+      resolvedConnectors ??= createConnectorService();
+      const url = process.env.SOCIALMCP_MCP_URL?.trim();
+      if (!url) throw new Error("SOCIALMCP_MCP_URL is required");
+      const timeout = Number(process.env.REVIEW_PUBLISH_TIMEOUT_MS ?? "30000");
+      resolvedReview = createReviewService(
+        db,
+        resolvedConnectors,
+        new StreamableHttpSocialMcpGateway(
+          url,
+          Number.isFinite(timeout) && timeout > 0 ? timeout : 30000,
+        ),
+        {
+          publishUrl: (userId, assetId) => getMediaService().publishUrl(userId, assetId),
+        },
+      );
+    }
+    return resolvedReview;
+  }
 
   app.use(
     "*",
@@ -126,13 +163,27 @@ export function createApp(
   });
 
   registerOrchestrationRoutes(app, db, () => {
-    resolvedOrchestration ??= createOrchestrationService(db);
+    resolvedOrchestration ??= createOrchestrationService(db, {
+      review: getReviewService(),
+      media: {
+        previewUrl: (userId, assetId) => getMediaService().previewUrl(userId, assetId),
+        modelImage: (userId, assetId) => getMediaService().modelImage(userId, assetId),
+        deleteConversationAssets: (userId, conversationId) =>
+          getMediaService().deleteConversationAssets(userId, conversationId),
+      },
+    });
     return resolvedOrchestration;
   });
   registerConnectorRoutes(app, db, () => {
     resolvedConnectors ??= createConnectorService();
     return resolvedConnectors;
   });
+  registerReviewRoutes(app, db, () => {
+    return getReviewService();
+  });
+  const publishingPreferences = new PublishingPreferenceService(db);
+  registerPublishingRoutes(app, db, () => publishingPreferences);
+  registerMediaRoutes(app, db, getMediaService);
 
   return app;
 }

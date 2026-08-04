@@ -35,6 +35,8 @@ function conversationDetail(
     messages,
     runs: [],
     toolSummaries: [],
+    reviewGroups: [],
+    turnActivities: [],
     nextCursor,
   };
 }
@@ -57,6 +59,8 @@ const turn: TurnResponse = {
   },
   run: null,
   toolSummaries: [],
+  reviewGroups: [],
+  turnActivity: null,
 };
 
 function Harness() {

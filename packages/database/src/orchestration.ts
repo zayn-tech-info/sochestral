@@ -1,9 +1,13 @@
 import {
+  attachReadyMediaToMessage,
+} from "./publishing.js";
+import {
   and,
   count,
   desc,
   eq,
   gt,
+  inArray,
   lt,
   max,
   or,
@@ -21,6 +25,8 @@ import {
   orchestrationMessages,
   orchestrationRuns,
   orchestrationToolCalls,
+  draftPublishAttempts,
+  drafts,
   type OrchestrationConversation,
   type OrchestrationMessage,
   type OrchestrationRun,
@@ -61,7 +67,82 @@ export type CreateTurnInput = {
   model?: string;
   targetPlatforms?: TargetPlatform[];
   dailyRunLimit?: number;
+  mediaAssetIds?: string[];
+  publishingMode?: "always_draft" | "approve_for_me" | "full_access";
+  publishingConsentVersion?: string | null;
+  publishingAuthorityEventId?: string | null;
+  explicitLiveIntent?: boolean;
+  staleRunBefore?: Date;
 };
+
+const INTERRUPTED_RUN_MESSAGE =
+  "The previous request was interrupted before it finished. You can retry safely.";
+
+async function reconcileStaleRun(
+  tx: Parameters<Parameters<Database["db"]["transaction"]>[0]>[0],
+  conversationId: string,
+  staleRunBefore: Date | undefined,
+): Promise<boolean> {
+  const [active] = await tx
+    .select({
+      id: orchestrationRuns.id,
+      createdAt: orchestrationRuns.createdAt,
+    })
+    .from(orchestrationRuns)
+    .where(
+      and(
+        eq(orchestrationRuns.conversationId, conversationId),
+        eq(orchestrationRuns.status, "running"),
+      ),
+    )
+    .limit(1);
+  if (!active) return false;
+  if (!staleRunBefore || active.createdAt >= staleRunBefore) return true;
+
+  const completedAt = new Date();
+  const [reconciled] = await tx
+    .update(orchestrationRuns)
+    .set({
+      status: "failed",
+      durationMs: Math.max(0, completedAt.getTime() - active.createdAt.getTime()),
+      safeError: "RUN_INTERRUPTED",
+      completedAt,
+    })
+    .where(
+      and(
+        eq(orchestrationRuns.id, active.id),
+        eq(orchestrationRuns.status, "running"),
+      ),
+    )
+    .returning({ id: orchestrationRuns.id });
+  if (!reconciled) return true;
+
+  await tx
+    .update(orchestrationToolCalls)
+    .set({
+      status: "failed",
+      safeError: "RUN_INTERRUPTED",
+      completedAt,
+    })
+    .where(
+      and(
+        eq(orchestrationToolCalls.runId, active.id),
+        eq(orchestrationToolCalls.status, "running"),
+      ),
+    );
+  const [sequenceRow] = await tx
+    .select({ value: max(orchestrationMessages.sequence) })
+    .from(orchestrationMessages)
+    .where(eq(orchestrationMessages.conversationId, conversationId));
+  await tx.insert(orchestrationMessages).values({
+    id: createMessageId(),
+    conversationId,
+    role: "assistant",
+    content: INTERRUPTED_RUN_MESSAGE,
+    sequence: (sequenceRow?.value ?? 0) + 1,
+  });
+  return false;
+}
 
 async function lockUserForUsage(
   tx: Parameters<Parameters<Database["db"]["transaction"]>[0]>[0],
@@ -113,6 +194,10 @@ function runValues(
     provider: input.provider,
     model: input.model,
     targetPlatforms: input.targetPlatforms,
+    publishingMode: input.publishingMode ?? "always_draft",
+    publishingConsentVersion: input.publishingConsentVersion ?? null,
+    publishingAuthorityEventId: input.publishingAuthorityEventId ?? null,
+    explicitLiveIntent: input.explicitLiveIntent ?? false,
   } as const;
 }
 
@@ -147,6 +232,12 @@ export async function createConversationTurn(
         requestId: input.requestId,
       })
       .returning();
+    await attachReadyMediaToMessage(tx, {
+      userId: input.userId,
+      conversationId,
+      messageId: userMessageId,
+      assetIds: input.mediaAssetIds ?? [],
+    });
 
     let assistantMessage: OrchestrationMessage | null = null;
     let createdRun: OrchestrationRun | null = null;
@@ -202,17 +293,13 @@ export async function appendConversationTurn(
       throw new OrchestrationDatabaseError("CONVERSATION_NOT_FOUND");
     }
 
-    const [active] = await tx
-      .select({ id: orchestrationRuns.id })
-      .from(orchestrationRuns)
-      .where(
-        and(
-          eq(orchestrationRuns.conversationId, conversationId),
-          eq(orchestrationRuns.status, "running"),
-        ),
+    if (
+      await reconcileStaleRun(
+        tx,
+        conversationId,
+        input.staleRunBefore,
       )
-      .limit(1);
-    if (active) {
+    ) {
       throw new OrchestrationDatabaseError("RUN_IN_PROGRESS");
     }
 
@@ -237,6 +324,12 @@ export async function appendConversationTurn(
         requestId: input.requestId,
       })
       .returning();
+    await attachReadyMediaToMessage(tx, {
+      userId: input.userId,
+      conversationId,
+      messageId: userMessage!.id,
+      assetIds: input.mediaAssetIds ?? [],
+    });
 
     let assistantMessage: OrchestrationMessage | null = null;
     let createdRun: OrchestrationRun | null = null;
@@ -320,6 +413,25 @@ export async function findOwnedTurnByRequestId(
     assistantMessage: assistantMessage ?? null,
     run: run ?? null,
   };
+}
+
+export async function updateAssistantMessageContent(
+  db: Database["db"],
+  messageId: string,
+  content: string,
+): Promise<OrchestrationMessage> {
+  const [message] = await db
+    .update(orchestrationMessages)
+    .set({ content })
+    .where(
+      and(
+        eq(orchestrationMessages.id, messageId),
+        eq(orchestrationMessages.role, "assistant"),
+      ),
+    )
+    .returning();
+  if (!message) throw new Error("ASSISTANT_MESSAGE_NOT_FOUND");
+  return message;
 }
 
 export async function getOwnedConversation(
@@ -416,6 +528,24 @@ export async function listConversationRuns(
     .where(eq(orchestrationRuns.conversationId, conversationId))
     .orderBy(desc(orchestrationRuns.createdAt))
     .limit(limit);
+}
+
+export async function listConversationRunsByTriggerMessageIds(
+  db: Database["db"],
+  conversationId: string,
+  triggerMessageIds: string[],
+): Promise<OrchestrationRun[]> {
+  if (triggerMessageIds.length === 0) return [];
+  return db
+    .select()
+    .from(orchestrationRuns)
+    .where(
+      and(
+        eq(orchestrationRuns.conversationId, conversationId),
+        inArray(orchestrationRuns.triggerMessageId, triggerMessageIds),
+      ),
+    )
+    .orderBy(desc(orchestrationRuns.createdAt));
 }
 
 export async function listRunToolCalls(
@@ -604,6 +734,21 @@ export async function deleteOwnedConversation(
       )
       .limit(1);
     if (active) throw new OrchestrationDatabaseError("RUN_IN_PROGRESS");
+    const [activePublish] = await tx
+      .select({ id: draftPublishAttempts.id })
+      .from(draftPublishAttempts)
+      .innerJoin(drafts, eq(draftPublishAttempts.draftId, drafts.id))
+      .where(
+        and(
+          eq(drafts.conversationId, conversationId),
+          eq(drafts.userId, userId),
+          eq(draftPublishAttempts.status, "publishing"),
+        ),
+      )
+      .limit(1);
+    if (activePublish) {
+      throw new OrchestrationDatabaseError("RUN_IN_PROGRESS");
+    }
     const deleted = await tx
       .delete(orchestrationConversations)
       .where(

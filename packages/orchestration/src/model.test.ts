@@ -184,4 +184,28 @@ describe("TheseanModelProvider", () => {
     await rejection;
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("stops and retries when fetch never settles after its socket closes", async () => {
+    const fetchMock = vi.fn().mockImplementation(
+      () => new Promise<Response>(() => undefined),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new TheseanModelProvider("test-key", 10);
+
+    await expect(
+      provider.complete({
+        system: "Be careful",
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Post" }] },
+        ],
+        tools: [],
+        model: "contract-model",
+        maxTokens: 100,
+      }),
+    ).rejects.toMatchObject({
+      code: "MODEL_UNAVAILABLE",
+      status: 503,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });

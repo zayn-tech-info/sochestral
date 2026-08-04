@@ -50,8 +50,12 @@ const turnResponse: TurnResponse = {
     safeError: null,
     createdAt: "2026-07-26T00:00:00.000Z",
     completedAt: "2026-07-26T00:00:01.000Z",
+    publishingMode: "always_draft",
+    explicitLiveIntent: false,
   },
   toolSummaries: [],
+  reviewGroups: [],
+  turnActivity: null,
 };
 
 function serviceMock(): OrchestrationService {
@@ -67,6 +71,8 @@ function serviceMock(): OrchestrationService {
       messages: [turnResponse.userMessage, turnResponse.assistantMessage],
       runs: [turnResponse.run],
       toolSummaries: [],
+      reviewGroups: [],
+      turnActivities: [],
       nextCursor: null,
     }),
     deleteConversation: vi.fn().mockResolvedValue(undefined),

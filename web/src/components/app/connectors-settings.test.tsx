@@ -1,7 +1,12 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, apiRequest, type ConnectorSummary } from "@/lib/product-api";
+import {
+  ApiError,
+  apiRequest,
+  type ConnectorSummary,
+  type PublishingPreference,
+} from "@/lib/product-api";
 import { ConnectorsSettings } from "./connectors-settings";
 
 vi.mock("@/lib/product-api", async (importOriginal) => {
@@ -48,10 +53,27 @@ const connectors: ConnectorSummary[] = [
   },
 ];
 
+const preference: PublishingPreference = {
+  currentMode: "always_draft",
+  effectiveMode: "always_draft",
+  revision: 0,
+  consentVersion: null,
+  consentedAt: null,
+  consentCurrent: false,
+  policyVersion: "2026-08-01",
+  enabled: false,
+  authorityEventId: null,
+};
+
+function routeResponse(path: string) {
+  if (path === "/publishing/preferences") return Promise.resolve(preference);
+  return Promise.resolve({ connectors });
+}
+
 beforeEach(() => {
   window.history.replaceState({}, "", "/app/settings/connectors");
   vi.mocked(apiRequest).mockReset();
-  vi.mocked(apiRequest).mockResolvedValue({ connectors });
+  vi.mocked(apiRequest).mockImplementation((path) => routeResponse(path));
 });
 
 describe("ConnectorsSettings", () => {
@@ -68,7 +90,11 @@ describe("ConnectorsSettings", () => {
   });
 
   it("reports an unavailable service without calling accounts disconnected (AC 6)", async () => {
-    vi.mocked(apiRequest).mockRejectedValue(new Error("offline"));
+    vi.mocked(apiRequest).mockImplementation((path) =>
+      path === "/publishing/preferences"
+        ? Promise.resolve(preference)
+        : Promise.reject(new Error("offline")),
+    );
     render(<ConnectorsSettings />);
 
     const alert = await screen.findByRole("alert");
@@ -83,8 +109,9 @@ describe("ConnectorsSettings", () => {
 
     window.dispatchEvent(new Event("focus"));
 
-    await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(2));
-    expect(apiRequest).toHaveBeenLastCalledWith("/connectors");
+    await waitFor(() =>
+      expect(vi.mocked(apiRequest).mock.calls.filter(([path]) => path === "/connectors")).toHaveLength(2),
+    );
   });
 
   it("shows a safe OAuth success result from known query values (AC 7)", async () => {
@@ -115,9 +142,11 @@ describe("ConnectorsSettings", () => {
 
   it("shows a stable safe error when SocialMCP cannot start OAuth (AC 5, AC 6)", async () => {
     const user = userEvent.setup();
-    vi.mocked(apiRequest)
-      .mockResolvedValueOnce({ connectors })
-      .mockRejectedValueOnce(new ApiError(502, "SOCIALMCP_UNAVAILABLE", {}));
+    vi.mocked(apiRequest).mockImplementation((path) => {
+      if (path === "/publishing/preferences") return Promise.resolve(preference);
+      if (path === "/connectors") return Promise.resolve({ connectors });
+      return Promise.reject(new ApiError(502, "SOCIALMCP_UNAVAILABLE", {}));
+    });
     render(<ConnectorsSettings />);
     await screen.findByRole("heading", { name: "Threads" });
 

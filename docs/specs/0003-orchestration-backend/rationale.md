@@ -84,6 +84,12 @@ The design uses the official Anthropic SDK with the Thesean base URL behind a sm
 
 The three tool allowlist preserves the feature boundary. Account inspection and validation are read only. `publish_now` is allowed only because dry run returns the real platform preview without an external social action. Approval drafts, live publish, schedules, memory, tier gates, and autonomy remain separate decisions in their numbered scope features.
 
+Progressive responses use the Anthropic SDK stream rather than revealing a completed response through an artificial typing timer. This gives the user real progress and lets tool status appear in the same order that trusted orchestration reaches it. The API uses newline delimited JSON over POST because the mutation already has a JSON body and credentialed session semantics. EventSource would require a separate setup request or query encoded input, while replacing the existing JSON routes would weaken current idempotent retry compatibility.
+
+The stream is a delivery view, not a second source of truth. Partial text remains in memory, the adapter still assembles the full provider response, and the existing final database write remains authoritative. If the provider retries after visible output, a step reset lets the client discard only that uncommitted text. If the browser disconnects, execution continues in process and the existing request id contract reconciles the result. This keeps the change inside the current Hono, Anthropic SDK, and orchestration boundaries without adding a queue or database migration.
+
+Activity is projected per completed turn instead of returned as one conversation wide bucket. Adding another ownership column would duplicate relationships that already exist. The run already points to its triggering user message, tool calls already point to the run, and the trusted local review result already records its group id. The API derives one safe turn activity from those persisted links and keeps the older flat fields only while the web client moves across.
+
 ## References
 
 **Project sources**:
@@ -102,13 +108,16 @@ The three tool allowlist preserves the feature boundary. Account inspection and 
 
 ## Migration plan
 
-**Strategy**: Direct replacement before production release
+**Strategy**: Additive streaming path with synchronous compatibility routes
 
 **Phases**:
 
 1. Replace Groq configuration, SDK types, tools, and response mapping with the Thesean Anthropic adapter.
 2. Run unit, contract, type, and build checks with fixtures before using the configured Thesean key for a live smoke test.
+3. Add the two ordered NDJSON mutation routes and provider callbacks while retaining the existing JSON routes.
+4. Switch the web client to streaming after route and retry contract tests pass.
+5. Add request scoped activity beside the existing flat activity fields, switch the web transcript to the scoped projection, then remove the compatibility fields in a later contract cleanup.
 
-**Rollback**: Revert the provider migration commit and restore the Groq environment values.
+**Rollback**: Switch the web client back to the existing JSON routes and flat activity fields. The additive stream and turn activity projections can then be removed without data migration.
 
-**Risks**: Anthropic content blocks differ from OpenAI chat completion messages. Tool use ids, tool result blocks, finish reasons, usage fields, and retryable Thesean errors must be mapped explicitly.
+**Risks**: Anthropic content blocks differ from OpenAI chat completion messages. Tool use ids, tool result blocks, finish reasons, usage fields, retryable Thesean errors, fragmented text, client disconnects, and proxy buffering must be mapped explicitly.

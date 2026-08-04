@@ -33,6 +33,24 @@ export const listConnectedAccountsInputSchema = z
   .object({ platform: platformSchema.optional() })
   .strict();
 
+export const prepareReviewInputSchema = z
+  .object({
+    variants: z
+      .array(
+        z
+          .object({
+            platform: platformSchema,
+            body: z.string().max(8000),
+            mediaUrls: z.array(z.url()).max(5).default([]),
+            attachmentIndexes: z.array(z.number().int().min(0).max(4)).max(5).default([]),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(3),
+  })
+  .strict();
+
 export const unifiedPostInputSchema = z
   .object({
     platforms: z.array(platformSchema).min(1),
@@ -43,6 +61,7 @@ export const unifiedPostInputSchema = z
     contentType: contentTypeSchema.optional(),
     dryRun: z.boolean().optional(),
     confirm: z.boolean().optional(),
+    idempotencyKey: z.string().trim().min(16).max(160).optional(),
     connectedAccountId: z.string().trim().min(1).optional(),
     connectedAccountIds: z
       .record(z.string(), z.string().trim().min(1))
@@ -56,10 +75,16 @@ export type AllowedToolInput =
   | z.infer<typeof unifiedPostInputSchema>;
 
 const definitions: Array<{
-  name: AllowedToolName;
+  name: AllowedToolName | "prepare_review";
   description: string;
   schema: z.ZodType;
 }> = [
+  {
+    name: "prepare_review",
+    description:
+      "Prepare editable review drafts for the explicitly requested platforms. This stores product review state only and never publishes.",
+    schema: prepareReviewInputSchema,
+  },
   {
     name: "list_connected_accounts",
     description:
@@ -106,7 +131,30 @@ export function validateToolInput(
   name: string,
   raw: unknown,
   resolvedPlatforms: TargetPlatform[],
-): { name: AllowedToolName; input: Record<string, unknown> } {
+): {
+  name: AllowedToolName | "prepare_review";
+  input: Record<string, unknown>;
+} {
+  if (name === "prepare_review") {
+    try {
+      const parsed = prepareReviewInputSchema.parse(raw);
+      if (
+        !samePlatforms(
+          parsed.variants.map((variant) => variant.platform),
+          resolvedPlatforms,
+        )
+      ) {
+        throw new Error("Review platforms do not match the explicit request");
+      }
+      return { name, input: parsed };
+    } catch {
+      throw new OrchestrationError(
+        "INVALID_TOOL_ARGUMENTS",
+        422,
+        "The model produced invalid review arguments.",
+      );
+    }
+  }
   if (!isAllowedToolName(name)) {
     throw new OrchestrationError(
       "INVALID_TOOL_ARGUMENTS",
@@ -136,6 +184,7 @@ export function validateToolInput(
     if (name === "publish_now") {
       input.dryRun = true;
       delete input.confirm;
+      delete input.idempotencyKey;
     }
     return { name, input };
   } catch {

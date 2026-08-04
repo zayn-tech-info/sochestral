@@ -19,6 +19,7 @@ export type PublicConnectorAccount = {
   username: string | null;
   displayName: string | null;
   state: Exclude<ConnectorState, "not_connected">;
+  connectedAt?: string | null;
 };
 
 export type ConnectorSummary = {
@@ -189,11 +190,17 @@ export class DefaultConnectorService implements ConnectorService {
 
       const state =
         account.status === "active" ? "connected" : "reconnect_required";
+      const connectedAt =
+        typeof account.connectedAt === "string" &&
+        !Number.isNaN(Date.parse(account.connectedAt))
+          ? account.connectedAt
+          : undefined;
       byPlatform.get(platform)?.push({
         id: account.id,
         username: nullableString(account.platformUsername),
         displayName: nullableString(account.displayName),
         state,
+        ...(connectedAt ? { connectedAt } : {}),
       });
     }
 

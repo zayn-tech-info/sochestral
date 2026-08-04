@@ -159,6 +159,7 @@ export function AppShell({
   const pathname = usePathname();
   const { authLoading } = useWorkspace();
   const [navOpen, setNavOpen] = useState(false);
+  const isChatWorkspace = pathname === "/app" || pathname.startsWith("/app/chat/");
 
   if (authLoading) {
     return (
@@ -197,7 +198,7 @@ export function AppShell({
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
           transition={productMotion.enter}
-          className="app-main"
+          className={cn("app-main", isChatWorkspace && "app-main-chat")}
         >
           {title ? (
             <header className="app-page-heading">

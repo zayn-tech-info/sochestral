@@ -20,6 +20,10 @@ export type ModelToolCall = {
 
 export type ModelContentBlock =
   | { type: "text"; text: string }
+  | {
+      type: "image";
+      source: { type: "base64"; mediaType: "image/jpeg" | "image/png" | "image/webp"; data: string };
+    }
   | { type: "tool_use"; id: string; name: string; input: unknown }
   | {
       type: "tool_result";
@@ -66,6 +70,16 @@ function retryAfterMs(error: unknown): number {
 
 function toAnthropicContent(block: ModelContentBlock): ContentBlockParam {
   if (block.type === "text") return block;
+  if (block.type === "image") {
+    return {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: block.source.mediaType,
+        data: block.source.data,
+      },
+    };
+  }
   if (block.type === "tool_use") {
     return {
       type: "tool_use",
@@ -100,11 +114,15 @@ function toAnthropicTool(tool: ModelTool): Tool {
 export class TheseanModelProvider implements ModelProvider {
   private readonly client: Anthropic;
 
-  constructor(apiKey: string) {
+  constructor(
+    apiKey: string,
+    private readonly timeoutMs = 15_000,
+  ) {
     this.client = new Anthropic({
       apiKey,
       baseURL: "https://api.thesean.ai",
       maxRetries: 0,
+      timeout: timeoutMs,
     });
   }
 
@@ -117,13 +135,27 @@ export class TheseanModelProvider implements ModelProvider {
   }): Promise<ModelCompletion> {
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       try {
-        const message = await this.client.messages.create({
-          model: input.model,
-          system: input.system,
-          messages: input.messages.map(toAnthropicMessage),
-          tools: input.tools.map(toAnthropicTool),
-          tool_choice: { type: "auto" },
-          max_tokens: input.maxTokens,
+        const controller = new AbortController();
+        let deadline: ReturnType<typeof setTimeout> | undefined;
+        const request = this.client.messages.create(
+          {
+            model: input.model,
+            system: input.system,
+            messages: input.messages.map(toAnthropicMessage),
+            tools: input.tools.map(toAnthropicTool),
+            tool_choice: { type: "auto" },
+            max_tokens: input.maxTokens,
+          },
+          { signal: controller.signal },
+        );
+        const timedOut = new Promise<never>((_, reject) => {
+          deadline = setTimeout(() => {
+            controller.abort();
+            reject(new Error("Model request timed out"));
+          }, this.timeoutMs);
+        });
+        const message = await Promise.race([request, timedOut]).finally(() => {
+          if (deadline) clearTimeout(deadline);
         });
         const text = message.content
           .filter((block) => block.type === "text")
