@@ -26,6 +26,7 @@ export {
   type ModelProvider,
   type ModelTool,
   type ModelToolCall,
+  type ModelToolChoice,
 } from "./model.js";
 export {
   StreamableHttpSocialMcpGateway,
@@ -74,7 +75,10 @@ export {
 } from "./review.js";
 export {
   DEFAULT_PUBLISHING_CONSENT_VERSION,
-  hasExplicitLivePublishIntent,
+  LIVE_PUBLISH_INTENT_SYSTEM,
+  LIVE_PUBLISH_INTENT_TOOL,
+  LIVE_PUBLISH_INTENT_TOOL_NAME,
+  resolveExplicitLivePublishIntent,
   PublishingPreferenceError,
   PublishingPreferenceService,
   type PublicPublishingPreference,

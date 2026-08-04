@@ -249,6 +249,11 @@ describe("DefaultOrchestrationService", () => {
     );
     vi.mocked(model.complete)
       .mockResolvedValueOnce(modelCompletion({
+        toolCalls: [toolCall("intent_1", "resolve_live_publish_intent", {
+          explicitLivePublish: true,
+        })],
+      }))
+      .mockResolvedValueOnce(modelCompletion({
         toolCalls: [toolCall("call_review_auto", "prepare_review", {
           variants: [{ platform: "threads", body: "Launch now", mediaUrls: [] }],
         })],
@@ -257,13 +262,16 @@ describe("DefaultOrchestrationService", () => {
 
     try {
       const result = await service.createConversation(userId, {
-        message: "Publish this on Threads",
+        message: "Ship the Threads launch post now",
         requestId: "00000000-0000-4000-8000-000000000099",
       });
 
       expect(result.run).toMatchObject({
         publishingMode: "full_access",
         explicitLiveIntent: true,
+      });
+      expect(vi.mocked(model.complete).mock.calls[0]?.[0]).toMatchObject({
+        toolChoice: { type: "tool", name: "resolve_live_publish_intent" },
       });
       expect(review.publishGroup).toHaveBeenCalledWith(
         userId,
@@ -279,7 +287,7 @@ describe("DefaultOrchestrationService", () => {
       expect(result.assistantMessage.content).toBe(
         "Published successfully to Threads.",
       );
-      expect(vi.mocked(model.complete).mock.calls[0]?.[0].system).toContain(
+      expect(vi.mocked(model.complete).mock.calls[1]?.[0].system).toContain(
         "image only, no caption, or without caption",
       );
       const storedMessages = await database.db
@@ -290,6 +298,62 @@ describe("DefaultOrchestrationService", () => {
         "Published successfully to Threads.",
       );
       expect(mcp.callTool).not.toHaveBeenCalled();
+    } finally {
+      if (previousEnabled === undefined) delete process.env.PUBLISHING_AUTHORITY_ENABLED;
+      else process.env.PUBLISHING_AUTHORITY_ENABLED = previousEnabled;
+    }
+  });
+
+  it("keeps Full access in review when product intent classification is not explicit", async () => {
+    const previousEnabled = process.env.PUBLISHING_AUTHORITY_ENABLED;
+    process.env.PUBLISHING_AUTHORITY_ENABLED = "true";
+    await updatePublishingPreference(database.db, {
+      userId,
+      expectedRevision: 0,
+      mode: "full_access",
+      source: "settings",
+      currentConsentVersion: "2026-08-01",
+      acknowledged: true,
+      consentVersion: "2026-08-01",
+    });
+    const review = {
+      updateDraft: vi.fn(),
+      publishGroup: vi.fn(),
+      checkAttempt: vi.fn(),
+    } as unknown as ReviewService;
+    service = new DefaultOrchestrationService(
+      database.db,
+      config,
+      model,
+      mcp,
+      new PublishingPreferenceService(database.db),
+      review,
+    );
+    vi.mocked(model.complete)
+      .mockResolvedValueOnce(modelCompletion({
+        toolCalls: [toolCall("intent_1", "resolve_live_publish_intent", {
+          explicitLivePublish: false,
+        })],
+      }))
+      .mockResolvedValueOnce(modelCompletion({
+        toolCalls: [toolCall("call_review_hold", "prepare_review", {
+          variants: [{ platform: "threads", body: "Hold for review", mediaUrls: [] }],
+        })],
+      }))
+      .mockResolvedValueOnce(modelCompletion({ content: "Prepared a review set." }));
+
+    try {
+      const result = await service.createConversation(userId, {
+        message: "Can you put something together for Threads?",
+        requestId: "00000000-0000-4000-8000-000000000098",
+      });
+
+      expect(result.run).toMatchObject({
+        publishingMode: "full_access",
+        explicitLiveIntent: false,
+      });
+      expect(review.publishGroup).not.toHaveBeenCalled();
+      expect(result.assistantMessage.content).toBe("Prepared a review set.");
     } finally {
       if (previousEnabled === undefined) delete process.env.PUBLISHING_AUTHORITY_ENABLED;
       else process.env.PUBLISHING_AUTHORITY_ENABLED = previousEnabled;

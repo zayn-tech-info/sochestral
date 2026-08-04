@@ -7,6 +7,7 @@ import {
   type PublishingAuthoritySource,
   type PublishingMode,
 } from "@sochestral/database";
+import type { ModelProvider, ModelTool } from "./model.js";
 
 export const DEFAULT_PUBLISHING_CONSENT_VERSION = "2026-08-01";
 
@@ -47,18 +48,64 @@ function consentVersionFromEnvironment(): string {
   return process.env.PUBLISHING_CONSENT_VERSION?.trim() || DEFAULT_PUBLISHING_CONSENT_VERSION;
 }
 
-export function hasExplicitLivePublishIntent(message: string): boolean {
-  const value = message.trim().toLowerCase().replace(/\s+/g, " ");
-  if (!value || /\b(?:don't|do not|never|not yet|without publishing|no publish)\b/.test(value)) return false;
-  if (/\b(?:draft|write|preview|validate|check|edit|revise)\b/.test(value)) return false;
-  if (/^(?:can|could|would|should)\b/.test(value) && value.endsWith("?")) return false;
-  return (
-    /\bpublish(?: it| this| that| now)?\b/.test(value) ||
-    /\bpost (?:it|this|that)(?: now)?\b/.test(value) ||
-    /\bshare (?:it|this|that)(?: now)?\b/.test(value) ||
-    /\bsend (?:it|this|that) live\b/.test(value) ||
-    /\bgo live (?:with )?(?:it|this|that)\b/.test(value)
-  );
+export const LIVE_PUBLISH_INTENT_TOOL_NAME = "resolve_live_publish_intent";
+
+export const LIVE_PUBLISH_INTENT_TOOL: ModelTool = {
+  name: LIVE_PUBLISH_INTENT_TOOL_NAME,
+  description:
+    "Decide whether the user message is an explicit instruction to publish content live right now.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      explicitLivePublish: {
+        type: "boolean",
+        description:
+          "True only when the user clearly instructs publishing live now. False for drafts, previews, validation, edits, questions, negation, or ambiguous wording.",
+      },
+    },
+    required: ["explicitLivePublish"],
+    additionalProperties: false,
+  },
+};
+
+export const LIVE_PUBLISH_INTENT_SYSTEM =
+  "You classify whether a user message is an explicit instruction to publish content live right now. " +
+  "Call resolve_live_publish_intent once. Set explicitLivePublish true only for clear affirmative live publish instructions. " +
+  "Set it false for drafts, previews, validation, edits, questions, negation, ambiguous confirmations, or anything that does not clearly authorize going live. " +
+  "Judge only the supplied user message. Do not invent missing context.";
+
+function modeNeedsLiveIntent(mode: PublishingMode): boolean {
+  return mode === "approve_for_me" || mode === "full_access";
+}
+
+export async function resolveExplicitLivePublishIntent(
+  model: ModelProvider,
+  input: { message: string; modelName: string },
+): Promise<boolean> {
+  const message = input.message.trim();
+  if (!message) return false;
+  try {
+    const result = await model.complete({
+      system: LIVE_PUBLISH_INTENT_SYSTEM,
+      messages: [{ role: "user", content: [{ type: "text", text: message }] }],
+      tools: [LIVE_PUBLISH_INTENT_TOOL],
+      toolChoice: { type: "tool", name: LIVE_PUBLISH_INTENT_TOOL_NAME },
+      model: input.modelName,
+      maxTokens: 64,
+    });
+    const call = result.toolCalls.find(
+      (toolCall) => toolCall.name === LIVE_PUBLISH_INTENT_TOOL_NAME,
+    );
+    if (!call || typeof call.input !== "object" || call.input === null) {
+      return false;
+    }
+    return (
+      (call.input as { explicitLivePublish?: unknown }).explicitLivePublish ===
+      true
+    );
+  } catch {
+    return false;
+  }
 }
 
 export class PublishingPreferenceService {
@@ -129,13 +176,21 @@ export class PublishingPreferenceService {
     return this.get(userId);
   }
 
-  async snapshot(userId: string, message: string): Promise<PublishingAuthoritySnapshot> {
+  async snapshot(
+    userId: string,
+    message: string,
+    resolveIntent?: (message: string) => Promise<boolean>,
+  ): Promise<PublishingAuthoritySnapshot> {
     const preference = await this.get(userId);
+    const explicitLiveIntent =
+      modeNeedsLiveIntent(preference.effectiveMode) && resolveIntent
+        ? await resolveIntent(message)
+        : false;
     return {
       mode: preference.effectiveMode,
       consentVersion: preference.effectiveMode === "full_access" ? preference.consentVersion : null,
       authorityEventId: preference.authorityEventId,
-      explicitLiveIntent: hasExplicitLivePublishIntent(message),
+      explicitLiveIntent,
     };
   }
 }
