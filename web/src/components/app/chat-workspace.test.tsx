@@ -221,6 +221,18 @@ describe("ChatWorkspace", () => {
     expect(mocks.workspace.loadConversation).toHaveBeenCalledWith("conv_1", true);
   });
 
+  it("renders a conversation detail that omits turnActivities", () => {
+    const incomplete = detail() as ConversationDetail & {
+      turnActivities?: ConversationDetail["turnActivities"];
+    };
+    delete incomplete.turnActivities;
+    mocks.workspace.details = { conv_1: incomplete };
+    render(<ChatWorkspace conversationId="conv_1" />);
+
+    expect(screen.getByText("Check this post")).toBeInTheDocument();
+    expect(screen.getByText("preview").tagName).toBe("STRONG");
+  });
+
   it("keeps persisted tool activity collapsed until requested (AC 3)", async () => {
     const user = userEvent.setup();
     mocks.workspace.details = {
