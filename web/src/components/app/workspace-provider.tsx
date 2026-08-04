@@ -24,6 +24,7 @@ type RetryItem = {
   message: string;
   requestId: string;
   useSameRequestId: boolean;
+  mediaAssetIds: string[];
 };
 
 type WorkspaceValue = {
@@ -42,6 +43,7 @@ type WorkspaceValue = {
     conversationId: string | null,
     message: string,
     retry?: RetryItem,
+    mediaAssetIds?: string[],
   ) => Promise<string | null>;
   deleteConversation: (id: string) => Promise<void>;
 };
@@ -141,6 +143,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               [id]: {
                 ...result,
                 messages: [...result.messages, ...current[id].messages],
+                turnActivities: [
+                  ...result.turnActivities,
+                  ...current[id].turnActivities.filter(
+                    (activity) =>
+                      !result.turnActivities.some(
+                        (incoming) =>
+                          incoming.assistantMessageId === activity.assistantMessageId,
+                      ),
+                  ),
+                ],
               },
             };
           }
@@ -165,6 +177,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       conversationId: string | null,
       message: string,
       retry?: RetryItem,
+      mediaAssetIds: string[] = [],
     ) => {
       const key = conversationId ?? "new";
       const requestId =
@@ -176,13 +189,18 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setRetries((current) => ({ ...current, [key]: null }));
 
       try {
+        const effectiveMediaAssetIds = retry?.mediaAssetIds ?? mediaAssetIds;
         const result = await apiRequest<TurnResponse>(
           conversationId
             ? `/orchestration/conversations/${conversationId}/messages`
             : "/orchestration/conversations",
           {
             method: "POST",
-            body: JSON.stringify({ message, requestId }),
+            body: JSON.stringify({
+              message,
+              requestId,
+              ...(effectiveMediaAssetIds.length > 0 ? { mediaAssetIds: effectiveMediaAssetIds } : {}),
+            }),
           },
         );
         setDetails((current) => {
@@ -205,6 +223,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               ...result.toolSummaries,
               ...(current[result.conversation.id]?.toolSummaries ?? []),
             ],
+            reviewGroups: result.reviewGroups,
+            turnActivities: result.turnActivity
+              ? [
+                  result.turnActivity,
+                  ...(current[result.conversation.id]?.turnActivities ?? []).filter(
+                    (activity) =>
+                      activity.assistantMessageId !==
+                      result.turnActivity?.assistantMessageId,
+                  ),
+                ]
+              : current[result.conversation.id]?.turnActivities ?? [],
             nextCursor:
               current[result.conversation.id]?.nextCursor ?? null,
           },
@@ -234,6 +263,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             message,
             requestId,
             useSameRequestId: uncertain,
+            mediaAssetIds: retry?.mediaAssetIds ?? mediaAssetIds,
           },
         }));
         return null;

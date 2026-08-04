@@ -5,6 +5,12 @@ import { requireDatabaseUrl, requireTestDatabaseUrl } from "./env.js";
 import { insertDraft, listDraftsByUserId } from "./drafts.js";
 import { drafts, users } from "./schema.js";
 import { deleteUser, provisionUser } from "./users.js";
+import {
+  expirePublishingConsent,
+  getPublishingPreference,
+  PublishingDatabaseError,
+  updatePublishingPreference,
+} from "./publishing.js";
 import { sql } from "drizzle-orm";
 
 describe("product database", () => {
@@ -148,6 +154,63 @@ describe("product database", () => {
     const remainingDrafts = await database.db.select().from(drafts);
     expect(remainingUsers).toHaveLength(0);
     expect(remainingDrafts).toHaveLength(0);
+  });
+
+  it("defaults publishing authority and enforces revisioned Full access consent", async () => {
+    const user = await provisionUser(database.db, "authority@example.com");
+    expect(await getPublishingPreference(database.db, user.id)).toMatchObject({
+      mode: "always_draft",
+      revision: 0,
+      consentVersion: null,
+    });
+
+    await expect(
+      updatePublishingPreference(database.db, {
+        userId: user.id,
+        expectedRevision: 0,
+        mode: "full_access",
+        source: "settings",
+        currentConsentVersion: "policy-1",
+        acknowledged: false,
+        consentVersion: "policy-1",
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_CONSENT" } satisfies Partial<PublishingDatabaseError>);
+
+    const approved = await updatePublishingPreference(database.db, {
+      userId: user.id,
+      expectedRevision: 0,
+      mode: "full_access",
+      source: "settings",
+      currentConsentVersion: "policy-1",
+      acknowledged: true,
+      consentVersion: "policy-1",
+    });
+    expect(approved).toMatchObject({
+      mode: "full_access",
+      revision: 1,
+      consentVersion: "policy-1",
+    });
+    expect(approved.authorityEventId).toMatch(/^authority_/);
+
+    await expect(
+      updatePublishingPreference(database.db, {
+        userId: user.id,
+        expectedRevision: 0,
+        mode: "always_draft",
+        source: "composer",
+        currentConsentVersion: "policy-1",
+        acknowledged: false,
+        consentVersion: null,
+      }),
+    ).rejects.toMatchObject({ code: "PREFERENCE_STALE" } satisfies Partial<PublishingDatabaseError>);
+
+    const expired = await expirePublishingConsent(database.db, user.id, "policy-2");
+    expect(expired).toMatchObject({
+      mode: "always_draft",
+      revision: 2,
+      consentVersion: null,
+    });
+    expect(expired.authorityEventId).toMatch(/^authority_/);
   });
 
   it("schema exports users, drafts, and sessions tables (AC-6 product only)", async () => {

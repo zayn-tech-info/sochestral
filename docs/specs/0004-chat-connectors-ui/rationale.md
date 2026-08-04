@@ -62,3 +62,23 @@ The chat shell is intentionally limited to current orchestration authority. It c
 The visual redesign fixes the existing product surfaces in place because their behavior and API boundaries are already correct. A replacement shell or parallel route would add migration work without reducing risk. The compact left navigation, centered conversation area, and Settings only connector state remove duplicated information while preserving the proven path.
 
 The first light redesign left most state changes as instant CSS swaps and set several Motion entrances to `initial={false}`. A shared restrained motion system fixes that gap without introducing decorative movement. Central timing and reduced motion behavior are easier to keep consistent than unrelated animation values inside each component.
+
+Assistant responses should reveal real model progress instead of waiting for the full turn or replaying a completed answer with a fake typewriter timer. Real ordered streaming reduces perceived latency and matches the conversational behavior users expect while preserving the existing orchestration policy boundary. The browser receives projected text and safe tool state only. It never receives provider internals, hidden reasoning, or raw tool input.
+
+The interface keeps one temporary assistant response during delivery and replaces it with the canonical persisted turn at completion. Rendering updates are batched to animation frames so small provider fragments read smoothly without unnecessary React churn. Scroll follows new text only when the reader is already near the bottom. This makes the response feel continuous without taking control away from someone reading earlier messages. Reduced motion removes movement effects, not progressive content.
+
+Conversation wide activity is misleading because a later message can appear to own tools or a review created by an earlier request. The transcript therefore renders from the backend request scoped activity projection. Assistant message ids are stable across refresh and pagination, so they are a safer placement key than array position or timestamps. Empty activity is omitted rather than represented by a placeholder.
+
+## Migration plan
+
+**Strategy**: Add the request scoped activity projection before changing transcript placement.
+
+**Phases**:
+
+1. Add and test the backend `turnActivities` contract while retaining the flat compatibility fields.
+2. Switch transcript rendering and pagination merge logic to assistant message keyed activity.
+3. Remove the conversation footer rendering for tool activity and review launchers.
+
+**Rollback**: Restore the web client to the flat compatibility fields while leaving the additive backend projection in place.
+
+**Risks**: Incorrect page merging could duplicate or move activity. Contract and pagination tests must prove that assistant message ids remain the only placement key.

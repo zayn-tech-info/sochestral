@@ -22,6 +22,34 @@
       "when": 1785006686403,
       "tag": "0002_gifted_the_watchers",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785599281363,
+      "tag": "0003_furry_blackheart",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785619637991,
+      "tag": "0004_absent_quentin_quire",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785623407448,
+      "tag": "0005_heavy_ted_forrester",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785624110784,
+      "tag": "0006_mighty_jetstream",
+      "breakpoints": true
     }
   ]
 }

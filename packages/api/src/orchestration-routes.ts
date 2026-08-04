@@ -52,6 +52,13 @@ export function registerOrchestrationRoutes(
         message: typeof input?.message === "string" ? input.message : "",
         requestId:
           typeof input?.requestId === "string" ? input.requestId : "",
+        ...(Array.isArray(input?.mediaAssetIds)
+          ? {
+              mediaAssetIds: input.mediaAssetIds.filter(
+                (value: unknown): value is string => typeof value === "string",
+              ),
+            }
+          : {}),
       });
       return c.json(result, 200);
     } catch (error) {
@@ -88,6 +95,13 @@ export function registerOrchestrationRoutes(
           message: typeof input?.message === "string" ? input.message : "",
           requestId:
             typeof input?.requestId === "string" ? input.requestId : "",
+          ...(Array.isArray(input?.mediaAssetIds)
+            ? {
+                mediaAssetIds: input.mediaAssetIds.filter(
+                  (value: unknown): value is string => typeof value === "string",
+                ),
+              }
+            : {}),
         },
       );
       return c.json(result, 200);

@@ -133,6 +133,61 @@ describe("orchestration database", () => {
     ).rejects.toMatchObject({ code: "RUN_IN_PROGRESS" });
   });
 
+  it("recovers an interrupted stale run before appending a retry", async () => {
+    const turn = await createConversationTurn(database.db, {
+      userId: ownerId,
+      requestId: "10000000-0000-4000-8000-000000000040",
+      content: "Publish this image on Threads",
+      title: "Publish this image on Threads",
+      provider: "thesean",
+      model: "contract-model",
+      targetPlatforms: ["threads"],
+    });
+    const staleCreatedAt = new Date(Date.now() - 120_000);
+    await database.db
+      .update(orchestrationRuns)
+      .set({ createdAt: staleCreatedAt })
+      .where(eq(orchestrationRuns.id, turn.run!.id));
+
+    const retry = await appendConversationTurn(
+      database.db,
+      turn.conversation.id,
+      {
+        userId: ownerId,
+        requestId: "10000000-0000-4000-8000-000000000041",
+        content: "Try publishing it again",
+        provider: "thesean",
+        model: "contract-model",
+        targetPlatforms: ["threads"],
+        staleRunBefore: new Date(Date.now() - 60_000),
+      },
+    );
+
+    const runs = await listConversationRuns(
+      database.db,
+      turn.conversation.id,
+    );
+    expect(runs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: turn.run!.id,
+          status: "failed",
+          safeError: "RUN_INTERRUPTED",
+        }),
+        expect.objectContaining({ id: retry.run!.id, status: "running" }),
+      ]),
+    );
+    const messages = await listAllConversationMessages(
+      database.db,
+      turn.conversation.id,
+    );
+    expect(messages.map((message) => message.content)).toEqual([
+      "Publish this image on Threads",
+      "The previous request was interrupted before it finished. You can retry safely.",
+      "Try publishing it again",
+    ]);
+  });
+
   it("enforces the rolling run limit inside the create transaction (AC-8)", async () => {
     await createConversationTurn(database.db, {
       userId: ownerId,

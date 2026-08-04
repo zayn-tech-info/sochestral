@@ -37,14 +37,14 @@ Treat the following as shipped in the external SocialMCP repo. This SaaS scope o
 | 2 | Auth / session and MCP JWT issuance | Foundation | done |
 | 3 | Orchestration backend skeleton | Slice 1 | done |
 | 4 | Sochestral chat workspace and connectors UI | Slice 1 | in-progress |
-| 5 | Review mode publish loop | Slice 1 | planned |
+| 5 | Review mode publish loop | Slice 1 | in-progress |
 | 6 | Subscription tier model | Slice 2 | planned |
 | 7 | Setup agent and business profile | Slice 2 | planned |
 | 8 | WhatsApp channel for agent chat | Slice 2 | planned |
 | 9 | Telegram channel for agent chat | Slice 2 | planned |
 | 10 | Web product UI | Slice 2 | planned |
 | 11 | Structured memory and correction loop | Slice 3 | planned |
-| 12 | Autonomous mode and trust threshold | Slice 3 | planned |
+| 12 | Configurable publishing authority and image uploads | Slice 3 | in-progress |
 | — | Operator comment/mention handling | Deferred | planned |
 | — | Video and image generation pipeline | Deferred | planned |
 | — | Facebook Pages (after MCP adapter exists) | Deferred | planned |
@@ -121,11 +121,20 @@ First authenticated product experience with a quiet light chat workspace and Set
 - [ ] Verify it: `/check verify Sochestral chat workspace and connectors UI`
 - [x] Test it: `/test Sochestral chat workspace and connectors UI`
 
-### 5. Review mode publish loop · medium
+### 5. Review mode publish loop · medium · in-progress
 
 Default for new users: agent generates a draft in the product, user approves or edits, then publish runs through SocialMCP. No silent auto publish in this slice.
 **Done when:** a tenant user can approve a draft and publish to Threads, LinkedIn, and Instagram in one flow via MCP; publish results (or clear failures) appear in the product UI.
-- [ ] Design it (spec): `/architect review mode publish loop`
+**Spec:** [0005](../specs/0005-review-mode-publish-loop/index.md)
+**Code:** `packages/database/src/review.ts`, `packages/orchestration/src/review.ts`, `packages/api/src/review-routes.ts`, `web/src/components/app/review-group.tsx`; SocialMCP `apps/mcp-server/src/tools/service.ts`
+- [x] Design it (spec): `/architect review mode publish loop`
+- [x] Build it: `/develop review mode publish loop`
+  - [x] Migrate product review drafts and immutable publish attempts
+  - [x] Prove the Threads prepare, edit, approve, publish, and restore path
+  - [x] Add SocialMCP idempotency, replay, unknown recovery, and rate safety
+  - [x] Widen grouped execution and modal review UI to all three platforms
+- [ ] Verify it: `/check verify review mode publish loop`
+- [ ] Test it: `/test review mode publish loop`
 
 ## Slice 2: Onboarding, channels, and tiers
 
@@ -169,11 +178,21 @@ User corrections become discrete rules in categorized product storage. Every gen
 **Done when:** a correction in chat or web updates stored rules in Postgres; the next draft reflects it; conflicting rules resolve with newer wins; rules do not live only in raw chat logs.
 - [ ] Design it (spec): `/architect structured memory and correction loop`
 
-### 12. Autonomous mode and trust threshold · medium
+### 12. Configurable publishing authority and image uploads · medium · in-progress
 
-Review mode remains default. Users unlock autonomous publish after a trust threshold (progress toward 100%). User is notified and can opt in or stay in review mode.
-**Done when:** trust score increases from successful reviewed publishes; at threshold the user gets an explicit opt-in prompt; autonomous mode respects tier gates and memory rules, and still publishes only through validated SocialMCP tool calls.
-- [ ] Design it (spec): `/architect autonomous mode and trust threshold`
+Users choose Always draft, Approve for me, or Full access across conversations. Every automatic live post still requires explicit live wording and trusted review preflight. Private image uploads flow through chat, review, model vision, and SocialMCP without exposing storage keys.
+**Done when:** publishing preferences are versioned and auditable; Full access requires explicit consent; authority is snapshotted per run; owned sanitized images can be attached and published; and a feature flag forces Always draft until R2, SocialMCP `connectedAt`, and live smoke checks are complete.
+**Spec:** [0006](../specs/0006-publishing-authority-images/index.md)
+**Code:** `packages/database`, `packages/orchestration`, `packages/api`, `web/src/components/app`; SocialMCP connector contract
+- [x] Design it (spec): `/architect configurable publishing authority and image uploads`
+- [ ] Build it: `/develop configurable publishing authority and image uploads`
+  - [x] Persist preferences, consent, audit events, authority snapshots, and normalized media
+  - [x] Add guarded preference and private image upload APIs
+  - [x] Route explicit automatic publishing through trusted review services
+  - [x] Add composer, Settings, image, and review media UI
+  - [ ] Complete storage, vision, contract, and rollout checks
+- [ ] Verify it: `/check verify configurable publishing authority and image uploads`
+- [ ] Test it: `/test configurable publishing authority and image uploads`
 
 ## Deferred
 

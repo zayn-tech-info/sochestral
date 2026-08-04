@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   index,
   integer,
@@ -38,6 +39,109 @@ export const sessions = pgTable(
   (table) => [index("sessions_user_id_idx").on(table.userId)],
 );
 
+export const publishingPreferences = pgTable("publishing_preferences", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  mode: text("mode").notNull().default("always_draft"),
+  revision: integer("revision").notNull().default(1),
+  fullAccessConsentVersion: text("full_access_consent_version"),
+  fullAccessConsentedAt: timestamp("full_access_consented_at", {
+    withTimezone: true,
+  }),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+}, (table) => [
+  check(
+    "publishing_preferences_mode_check",
+    sql`${table.mode} in ('always_draft', 'approve_for_me', 'full_access')`,
+  ),
+  check("publishing_preferences_revision_check", sql`${table.revision} > 0`),
+]);
+
+export const publishingAuthorityEvents = pgTable(
+  "publishing_authority_events",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    previousMode: text("previous_mode").notNull(),
+    nextMode: text("next_mode").notNull(),
+    source: text("source").notNull(),
+    eventKind: text("event_kind").notNull().default("preference_changed"),
+    consentVersion: text("consent_version"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("publishing_authority_events_user_created_idx").on(
+      table.userId,
+      table.createdAt,
+    ),
+    check(
+      "publishing_authority_events_modes_check",
+      sql`${table.previousMode} in ('always_draft', 'approve_for_me', 'full_access') and ${table.nextMode} in ('always_draft', 'approve_for_me', 'full_access')`,
+    ),
+    check(
+      "publishing_authority_events_source_check",
+      sql`${table.source} in ('composer', 'settings', 'system')`,
+    ),
+    check(
+      "publishing_authority_events_kind_check",
+      sql`${table.eventKind} in ('preference_changed', 'consent_expired')`,
+    ),
+  ],
+);
+
+export const mediaAssets = pgTable(
+  "media_assets",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id").references(
+      () => orchestrationConversations.id,
+      { onDelete: "cascade" },
+    ),
+    storageKey: text("storage_key").notNull().unique(),
+    state: text("state").notNull().default("pending"),
+    mimeType: text("mime_type"),
+    byteSize: integer("byte_size"),
+    width: integer("width"),
+    height: integer("height"),
+    pendingExpiresAt: timestamp("pending_expires_at", {
+      withTimezone: true,
+    }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("media_assets_user_created_idx").on(table.userId, table.createdAt),
+    index("media_assets_conversation_idx").on(table.conversationId),
+    index("media_assets_pending_expiry_idx").on(table.state, table.pendingExpiresAt),
+    check(
+      "media_assets_state_check",
+      sql`${table.state} in ('pending', 'ready', 'deleting', 'deleted')`,
+    ),
+    check(
+      "media_assets_dimensions_check",
+      sql`(${table.width} is null and ${table.height} is null) or (${table.width} > 0 and ${table.height} > 0)`,
+    ),
+    check(
+      "media_assets_size_check",
+      sql`${table.byteSize} is null or ${table.byteSize} > 0`,
+    ),
+  ],
+);
+
 export const drafts = pgTable(
   "drafts",
   {
@@ -45,9 +149,28 @@ export const drafts = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id").references(
+      () => orchestrationConversations.id,
+      { onDelete: "cascade" },
+    ),
+    reviewGroupId: text("review_group_id"),
     platform: text("platform").notNull(),
     body: text("body").notNull(),
-    mediaUrls: text("media_urls").array(),
+    mediaUrls: text("media_urls")
+      .array()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
+    selectedAccountId: text("selected_account_id"),
+    revision: integer("revision").notNull().default(1),
+    validationErrors: jsonb("validation_errors")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    validationWarnings: jsonb("validation_warnings")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    validatedRevision: integer("validated_revision"),
     status: text("status").notNull().default("draft"),
     lastError: text("last_error"),
     mcpPostId: text("mcp_post_id"),
@@ -61,13 +184,85 @@ export const drafts = pgTable(
   (table) => [
     index("drafts_user_id_idx").on(table.userId),
     index("drafts_user_id_status_idx").on(table.userId, table.status),
+    index("drafts_conversation_id_idx").on(table.conversationId),
+    index("drafts_review_group_id_idx").on(table.reviewGroupId),
+    uniqueIndex("drafts_review_group_platform_unique")
+      .on(table.reviewGroupId, table.platform)
+      .where(sql`${table.reviewGroupId} is not null`),
     check(
       "drafts_platform_check",
-      sql`${table.platform} in ('threads', 'linkedin', 'instagram')`,
+      sql`${table.platform} in ('threads', 'linkedin', 'linkedin_personal', 'instagram')`,
     ),
     check(
       "drafts_status_check",
-      sql`${table.status} in ('draft', 'approved', 'publish_requested', 'published', 'failed')`,
+      sql`${table.status} in ('draft', 'approved', 'publish_requested', 'published', 'failed', 'unknown')`,
+    ),
+    check("drafts_revision_check", sql`${table.revision} > 0`),
+  ],
+);
+
+export const draftPublishAttempts = pgTable(
+  "draft_publish_attempts",
+  {
+    id: text("id").primaryKey(),
+    draftId: text("draft_id")
+      .notNull()
+      .references(() => drafts.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    approvalRequestId: text("approval_request_id").notNull(),
+    idempotencyKey: text("idempotency_key").notNull().unique(),
+    platform: text("platform").notNull(),
+    body: text("body").notNull(),
+    mediaUrls: text("media_urls")
+      .array()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
+    selectedAccountId: text("selected_account_id").notNull(),
+    revision: integer("revision").notNull(),
+    authorizationKind: text("authorization_kind").notNull().default("manual"),
+    triggeringMessageId: text("triggering_message_id").references(
+      () => orchestrationMessages.id,
+      { onDelete: "set null" },
+    ),
+    consentVersion: text("consent_version"),
+    status: text("status").notNull().default("publishing"),
+    safeErrorCode: text("safe_error_code"),
+    safeErrorMessage: text("safe_error_message"),
+    mcpPostId: text("mcp_post_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("draft_publish_attempts_draft_created_idx").on(
+      table.draftId,
+      table.createdAt,
+    ),
+    index("draft_publish_attempts_user_created_idx").on(
+      table.userId,
+      table.createdAt,
+    ),
+    uniqueIndex("draft_publish_attempts_one_active_draft_unique")
+      .on(table.draftId)
+      .where(sql`${table.status} = 'publishing'`),
+    check(
+      "draft_publish_attempts_platform_check",
+      sql`${table.platform} in ('threads', 'linkedin_personal', 'instagram')`,
+    ),
+    check(
+      "draft_publish_attempts_status_check",
+      sql`${table.status} in ('publishing', 'succeeded', 'failed', 'unknown')`,
+    ),
+    check("draft_publish_attempts_revision_check", sql`${table.revision} > 0`),
+    check(
+      "draft_publish_attempts_authorization_check",
+      sql`${table.authorizationKind} in ('manual', 'approve_for_me', 'full_access')`,
     ),
   ],
 );
@@ -132,6 +327,31 @@ export const orchestrationMessages = pgTable(
   ],
 );
 
+export const orchestrationMessageMedia = pgTable(
+  "orchestration_message_media",
+  {
+    messageId: text("message_id")
+      .notNull()
+      .references(() => orchestrationMessages.id, { onDelete: "cascade" }),
+    assetId: text("asset_id")
+      .notNull()
+      .references(() => mediaAssets.id, { onDelete: "restrict" }),
+    position: integer("position").notNull(),
+  },
+  (table) => [
+    uniqueIndex("orchestration_message_media_message_position_unique").on(
+      table.messageId,
+      table.position,
+    ),
+    uniqueIndex("orchestration_message_media_message_asset_unique").on(
+      table.messageId,
+      table.assetId,
+    ),
+    index("orchestration_message_media_asset_idx").on(table.assetId),
+    check("orchestration_message_media_position_check", sql`${table.position} >= 0`),
+  ],
+);
+
 export const orchestrationRuns = pgTable(
   "orchestration_runs",
   {
@@ -148,6 +368,13 @@ export const orchestrationRuns = pgTable(
     provider: text("provider").notNull(),
     model: text("model").notNull(),
     targetPlatforms: text("target_platforms").array().notNull(),
+    publishingMode: text("publishing_mode").notNull().default("always_draft"),
+    publishingConsentVersion: text("publishing_consent_version"),
+    publishingAuthorityEventId: text("publishing_authority_event_id").references(
+      () => publishingAuthorityEvents.id,
+      { onDelete: "set null" },
+    ),
+    explicitLiveIntent: boolean("explicit_live_intent").notNull().default(false),
     modelStepCount: integer("model_step_count").notNull().default(0),
     providerAttemptCount: integer("provider_attempt_count").notNull().default(0),
     inputTokens: integer("input_tokens"),
@@ -178,6 +405,62 @@ export const orchestrationRuns = pgTable(
     check(
       "orchestration_runs_provider_attempt_count_check",
       sql`${table.providerAttemptCount} >= 0`,
+    ),
+    check(
+      "orchestration_runs_publishing_mode_check",
+      sql`${table.publishingMode} in ('always_draft', 'approve_for_me', 'full_access')`,
+    ),
+  ],
+);
+
+export const draftMedia = pgTable(
+  "draft_media",
+  {
+    draftId: text("draft_id")
+      .notNull()
+      .references(() => drafts.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    assetId: text("asset_id").references(() => mediaAssets.id, {
+      onDelete: "restrict",
+    }),
+    externalUrl: text("external_url"),
+  },
+  (table) => [
+    uniqueIndex("draft_media_draft_position_unique").on(
+      table.draftId,
+      table.position,
+    ),
+    index("draft_media_asset_idx").on(table.assetId),
+    check("draft_media_position_check", sql`${table.position} >= 0`),
+    check(
+      "draft_media_one_source_check",
+      sql`(${table.assetId} is not null) <> (${table.externalUrl} is not null)`,
+    ),
+  ],
+);
+
+export const draftPublishAttemptMedia = pgTable(
+  "draft_publish_attempt_media",
+  {
+    attemptId: text("attempt_id")
+      .notNull()
+      .references(() => draftPublishAttempts.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    assetId: text("asset_id").references(() => mediaAssets.id, {
+      onDelete: "restrict",
+    }),
+    externalUrl: text("external_url"),
+  },
+  (table) => [
+    uniqueIndex("draft_publish_attempt_media_position_unique").on(
+      table.attemptId,
+      table.position,
+    ),
+    index("draft_publish_attempt_media_asset_idx").on(table.assetId),
+    check("draft_publish_attempt_media_position_check", sql`${table.position} >= 0`),
+    check(
+      "draft_publish_attempt_media_one_source_check",
+      sql`(${table.assetId} is not null) <> (${table.externalUrl} is not null)`,
     ),
   ],
 );
@@ -213,7 +496,7 @@ export const orchestrationToolCalls = pgTable(
     ),
     check(
       "orchestration_tool_calls_name_check",
-      sql`${table.toolName} in ('list_connected_accounts', 'validate_post', 'publish_now')`,
+      sql`${table.toolName} in ('list_connected_accounts', 'validate_post', 'publish_now', 'prepare_review')`,
     ),
     check(
       "orchestration_tool_calls_status_check",
@@ -228,6 +511,10 @@ export const orchestrationToolCalls = pgTable(
 
 export const usersRelations = relations(users, ({ many }) => ({
   orchestrationConversations: many(orchestrationConversations),
+  drafts: many(drafts),
+  draftPublishAttempts: many(draftPublishAttempts),
+  publishingAuthorityEvents: many(publishingAuthorityEvents),
+  mediaAssets: many(mediaAssets),
 }));
 
 export const orchestrationConversationsRelations = relations(
@@ -239,6 +526,30 @@ export const orchestrationConversationsRelations = relations(
     }),
     messages: many(orchestrationMessages),
     runs: many(orchestrationRuns),
+    drafts: many(drafts),
+  }),
+);
+
+export const draftsRelations = relations(drafts, ({ one, many }) => ({
+  user: one(users, { fields: [drafts.userId], references: [users.id] }),
+  conversation: one(orchestrationConversations, {
+    fields: [drafts.conversationId],
+    references: [orchestrationConversations.id],
+  }),
+  attempts: many(draftPublishAttempts),
+}));
+
+export const draftPublishAttemptsRelations = relations(
+  draftPublishAttempts,
+  ({ one }) => ({
+    draft: one(drafts, {
+      fields: [draftPublishAttempts.draftId],
+      references: [drafts.id],
+    }),
+    user: one(users, {
+      fields: [draftPublishAttempts.userId],
+      references: [users.id],
+    }),
   }),
 );
 
@@ -280,6 +591,10 @@ export const orchestrationToolCallsRelations = relations(
 export type User = typeof users.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
 export type Draft = typeof drafts.$inferSelect;
+export type DraftPublishAttempt = typeof draftPublishAttempts.$inferSelect;
+export type PublishingPreference = typeof publishingPreferences.$inferSelect;
+export type PublishingAuthorityEvent = typeof publishingAuthorityEvents.$inferSelect;
+export type MediaAsset = typeof mediaAssets.$inferSelect;
 export type OrchestrationConversation =
   typeof orchestrationConversations.$inferSelect;
 export type OrchestrationMessage = typeof orchestrationMessages.$inferSelect;
@@ -288,6 +603,7 @@ export type OrchestrationToolCall = typeof orchestrationToolCalls.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type NewSession = typeof sessions.$inferInsert;
 export type NewDraft = typeof drafts.$inferInsert;
+export type NewDraftPublishAttempt = typeof draftPublishAttempts.$inferInsert;
 export type NewOrchestrationConversation =
   typeof orchestrationConversations.$inferInsert;
 export type NewOrchestrationMessage =
@@ -296,10 +612,22 @@ export type NewOrchestrationRun = typeof orchestrationRuns.$inferInsert;
 export type NewOrchestrationToolCall =
   typeof orchestrationToolCalls.$inferInsert;
 
-export type DraftPlatform = "threads" | "linkedin" | "instagram";
+export type DraftPlatform =
+  | "threads"
+  | "linkedin"
+  | "linkedin_personal"
+  | "instagram";
 export type DraftStatus =
   | "draft"
   | "approved"
   | "publish_requested"
   | "published"
-  | "failed";
+  | "failed"
+  | "unknown";
+export type DraftPublishAttemptStatus =
+  | "publishing"
+  | "succeeded"
+  | "failed"
+  | "unknown";
+export type PublishingMode = "always_draft" | "approve_for_me" | "full_access";
+export type PublishingAuthoritySource = "composer" | "settings" | "system";

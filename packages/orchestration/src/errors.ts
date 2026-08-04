@@ -9,6 +9,7 @@ export class OrchestrationError extends Error {
       | "INVALID_TOOL_ARGUMENTS"
       | "DAILY_RUN_LIMIT"
       | "SOCIALMCP_UNAVAILABLE"
+      | "MEDIA_STORAGE_UNAVAILABLE"
       | "MODEL_UNAVAILABLE"
       | "INTERNAL_ERROR",
     readonly status: 401 | 404 | 409 | 422 | 429 | 500 | 502 | 503,

@@ -10,6 +10,22 @@ export function createDraftId(): string {
   return `draft_${nanoid(ID_LENGTH)}`;
 }
 
+export function createReviewGroupId(): string {
+  return `review_${nanoid(ID_LENGTH)}`;
+}
+
+export function createDraftPublishAttemptId(): string {
+  return `attempt_${nanoid(ID_LENGTH)}`;
+}
+
+export function createPublishingAuthorityEventId(): string {
+  return `authority_${nanoid(ID_LENGTH)}`;
+}
+
+export function createMediaAssetId(): string {
+  return `media_${nanoid(ID_LENGTH)}`;
+}
+
 export function createConversationId(): string {
   return `conv_${nanoid(ID_LENGTH)}`;
 }

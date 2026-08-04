@@ -8,13 +8,16 @@ import {
 } from "./tools.js";
 
 describe("orchestration tools", () => {
-  it("exposes only the three approved tools (AC-3, AC-10)", () => {
+  it("keeps three SocialMCP tools and adds one product local review tool", () => {
     expect(ALLOWED_TOOL_NAMES).toEqual([
       "list_connected_accounts",
       "validate_post",
       "publish_now",
     ]);
-    expect(MODEL_TOOLS.map((tool) => tool.name)).toEqual(ALLOWED_TOOL_NAMES);
+    expect(MODEL_TOOLS.map((tool) => tool.name)).toEqual([
+      "prepare_review",
+      ...ALLOWED_TOOL_NAMES,
+    ]);
   });
 
   it("rejects unknown tools before execution (AC-3)", () => {
@@ -54,6 +57,27 @@ describe("orchestration tools", () => {
 
     expect(result.input).toMatchObject({ dryRun: true });
     expect(result.input).not.toHaveProperty("confirm");
+    expect(result.input).not.toHaveProperty("idempotencyKey");
+  });
+
+  it("accepts prepare_review only for the explicit requested platforms", () => {
+    const result = validateToolInput(
+      "prepare_review",
+      {
+        variants: [
+          { platform: "threads", body: "Launch", mediaUrls: [] },
+        ],
+      },
+      ["threads"],
+    );
+    expect(result.name).toBe("prepare_review");
+    expect(() =>
+      validateToolInput(
+        "prepare_review",
+        { variants: [{ platform: "instagram", body: "Launch", mediaUrls: [] }] },
+        ["threads"],
+      ),
+    ).toThrowError(expect.objectContaining({ code: "INVALID_TOOL_ARGUMENTS" }));
   });
 
   it("projects connected accounts without private identifiers (AC-6, AC-9)", () => {

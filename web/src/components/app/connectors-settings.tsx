@@ -21,6 +21,7 @@ import {
 } from "@/lib/product-api";
 import { AppShell } from "./app-shell";
 import { productMotion } from "./product-motion-provider";
+import { PublishingModeControl } from "./publishing-mode-control";
 
 const labels: Record<ConnectorPlatform, string> = {
   threads: "Threads",
@@ -136,6 +137,14 @@ export function ConnectorsSettings() {
         className="settings-content"
         aria-labelledby="available-socials-title"
       >
+        <section className="publishing-settings" aria-labelledby="publishing-mode-title">
+          <div>
+            <p className="settings-kicker">Publishing</p>
+            <h2 id="publishing-mode-title">Choose how review works</h2>
+            <p>The setting applies to every conversation. Live wording is still required in every mode.</p>
+          </div>
+          <PublishingModeControl source="settings" />
+        </section>
         <AnimatePresence initial={false}>
           {banner ? (
             <motion.div

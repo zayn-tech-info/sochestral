@@ -2,13 +2,17 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { eq } from "drizzle-orm";
 import {
   appendConversationTurn,
+  createPendingMediaAssets,
   createConversationTurn,
   createDb,
+  drafts,
   orchestrationMessages,
   orchestrationRuns,
   orchestrationToolCalls,
+  markMediaAssetReady,
   provisionUser,
   requireTestDatabaseUrl,
+  updatePublishingPreference,
   type Database,
 } from "@sochestral/database";
 import type { OrchestrationConfig } from "./config.js";
@@ -16,6 +20,8 @@ import { OrchestrationError } from "./errors.js";
 import type { SocialMcpGateway } from "./mcp.js";
 import type { ModelProvider } from "./model.js";
 import { DefaultOrchestrationService } from "./service.js";
+import { PublishingPreferenceService } from "./publishing.js";
+import type { ReviewService } from "./review.js";
 
 const config: OrchestrationConfig = {
   theseanApiKey: "unused",
@@ -158,6 +164,332 @@ describe("DefaultOrchestrationService", () => {
       "Please name Threads, LinkedIn, Instagram",
     );
     expect(model.complete).not.toHaveBeenCalled();
+    expect(mcp.callTool).not.toHaveBeenCalled();
+  });
+
+  it("persists prepare_review locally without calling SocialMCP live execution", async () => {
+    vi.mocked(model.complete)
+      .mockResolvedValueOnce(
+        modelCompletion({
+          toolCalls: [
+            toolCall("call_review", "prepare_review", {
+              variants: [
+                { platform: "threads", body: "Launch day", mediaUrls: [] },
+              ],
+            }),
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        modelCompletion({ content: "Your Threads draft is ready to review." }),
+      );
+
+    const result = await service.createConversation(userId, {
+      message: "Draft Launch day on Threads",
+      requestId: "00000000-0000-4000-8000-000000000012",
+    });
+
+    expect(mcp.callTool).not.toHaveBeenCalled();
+    expect(result.reviewGroups).toHaveLength(1);
+    expect(result.reviewGroups[0]?.drafts[0]).toMatchObject({
+      platform: "threads",
+      body: "Launch day",
+      revision: 1,
+    });
+    expect(await database.db.select().from(drafts)).toHaveLength(1);
+    expect(result.toolSummaries[0]?.toolName).toBe("prepare_review");
+    expect(result.turnActivity).toMatchObject({
+      requestMessageId: result.userMessage.id,
+      assistantMessageId: result.assistantMessage.id,
+      runId: result.run?.id,
+    });
+    expect(result.turnActivity?.reviewGroups).toHaveLength(1);
+  });
+
+  it("uses a snapshotted Full access command to invoke only the trusted review service", async () => {
+    const previousEnabled = process.env.PUBLISHING_AUTHORITY_ENABLED;
+    process.env.PUBLISHING_AUTHORITY_ENABLED = "true";
+    await updatePublishingPreference(database.db, {
+      userId,
+      expectedRevision: 0,
+      mode: "full_access",
+      source: "settings",
+      currentConsentVersion: "2026-08-01",
+      acknowledged: true,
+      consentVersion: "2026-08-01",
+    });
+    const review = {
+      updateDraft: vi.fn(),
+      publishGroup: vi.fn().mockResolvedValue({
+        groupId: "review_any",
+        replayed: false,
+        results: [
+          {
+            id: "attempt_1",
+            draftId: "draft_1",
+            platform: "threads",
+            state: "succeeded",
+            mcpPostId: "post_1",
+            error: null,
+            createdAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+            authorizationKind: "full_access",
+          },
+        ],
+      }),
+      checkAttempt: vi.fn(),
+    } as unknown as ReviewService;
+    service = new DefaultOrchestrationService(
+      database.db,
+      config,
+      model,
+      mcp,
+      new PublishingPreferenceService(database.db),
+      review,
+    );
+    vi.mocked(model.complete)
+      .mockResolvedValueOnce(modelCompletion({
+        toolCalls: [toolCall("call_review_auto", "prepare_review", {
+          variants: [{ platform: "threads", body: "Launch now", mediaUrls: [] }],
+        })],
+      }))
+      .mockResolvedValueOnce(modelCompletion({ content: "Publishing the prepared set." }));
+
+    try {
+      const result = await service.createConversation(userId, {
+        message: "Publish this on Threads",
+        requestId: "00000000-0000-4000-8000-000000000099",
+      });
+
+      expect(result.run).toMatchObject({
+        publishingMode: "full_access",
+        explicitLiveIntent: true,
+      });
+      expect(review.publishGroup).toHaveBeenCalledWith(
+        userId,
+        expect.stringMatching(/^review_/),
+        expect.objectContaining({
+          authorization: expect.objectContaining({
+            kind: "full_access",
+            warningsBlock: false,
+            consentVersion: "2026-08-01",
+          }),
+        }),
+      );
+      expect(result.assistantMessage.content).toBe(
+        "Published successfully to Threads.",
+      );
+      expect(vi.mocked(model.complete).mock.calls[0]?.[0].system).toContain(
+        "image only, no caption, or without caption",
+      );
+      const storedMessages = await database.db
+        .select()
+        .from(orchestrationMessages)
+        .where(eq(orchestrationMessages.id, result.assistantMessage.id));
+      expect(storedMessages[0]?.content).toBe(
+        "Published successfully to Threads.",
+      );
+      expect(mcp.callTool).not.toHaveBeenCalled();
+    } finally {
+      if (previousEnabled === undefined) delete process.env.PUBLISHING_AUTHORITY_ENABLED;
+      else process.env.PUBLISHING_AUTHORITY_ENABLED = previousEnabled;
+    }
+  });
+
+  it("retries a rejected vision request with safe text metadata and keeps the asset attached", async () => {
+    const previousVision = process.env.THESEAN_VISION_ENABLED;
+    process.env.THESEAN_VISION_ENABLED = "true";
+    const [asset] = await createPendingMediaAssets(database.db, {
+      userId,
+      descriptors: [{ mimeType: "image/png", byteSize: 100 }],
+      pendingExpiresAt: new Date(Date.now() + 60_000),
+      hourlyLimit: 50,
+      storageLimitBytes: 1024,
+    });
+    await markMediaAssetReady(database.db, {
+      userId,
+      assetId: asset!.id,
+      mimeType: "image/png",
+      byteSize: 80,
+      width: 2,
+      height: 2,
+    });
+    const media = {
+      previewUrl: vi.fn().mockResolvedValue("https://media.invalid/preview"),
+      modelImage: vi.fn().mockResolvedValue({
+        mediaType: "image/png" as const,
+        data: "aW1hZ2U=",
+      }),
+      deleteConversationAssets: vi.fn().mockResolvedValue(undefined),
+    };
+    service = new DefaultOrchestrationService(
+      database.db,
+      config,
+      model,
+      mcp,
+      new PublishingPreferenceService(database.db),
+      undefined,
+      media,
+    );
+    vi.mocked(model.complete)
+      .mockRejectedValueOnce(new Error("vision input unsupported"))
+      .mockResolvedValueOnce(modelCompletion({ content: "I can keep the image attached without describing it." }));
+
+    try {
+      const result = await service.createConversation(userId, {
+        message: "Draft a Threads post with this image",
+        requestId: "00000000-0000-4000-8000-000000000098",
+        mediaAssetIds: [asset!.id],
+      });
+
+      expect(model.complete).toHaveBeenCalledTimes(2);
+      const firstMessages = vi.mocked(model.complete).mock.calls[0]![0].messages;
+      const secondMessages = vi.mocked(model.complete).mock.calls[1]![0].messages;
+      expect(firstMessages.some((message) => message.content.some((block) => block.type === "image"))).toBe(true);
+      expect(secondMessages.some((message) => message.content.some((block) => block.type === "image"))).toBe(false);
+      expect(JSON.stringify(secondMessages)).toContain("Do not invent visual details");
+      expect(result.userMessage.attachments).toHaveLength(1);
+    } finally {
+      if (previousVision === undefined) delete process.env.THESEAN_VISION_ENABLED;
+      else process.env.THESEAN_VISION_ENABLED = previousVision;
+    }
+  });
+
+  it("keeps tool and review activity on the turn that created it", async () => {
+    vi.mocked(model.complete)
+      .mockResolvedValueOnce(
+        modelCompletion({
+          toolCalls: [
+            toolCall("call_review_owned", "prepare_review", {
+              variants: [
+                { platform: "threads", body: "Launch day", mediaUrls: [] },
+              ],
+            }),
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        modelCompletion({ content: "Your Threads draft is ready to review." }),
+      )
+      .mockResolvedValueOnce(
+        modelCompletion({ content: "Tell me what you would like to change." }),
+      );
+
+    const prepared = await service.createConversation(userId, {
+      message: "Draft Launch day on Threads",
+      requestId: "00000000-0000-4000-8000-000000000022",
+    });
+    const plain = await service.addMessage(userId, prepared.conversation.id, {
+      message: "Explain the options for Threads",
+      requestId: "00000000-0000-4000-8000-000000000023",
+    });
+    const restored = await service.getConversation(
+      userId,
+      prepared.conversation.id,
+      { limit: 25 },
+    );
+
+    expect(plain.turnActivity).toBeNull();
+    expect(restored.turnActivities).toHaveLength(1);
+    expect(restored.turnActivities[0]).toMatchObject({
+      requestMessageId: prepared.userMessage.id,
+      assistantMessageId: prepared.assistantMessage.id,
+    });
+    expect(restored.turnActivities[0]?.reviewGroups).toHaveLength(1);
+    expect(
+      restored.turnActivities.some(
+        (activity) => activity.assistantMessageId === plain.assistantMessage.id,
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps an invalid Instagram review draft editable with a safe blocking error", async () => {
+    vi.mocked(model.complete)
+      .mockResolvedValueOnce(
+        modelCompletion({
+          toolCalls: [
+            toolCall("call_review", "prepare_review", {
+              variants: [
+                { platform: "instagram", body: "Launch day", mediaUrls: [] },
+              ],
+            }),
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        modelCompletion({ content: "Add media to finish your Instagram draft." }),
+      );
+
+    const result = await service.createConversation(userId, {
+      message: "Draft Launch day on Instagram",
+      requestId: "00000000-0000-4000-8000-000000000013",
+    });
+
+    expect(result.reviewGroups[0]?.drafts[0]?.validation.errors).toContain(
+      "Instagram requires at least one image.",
+    );
+    expect(mcp.callTool).not.toHaveBeenCalled();
+  });
+
+  it("inherits the platform and image for a contextual review follow up", async () => {
+    const [asset] = await createPendingMediaAssets(database.db, {
+      userId,
+      descriptors: [{ mimeType: "image/jpeg", byteSize: 100 }],
+      pendingExpiresAt: new Date(Date.now() + 60_000),
+      hourlyLimit: 50,
+      storageLimitBytes: 1024,
+    });
+    await markMediaAssetReady(database.db, {
+      userId,
+      assetId: asset!.id,
+      mimeType: "image/jpeg",
+      byteSize: 80,
+      width: 2,
+      height: 2,
+    });
+    vi.mocked(model.complete)
+      .mockResolvedValueOnce(
+        modelCompletion({ content: "Would you like a caption, or image only?" }),
+      )
+      .mockResolvedValueOnce(
+        modelCompletion({
+          toolCalls: [
+            toolCall("call_review", "prepare_review", {
+              variants: [
+                {
+                  platform: "threads",
+                  body: "",
+                  mediaUrls: [],
+                  attachmentIndexes: [0],
+                },
+              ],
+            }),
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        modelCompletion({ content: "Your Threads draft is ready to review." }),
+      );
+
+    const first = await service.createConversation(userId, {
+      message: "Post this image on Threads",
+      requestId: "00000000-0000-4000-8000-000000000014",
+      mediaAssetIds: [asset!.id],
+    });
+    const confirmed = await service.addMessage(userId, first.conversation.id, {
+      message: "Image only",
+      requestId: "00000000-0000-4000-8000-000000000015",
+    });
+
+    expect(confirmed.run?.targetPlatforms).toEqual(["threads"]);
+    expect(confirmed.reviewGroups[0]?.drafts[0]).toMatchObject({
+      platform: "threads",
+      body: "",
+      validation: { errors: [] },
+    });
+    expect(confirmed.reviewGroups[0]?.drafts[0]?.mediaItems).toEqual([
+      { assetId: asset!.id, externalUrl: null },
+    ]);
     expect(mcp.callTool).not.toHaveBeenCalled();
   });
 
