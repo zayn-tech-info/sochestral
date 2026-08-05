@@ -916,11 +916,14 @@ export class DefaultOrchestrationService implements OrchestrationService {
     const authority = await this.publishingPreferences.snapshot(
       userId,
       input.message,
-      (message) =>
-        resolveExplicitLivePublishIntent(this.model, {
-          message,
-          modelName: this.config.theseanModel,
-        }),
+      resolution.kind === "resolved"
+        ? (message, mode) =>
+            resolveExplicitLivePublishIntent(this.model, {
+              message,
+              modelName: this.config.theseanIntentModel,
+              mode,
+            })
+        : undefined,
     );
     const common = {
       userId,

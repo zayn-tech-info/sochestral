@@ -26,6 +26,7 @@ import type { ReviewService } from "./review.js";
 const config: OrchestrationConfig = {
   theseanApiKey: "unused",
   theseanModel: "contract-model",
+  theseanIntentModel: "intent-model",
   socialMcpUrl: "https://social.example/mcp",
   contextTokenLimit: 6000,
   outputTokenLimit: 1500,
@@ -272,6 +273,7 @@ describe("DefaultOrchestrationService", () => {
       });
       expect(vi.mocked(model.complete).mock.calls[0]?.[0]).toMatchObject({
         toolChoice: { type: "tool", name: "resolve_live_publish_intent" },
+        model: "intent-model",
       });
       expect(review.publishGroup).toHaveBeenCalledWith(
         userId,
@@ -298,6 +300,61 @@ describe("DefaultOrchestrationService", () => {
         "Published successfully to Threads.",
       );
       expect(mcp.callTool).not.toHaveBeenCalled();
+    } finally {
+      if (previousEnabled === undefined) delete process.env.PUBLISHING_AUTHORITY_ENABLED;
+      else process.env.PUBLISHING_AUTHORITY_ENABLED = previousEnabled;
+    }
+  });
+
+  it("keeps Full access in review when local veto blocks intent without calling the model", async () => {
+    const previousEnabled = process.env.PUBLISHING_AUTHORITY_ENABLED;
+    process.env.PUBLISHING_AUTHORITY_ENABLED = "true";
+    await updatePublishingPreference(database.db, {
+      userId,
+      expectedRevision: 0,
+      mode: "full_access",
+      source: "settings",
+      currentConsentVersion: "2026-08-01",
+      acknowledged: true,
+      consentVersion: "2026-08-01",
+    });
+    const review = {
+      updateDraft: vi.fn(),
+      publishGroup: vi.fn(),
+      checkAttempt: vi.fn(),
+    } as unknown as ReviewService;
+    service = new DefaultOrchestrationService(
+      database.db,
+      config,
+      model,
+      mcp,
+      new PublishingPreferenceService(database.db),
+      review,
+    );
+    vi.mocked(model.complete)
+      .mockResolvedValueOnce(modelCompletion({
+        toolCalls: [toolCall("call_review_hold", "prepare_review", {
+          variants: [{ platform: "threads", body: "Hold for review", mediaUrls: [] }],
+        })],
+      }))
+      .mockResolvedValueOnce(modelCompletion({ content: "Prepared a review set." }));
+
+    try {
+      const result = await service.createConversation(userId, {
+        message: "Draft this for Threads",
+        requestId: "00000000-0000-4000-8000-000000000098",
+      });
+
+      expect(result.run).toMatchObject({
+        publishingMode: "full_access",
+        explicitLiveIntent: false,
+      });
+      expect(vi.mocked(model.complete).mock.calls[0]?.[0].toolChoice).not.toEqual({
+        type: "tool",
+        name: "resolve_live_publish_intent",
+      });
+      expect(review.publishGroup).not.toHaveBeenCalled();
+      expect(result.assistantMessage.content).toBe("Prepared a review set.");
     } finally {
       if (previousEnabled === undefined) delete process.env.PUBLISHING_AUTHORITY_ENABLED;
       else process.env.PUBLISHING_AUTHORITY_ENABLED = previousEnabled;
@@ -344,8 +401,8 @@ describe("DefaultOrchestrationService", () => {
 
     try {
       const result = await service.createConversation(userId, {
-        message: "Can you put something together for Threads?",
-        requestId: "00000000-0000-4000-8000-000000000098",
+        message: "Ship the Threads launch post now",
+        requestId: "00000000-0000-4000-8000-000000000097",
       });
 
       expect(result.run).toMatchObject({
@@ -354,6 +411,34 @@ describe("DefaultOrchestrationService", () => {
       });
       expect(review.publishGroup).not.toHaveBeenCalled();
       expect(result.assistantMessage.content).toBe("Prepared a review set.");
+    } finally {
+      if (previousEnabled === undefined) delete process.env.PUBLISHING_AUTHORITY_ENABLED;
+      else process.env.PUBLISHING_AUTHORITY_ENABLED = previousEnabled;
+    }
+  });
+
+  it("skips intent classification on platform-clarify turns", async () => {
+    const previousEnabled = process.env.PUBLISHING_AUTHORITY_ENABLED;
+    process.env.PUBLISHING_AUTHORITY_ENABLED = "true";
+    await updatePublishingPreference(database.db, {
+      userId,
+      expectedRevision: 0,
+      mode: "full_access",
+      source: "settings",
+      currentConsentVersion: "2026-08-01",
+      acknowledged: true,
+      consentVersion: "2026-08-01",
+    });
+
+    try {
+      const result = await service.createConversation(userId, {
+        message: "Publish this",
+        requestId: "00000000-0000-4000-8000-000000000096",
+      });
+
+      expect(result.run).toBeNull();
+      expect(result.assistantMessage.content).toContain("Which supported platform");
+      expect(vi.mocked(model.complete)).not.toHaveBeenCalled();
     } finally {
       if (previousEnabled === undefined) delete process.env.PUBLISHING_AUTHORITY_ENABLED;
       else process.env.PUBLISHING_AUTHORITY_ENABLED = previousEnabled;

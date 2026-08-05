@@ -1,8 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelProvider } from "./model.js";
 import {
   LIVE_PUBLISH_INTENT_TOOL_NAME,
+  LIVE_PUBLISH_INTENT_USER_MESSAGE_END,
+  LIVE_PUBLISH_INTENT_USER_MESSAGE_START,
   resolveExplicitLivePublishIntent,
+  vetoesExplicitLivePublishIntent,
+  wrapUserMessageForIntentClassification,
 } from "./publishing.js";
 
 function modelCompletion(input: {
@@ -17,8 +21,45 @@ function modelCompletion(input: {
   };
 }
 
+describe("vetoesExplicitLivePublishIntent", () => {
+  it.each([
+    "Draft this post",
+    "Write a caption and preview it",
+    "Validate this before publishing",
+    "Do not publish this",
+    "Don't post it yet",
+    "Can you publish this?",
+    "Yeah",
+    "Make this better",
+    "   ",
+  ])("vetoes obvious non-intent wording: %s", (message) => {
+    expect(vetoesExplicitLivePublishIntent(message)).toBe(true);
+  });
+
+  it.each([
+    "Ship the Threads launch post now",
+    "Publish this on Threads",
+    "Post it live",
+  ])("does not veto affirmative live-publish wording: %s", (message) => {
+    expect(vetoesExplicitLivePublishIntent(message)).toBe(false);
+  });
+});
+
+describe("wrapUserMessageForIntentClassification", () => {
+  it("wraps the user message in fixed delimiters", () => {
+    expect(wrapUserMessageForIntentClassification("Publish this now")).toBe(
+      `${LIVE_PUBLISH_INTENT_USER_MESSAGE_START}\nPublish this now\n${LIVE_PUBLISH_INTENT_USER_MESSAGE_END}`,
+    );
+  });
+});
+
 describe("resolveExplicitLivePublishIntent", () => {
-  it("returns true only when the forced tool reports explicitLivePublish true", async () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("returns true only when veto passes and the forced tool reports explicitLivePublish true", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const model: ModelProvider = {
       complete: vi.fn().mockResolvedValue(
         modelCompletion({
@@ -36,23 +77,55 @@ describe("resolveExplicitLivePublishIntent", () => {
     await expect(
       resolveExplicitLivePublishIntent(model, {
         message: "Ship the Threads launch post now",
-        modelName: "contract-model",
+        modelName: "intent-model",
+        mode: "full_access",
       }),
     ).resolves.toBe(true);
 
     expect(model.complete).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: "contract-model",
+        model: "intent-model",
         maxTokens: 64,
         toolChoice: { type: "tool", name: LIVE_PUBLISH_INTENT_TOOL_NAME },
         messages: [
           {
             role: "user",
-            content: [{ type: "text", text: "Ship the Threads launch post now" }],
+            content: [
+              {
+                type: "text",
+                text: wrapUserMessageForIntentClassification(
+                  "Ship the Threads launch post now",
+                ),
+              },
+            ],
           },
         ],
       }),
     );
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[sochestral:publishing] intent resolved",
+      expect.objectContaining({
+        outcome: "true",
+        reason: "llm_true",
+        mode: "full_access",
+      }),
+    );
+  });
+
+  it.each([
+    "Draft this for Threads",
+    "Do not publish this on Threads",
+    "Can you publish this?",
+  ])("fails closed without calling the model when veto triggers: %s", async (message) => {
+    const model: ModelProvider = { complete: vi.fn() };
+
+    await expect(
+      resolveExplicitLivePublishIntent(model, {
+        message,
+        modelName: "intent-model",
+      }),
+    ).resolves.toBe(false);
+    expect(model.complete).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -78,8 +151,8 @@ describe("resolveExplicitLivePublishIntent", () => {
 
       await expect(
         resolveExplicitLivePublishIntent(model, {
-          message: "Publish this",
-          modelName: "contract-model",
+          message: "Publish this on Threads",
+          modelName: "intent-model",
         }),
       ).resolves.toBe(false);
     },
@@ -90,7 +163,7 @@ describe("resolveExplicitLivePublishIntent", () => {
     await expect(
       resolveExplicitLivePublishIntent(blankModel, {
         message: "   ",
-        modelName: "contract-model",
+        modelName: "intent-model",
       }),
     ).resolves.toBe(false);
     expect(blankModel.complete).not.toHaveBeenCalled();
@@ -100,8 +173,8 @@ describe("resolveExplicitLivePublishIntent", () => {
     };
     await expect(
       resolveExplicitLivePublishIntent(missingTool, {
-        message: "Publish this",
-        modelName: "contract-model",
+        message: "Publish this on Threads",
+        modelName: "intent-model",
       }),
     ).resolves.toBe(false);
 
@@ -110,8 +183,8 @@ describe("resolveExplicitLivePublishIntent", () => {
     };
     await expect(
       resolveExplicitLivePublishIntent(failing, {
-        message: "Publish this",
-        modelName: "contract-model",
+        message: "Publish this on Threads",
+        modelName: "intent-model",
       }),
     ).resolves.toBe(false);
   });

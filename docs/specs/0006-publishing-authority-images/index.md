@@ -68,7 +68,7 @@ Reasoning and alternatives: see [rationale.md](./rationale.md).
 
 **Intent resolution**:
 
-Product code asks Thesean, in a dedicated classification call with a forced structured tool, whether the owning user message is an explicit instruction to publish live now. That call is product policy, not chat model authority. It runs only when the effective mode is Approve for me or Full access, before the chat model loop starts, and the boolean is snapshotted onto the run. The classifier fails closed on timeout, provider error, missing tool output, or any answer that is not an explicit true. Draft, preview, validate, edit, question, negation, and ambiguous wording must resolve false. Phrase matching regex is not the authority gate. `prepare_review` still verifies requested platforms and resolves attachment indexes. Automatic execution requires both the snapshotted explicit live intent and a prepared owned group for the same run. The chat facing `publish_now` remains preview only.
+Product code applies a two layer policy before chat model execution when the effective mode is Approve for me or Full access. A deterministic local veto rejects obvious non intent wording such as drafts, previews, validation, edits, questions, negation, and ambiguous follow ups without calling the model. Messages that pass the veto are sent to Thesean in a dedicated classification call with a forced structured tool and delimiter isolated user text. The classifier fails closed on timeout, provider error, missing tool output, or any answer that is not an explicit true. Platform clarify turns skip classification entirely because they cannot auto publish. Phrase matching regex is not the authority gate. `prepare_review` still verifies requested platforms and resolves attachment indexes. Automatic execution requires both the snapshotted explicit live intent and a prepared owned group for the same run. The chat facing `publish_now` remains preview only.
 
 **API surface**:
 
@@ -93,7 +93,7 @@ Publishing preference and upload mutations require the exact configured web orig
 | Read preference | effective mode | rollout flag, stored mode, current consent policy, and consent snapshot |
 | Change preference | audit event | session owner, current row, request mode, UI source, and consent fields |
 | Start run | authority snapshot | effective preference and the event that established it |
-| Start run | explicit live intent | product owned Thesean classification over the owning user message, fail closed |
+| Start run | explicit live intent | local veto plus product owned Thesean classification over delimiter isolated user message, fail closed |
 | Choose account | account ID | newest SocialMCP `connectedAt`, then stable account ID ordering |
 | Create upload | object key | owner ID plus generated asset ID, never browser input |
 | Complete upload | MIME, size, dimensions | bytes read from the owned R2 object and decoded by `sharp` |
@@ -134,6 +134,7 @@ The product session is the only owner source. Every preference, event, asset, me
 - `MEDIA_UPLOAD_HOURLY_LIMIT`: default `50`.
 - `MEDIA_USER_STORAGE_LIMIT_BYTES`: default `1073741824`.
 - `THESEAN_VISION_ENABLED`: enables image content blocks after smoke verification.
+- `THESEAN_INTENT_MODEL`: optional dedicated classifier model for live publish intent; defaults to `THESEAN_MODEL`.
 
 **Critical test scenarios**:
 
