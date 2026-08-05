@@ -50,3 +50,27 @@ Instagram Graph version: `INSTAGRAM_GRAPH_API_VERSION` (default `v21.0`).
 ## Agent skills
 
 Skills live in `.agents/skills/` (project) and `.cursor/skills-cursor/` (Cursor built ins).
+
+## Cursor Cloud specific instructions
+
+Heads up: most of this file above (and `README.md`) describes the external **SocialMCP** infra repo and is stale for this checkout. This repo is actually the **Sochestral** hosted SaaS product (root `package.json` name `sochestral`). The real, runnable services here are a Next.js web app, a Hono API, and Postgres. SocialMCP and the Thesean LLM are **external** dependencies, not in this repo.
+
+### Services
+
+- **Postgres 16** on host port **5433** (not the default 5432). Role/password `sochestral`/`sochestral`, databases `sochestral` and `sochestral_test`. The update script does not manage Postgres; on a fresh VM boot start it with `sudo pg_ctlcluster 16 main start`, then confirm with `pg_lsclusters`. Data and the port config persist in the snapshot.
+- **Product API** (`@sochestral/api`, Hono): `pnpm run dev:api` → `http://localhost:8787`. Routes include `/auth/login`, `/auth/me`, `/auth/mcp-token`.
+- **Web** (Next.js): run `npm run dev` **from `web/`** → `http://localhost:3000`. `web/` is a standalone npm project with its own `package-lock.json` and is **not** part of the pnpm workspace (`pnpm-workspace.yaml` only lists `packages/*`), so it needs its own `npm install`.
+
+### Gotchas
+
+- Root pnpm scripts use colons in their names (`db:migrate`, `dev:api`, …). `pnpm db:migrate` is misread as a recursive filter and fails; always use `pnpm run db:migrate` (or `pnpm run dev:api`, etc.) from the repo root.
+- `.env` is required; copy it from `.env.example` (its local Postgres/JWT defaults already work). Run `pnpm run db:migrate` for the main DB and `DATABASE_URL=postgresql://sochestral:sochestral@localhost:5433/sochestral_test pnpm run db:migrate` for the test DB.
+- Package tests (`pnpm run test:database`, `test:auth`, `test:api`) need a migrated `sochestral_test` DB. Web tests/lint run without a DB: `npm run test` and `npm run lint` in `web/`.
+
+### Provision + login (no external deps)
+
+`pnpm run db:provision <email>` then `pnpm run db:set-password <email> <password>`, then log in at `http://localhost:3000/login`. This exercises Postgres + API + auth end-to-end.
+
+### External-only features
+
+Chat orchestration needs `THESEAN_API_KEY` (Thesean LLM) plus a running SocialMCP server at `SOCIALMCP_MCP_URL`; connectors/publishing need the SocialMCP OAuth service. Without those, login and the workspace UI work, but sending a chat message or publishing will fail. That is expected in this repo, not a broken setup.
