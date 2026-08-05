@@ -55,6 +55,6 @@ Retain spec 0005 unchanged until later autonomy and media projects.
 
 ## Rationale
 
-Option 1 is the only choice that changes user convenience without changing who is trusted to execute. The local intent resolver and immutable authority snapshot are product policy. The existing review service remains the live safety boundary. This makes Full access narrowly mean immediate publishing to owned connected accounts after blocking checks pass.
+Option 1 is the only choice that changes user convenience without changing who is trusted to execute. Explicit live intent is product policy: a deterministic local veto for obvious non intent wording, then a dedicated Thesean classification call with a forced structured tool and delimiter isolated user text, snapshotted before the chat loop and skipped on platform clarify turns, failing closed on ambiguity or failure. The chat model still cannot authorize live publishing. Phrase matching regex is not used as the authority gate. The existing review service remains the live safety boundary. This makes Full access narrowly mean immediate publishing to owned connected accounts after blocking checks pass.
 
 Private R2 assets give the product a stable owned reference. Signed URLs become disposable transport details for previews, model input, and SocialMCP. Additive tables, dual writes, and a rollout flag reduce migration risk while the external `connectedAt` contract is coordinated.

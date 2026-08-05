@@ -45,6 +45,10 @@ export type ModelCompletion = {
   attempts: number;
 };
 
+export type ModelToolChoice =
+  | { type: "auto" }
+  | { type: "tool"; name: string };
+
 export interface ModelProvider {
   complete(input: {
     system: string;
@@ -52,6 +56,7 @@ export interface ModelProvider {
     tools: ModelTool[];
     model: string;
     maxTokens: number;
+    toolChoice?: ModelToolChoice;
   }): Promise<ModelCompletion>;
 }
 
@@ -132,18 +137,23 @@ export class TheseanModelProvider implements ModelProvider {
     tools: ModelTool[];
     model: string;
     maxTokens: number;
+    toolChoice?: ModelToolChoice;
   }): Promise<ModelCompletion> {
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       try {
         const controller = new AbortController();
         let deadline: ReturnType<typeof setTimeout> | undefined;
+        const toolChoice = input.toolChoice ?? { type: "auto" as const };
         const request = this.client.messages.create(
           {
             model: input.model,
             system: input.system,
             messages: input.messages.map(toAnthropicMessage),
             tools: input.tools.map(toAnthropicTool),
-            tool_choice: { type: "auto" },
+            tool_choice:
+              toolChoice.type === "tool"
+                ? { type: "tool", name: toolChoice.name }
+                : { type: "auto" },
             max_tokens: input.maxTokens,
           },
           { signal: controller.signal },

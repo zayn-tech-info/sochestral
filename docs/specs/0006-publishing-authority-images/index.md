@@ -19,8 +19,8 @@ Sochestral adds three account wide publishing modes while keeping the trusted re
 
 - **AC-1**: Every user defaults to `always_draft`. A revision checked preference mutation can select `always_draft`, `approve_for_me`, or `full_access`, and every change creates a content free authority audit event.
 - **AC-2**: Enabling Full access requires the current consent version, an explicit acknowledgement checkbox, and confirmation. Leaving Full access clears consent. An outdated consent makes the effective mode Always draft and records one reset audit event.
-- **AC-3**: Each orchestration run snapshots effective mode, consent version, authority event, and a conservative local explicit live intent result before model execution. Later preference changes cannot affect that run. Model output and model tools cannot authorize live publishing.
-- **AC-4**: Draft, write, preview, edit, and validate requests never publish automatically. Explicit publish, post, share, send live, or equivalent wording may publish automatically only after `prepare_review` creates the matching review set and trusted whole set preflight passes.
+- **AC-3**: Each orchestration run snapshots effective mode, consent version, authority event, and a conservative product owned explicit live intent result before chat model execution. Later preference changes cannot affect that run. Chat model output and chat model tools cannot authorize live publishing.
+- **AC-4**: Draft, write, preview, edit, validate, questions, negation, and ambiguous wording never publish automatically. Clear affirmative live publish intent may publish automatically only after `prepare_review` creates the matching review set and trusted whole set preflight passes.
 - **AC-5**: Always draft and draft only requests open review. Approve for me publishes automatically only with no warning or blocking error. Full access permits warnings but not blocking errors. Any blocking error publishes nothing and opens review.
 - **AC-6**: Automatic publishing uses the existing trusted review service, immutable attempts, rate limit, ownership checks, idempotency keys, partial result handling, and unknown recovery. It selects the newest active connected account by `connectedAt`, with stable account ID ordering for timestamp ties.
 - **AC-7**: A compact launcher remains beneath the owning assistant response. Its label is `Published social set` for automatic success, `Review social set` for drafts or blocked sets, and `Social set needs attention` for partial or unknown outcomes.
@@ -68,7 +68,7 @@ Reasoning and alternatives: see [rationale.md](./rationale.md).
 
 **Intent resolution**:
 
-A local resolver uses affirmative live verbs and rejects negation, questions, draft verbs, and ambiguous follow ups. `prepare_review` still verifies requested platforms and resolves attachment indexes. Automatic execution requires both local explicit live intent and a prepared owned group for the same run. The model facing `publish_now` remains preview only.
+Product code applies a two layer policy before chat model execution when the effective mode is Approve for me or Full access. A deterministic local veto rejects obvious non intent wording such as drafts, previews, validation, edits, questions, negation, and ambiguous follow ups without calling the model. Messages that pass the veto are sent to Thesean in a dedicated classification call with a forced structured tool and delimiter isolated user text. The classifier fails closed on timeout, provider error, missing tool output, or any answer that is not an explicit true. Platform clarify turns skip classification entirely because they cannot auto publish. Phrase matching regex is not the authority gate. `prepare_review` still verifies requested platforms and resolves attachment indexes. Automatic execution requires both the snapshotted explicit live intent and a prepared owned group for the same run. The chat facing `publish_now` remains preview only.
 
 **API surface**:
 
@@ -93,7 +93,7 @@ Publishing preference and upload mutations require the exact configured web orig
 | Read preference | effective mode | rollout flag, stored mode, current consent policy, and consent snapshot |
 | Change preference | audit event | session owner, current row, request mode, UI source, and consent fields |
 | Start run | authority snapshot | effective preference and the event that established it |
-| Start run | explicit live intent | local resolver over the owning user message |
+| Start run | explicit live intent | local veto plus product owned Thesean classification over delimiter isolated user message, fail closed |
 | Choose account | account ID | newest SocialMCP `connectedAt`, then stable account ID ordering |
 | Create upload | object key | owner ID plus generated asset ID, never browser input |
 | Complete upload | MIME, size, dimensions | bytes read from the owned R2 object and decoded by `sharp` |
@@ -134,6 +134,7 @@ The product session is the only owner source. Every preference, event, asset, me
 - `MEDIA_UPLOAD_HOURLY_LIMIT`: default `50`.
 - `MEDIA_USER_STORAGE_LIMIT_BYTES`: default `1073741824`.
 - `THESEAN_VISION_ENABLED`: enables image content blocks after smoke verification.
+- `THESEAN_INTENT_MODEL`: optional dedicated classifier model for live publish intent; defaults to `THESEAN_MODEL`.
 
 **Critical test scenarios**:
 
@@ -152,7 +153,7 @@ Approach: Tracer Bullet. First prove one user preference and one owned Threads i
 2. [x] Add feature flagged preference reads and guarded updates with versioned consent and audit tests, satisfies **AC-1**, **AC-2**, and **AC-15**.
 3. [x] Add private R2 upload tickets, byte verification, `sharp` sanitization, ownership, quotas, cleanup helpers, and safe preview signing, satisfies **AC-8**, **AC-9**, and **AC-11**.
 4. [x] Attach ready images atomically to messages, return safe ordered media, resolve `prepare_review` attachment indexes, and publish with temporary signed URLs, satisfies **AC-10** and **AC-12**.
-5. [x] Snapshot authority and local explicit live intent at run start, select the newest connected account, and route automatic decisions through the trusted review service, satisfies **AC-3** through **AC-7**.
+5. [x] Snapshot authority and product owned explicit live intent at run start, select the newest connected account, and route automatic decisions through the trusted review service, satisfies **AC-3** through **AC-7**.
 6. [x] Send sanitized images to Thesean with a bounded vision context and a safe text only retry, satisfies **AC-14**.
 7. [x] Add composer and Settings mode controls, consent dialog, upload UI, sent image rendering, review media editing, and outcome launchers, satisfies **AC-7**, **AC-13**, and **AC-15**.
 8. [ ] Complete database, API, orchestration, storage, vision, and web tests, then run coordinated SocialMCP and harmless live smoke checks before enabling rollout, satisfies **AC-1** through **AC-15**.

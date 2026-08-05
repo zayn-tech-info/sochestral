@@ -1,6 +1,7 @@
 export type OrchestrationConfig = {
   theseanApiKey: string;
   theseanModel: string;
+  theseanIntentModel: string;
   socialMcpUrl: string;
   contextTokenLimit: number;
   outputTokenLimit: number;
@@ -35,6 +36,10 @@ export function loadOrchestrationConfig(
     theseanApiKey: required(env.THESEAN_API_KEY, "THESEAN_API_KEY"),
     theseanModel:
       env.THESEAN_MODEL?.trim() || "ship-like/claude-sonnet-5",
+    theseanIntentModel:
+      env.THESEAN_INTENT_MODEL?.trim() ||
+      env.THESEAN_MODEL?.trim() ||
+      "ship-like/claude-sonnet-5",
     socialMcpUrl: required(env.SOCIALMCP_MCP_URL, "SOCIALMCP_MCP_URL"),
     contextTokenLimit: positiveInteger(
       env.ORCHESTRATION_CONTEXT_TOKEN_LIMIT,

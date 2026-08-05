@@ -145,8 +145,8 @@ export function ChatWorkspace({
     ),
   );
   const automaticReviewId = detail
-    ? detail.turnActivities
-        .flatMap((activity) => activity.reviewGroups)
+    ? (detail.turnActivities ?? [])
+        .flatMap((activity) => activity.reviewGroups ?? [])
         .reverse()
         .find((group) =>
           group.drafts.some((draft) => draft.status !== "published"),

@@ -13,6 +13,7 @@ describe("loadOrchestrationConfig", () => {
     expect(config).toEqual({
       theseanApiKey: "thesean-secret",
       theseanModel: "ship-like/claude-sonnet-5",
+      theseanIntentModel: "ship-like/claude-sonnet-5",
       socialMcpUrl: "https://social.example/mcp",
       contextTokenLimit: 6000,
       outputTokenLimit: 1500,
@@ -35,6 +36,7 @@ describe("loadOrchestrationConfig", () => {
 
     expect(config).toMatchObject({
       theseanModel: "custom-model",
+      theseanIntentModel: "custom-model",
       contextTokenLimit: 7000,
       outputTokenLimit: 900,
       maxToolSteps: 3,
@@ -54,6 +56,17 @@ describe("loadOrchestrationConfig", () => {
       ).toThrow("ORCHESTRATION_MAX_TOOL_STEPS must be a positive integer");
     },
   );
+
+  it("loads a dedicated intent model override when provided", () => {
+    const config = loadOrchestrationConfig({
+      ...required,
+      THESEAN_MODEL: "chat-model",
+      THESEAN_INTENT_MODEL: "intent-model",
+    });
+
+    expect(config.theseanModel).toBe("chat-model");
+    expect(config.theseanIntentModel).toBe("intent-model");
+  });
 
   it("requires the Thesean key", () => {
     expect(() =>

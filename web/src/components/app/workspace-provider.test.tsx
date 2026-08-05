@@ -80,6 +80,9 @@ function Harness() {
       {loadedMessages.map((item) => (
         <span key={item.id}>{item.content}</span>
       ))}
+      <span data-testid="turn-activities-count">
+        {(workspace.details.conv_1?.turnActivities ?? []).length}
+      </span>
       <button type="button" onClick={() => void workspace.sendMessage(null, "Hello", retry)}>
         {retry ? "Retry message" : "Send message"}
       </button>
@@ -218,6 +221,36 @@ describe("WorkspaceProvider", () => {
     await waitFor(() => expect(screen.queryByText("Launch plan")).not.toBeInTheDocument());
     expect(apiRequest).toHaveBeenCalledWith("/orchestration/conversations/conv_1", {
       method: "DELETE",
+    });
+  });
+
+  it("normalizes missing turnActivities when loading a conversation", async () => {
+    vi.mocked(apiRequest).mockImplementation(async (path) => {
+      if (path === "/auth/me") return { id: "user_1", email: "person@example.com" };
+      if (path === "/orchestration/conversations?limit=25") {
+        return { conversations: [conversation], nextCursor: null };
+      }
+      if (String(path).startsWith("/orchestration/conversations/conv_1")) {
+        return {
+          conversation,
+          messages: [turn.userMessage, turn.assistantMessage],
+          runs: [],
+          toolSummaries: [],
+          nextCursor: null,
+        };
+      }
+      return { conversations: [], nextCursor: null };
+    });
+    const user = userEvent.setup();
+    renderProvider();
+    await screen.findByText("Launch plan");
+
+    await user.click(screen.getByRole("button", { name: "Load conversation" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello")).toBeInTheDocument();
+      expect(screen.getByText("Ready")).toBeInTheDocument();
+      expect(screen.getByTestId("turn-activities-count")).toHaveTextContent("0");
     });
   });
 });

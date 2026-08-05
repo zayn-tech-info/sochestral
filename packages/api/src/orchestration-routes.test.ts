@@ -188,6 +188,9 @@ describe("orchestration API routes", () => {
       },
     );
     expect(history.status).toBe(200);
+    const historyBody = await history.json();
+    expect(Array.isArray(historyBody.turnActivities)).toBe(true);
+    expect(Array.isArray(historyBody.reviewGroups)).toBe(true);
     expect(service.getConversation).toHaveBeenCalledWith(
       userId,
       "conv_public",

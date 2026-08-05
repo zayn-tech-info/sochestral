@@ -80,6 +80,57 @@ describe("TheseanModelProvider", () => {
     });
   });
 
+  it("forwards a forced tool choice for product owned classification", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      messageResponse([
+        {
+          type: "tool_use",
+          id: "intent_1",
+          name: "resolve_live_publish_intent",
+          input: { explicitLivePublish: true },
+        },
+      ]),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new TheseanModelProvider("test-key");
+
+    const result = await provider.complete({
+      system: "Classify intent",
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Publish this now" }] },
+      ],
+      tools: [
+        {
+          name: "resolve_live_publish_intent",
+          description: "Resolve live publish intent",
+          inputSchema: {
+            type: "object",
+            properties: { explicitLivePublish: { type: "boolean" } },
+            required: ["explicitLivePublish"],
+          },
+        },
+      ],
+      model: "contract-model",
+      maxTokens: 64,
+      toolChoice: { type: "tool", name: "resolve_live_publish_intent" },
+    });
+
+    expect(result.toolCalls).toEqual([
+      {
+        id: "intent_1",
+        name: "resolve_live_publish_intent",
+        input: { explicitLivePublish: true },
+      },
+    ]);
+    const request = JSON.parse(
+      String((fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.body),
+    ) as Record<string, unknown>;
+    expect(request.tool_choice).toEqual({
+      type: "tool",
+      name: "resolve_live_publish_intent",
+    });
+  });
+
   it("maps Anthropic text and tool use blocks (AC-3, AC-10)", async () => {
     vi.stubGlobal(
       "fetch",

@@ -134,20 +134,27 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           `/orchestration/conversations/${id}${query}`,
         );
         setDetails((current) => {
+          const incomingActivities = result.turnActivities ?? [];
+          const normalized: ConversationDetail = {
+            ...result,
+            reviewGroups: result.reviewGroups ?? [],
+            turnActivities: incomingActivities,
+          };
           let next: Record<string, ConversationDetail>;
           if (!older || !current[id]) {
-            next = { ...current, [id]: result };
+            next = { ...current, [id]: normalized };
           } else {
+            const existingActivities = current[id].turnActivities ?? [];
             next = {
               ...current,
               [id]: {
-                ...result,
-                messages: [...result.messages, ...current[id].messages],
+                ...normalized,
+                messages: [...normalized.messages, ...current[id].messages],
                 turnActivities: [
-                  ...result.turnActivities,
-                  ...current[id].turnActivities.filter(
+                  ...incomingActivities,
+                  ...existingActivities.filter(
                     (activity) =>
-                      !result.turnActivities.some(
+                      !incomingActivities.some(
                         (incoming) =>
                           incoming.assistantMessageId === activity.assistantMessageId,
                       ),
@@ -220,10 +227,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
                 ]
               : current[result.conversation.id]?.runs ?? [],
             toolSummaries: [
-              ...result.toolSummaries,
+              ...(result.toolSummaries ?? []),
               ...(current[result.conversation.id]?.toolSummaries ?? []),
             ],
-            reviewGroups: result.reviewGroups,
+            reviewGroups: result.reviewGroups ?? [],
             turnActivities: result.turnActivity
               ? [
                   result.turnActivity,
