@@ -225,8 +225,10 @@ Allowed authorization hosts are fixed per platform:
 
 ## Follow up
 
-1. Run `/check verify Sochestral chat workspace and connectors UI`.
-2. Run `/test Sochestral chat workspace and connectors UI`.
+1. [x] Run `/check verify Sochestral chat workspace and connectors UI` (partial: see verify.md; SocialMCP live steps still blocked).
+2. [x] Run `/test Sochestral chat workspace and connectors UI` (unit suite already present; connectors unavailable platforms regression added).
+3. [ ] Amend or replace the split promo login (`web/src/components/auth`) so AC 10 quiet login holds, or revise AC 10 deliberately under a design pass. Until then treat promo chrome as known drift.
+4. [ ] Finish verify.md steps that need a live SocialMCP + Thesean (tool cards, real OAuth host open, live callback).
 
 ## Rationale
 

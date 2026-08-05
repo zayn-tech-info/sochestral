@@ -1,12 +1,24 @@
 # Verify Sochestral chat workspace and connectors
 
-1. Sign in through `/login` and confirm a valid session returns to the requested relative app path.
-2. Create a conversation, send another message, change conversations while a request is pending, load older history, and delete an idle conversation.
-3. Confirm tool cards show only persisted safe summaries and no MCP token, OAuth token, prompt, or raw provider error.
-4. Open `/app/settings/connectors` and confirm Threads, LinkedIn Personal, and Instagram always appear.
-5. Start each connect action and confirm only the expected provider host opens in the same tab.
-6. Simulate a SocialMCP outage and confirm the page says unavailable without changing an account to not connected.
-7. Complete an OAuth callback and confirm the browser returns with safe query values, then refreshes live account status.
-8. Test wide, tablet, and phone layouts with keyboard navigation and reduced motion enabled.
-9. Search visible web copy and confirm the product name is Sochestral.
-10. Confirm the orchestration allowlist and forced dry run behavior did not change.
+Recorded during Tracer Bullet close out (SOC-5), 2026-08-05. Services: product API `:8787`, web `:3000`. SocialMCP and Thesean were **not** running.
+
+| # | Check | Result | Evidence |
+|---|-------|--------|----------|
+| 1 | Sign in through `/login` and confirm a valid session returns to the requested relative app path. | **PASS** | Login with `returnTo=/app` landed on `/app/workspace`. Screenshots: soc4-01, soc4-02. |
+| 2 | Create a conversation, send another message, change conversations while a request is pending, load older history, and delete an idle conversation. | **PARTIAL** | Composer accepts input; send fails closed without Thesean (no crash). Full multi conversation / history / delete not exercised. |
+| 3 | Confirm tool cards show only persisted safe summaries and no MCP token, OAuth token, prompt, or raw provider error. | **BLOCKED** | Needs a successful orchestration turn with tool activity (Thesean + SocialMCP). Unit coverage exists in orchestration `safeToolSummary` / tools tests. |
+| 4 | Open `/app/settings/connectors` and confirm Threads, LinkedIn Personal, and Instagram always appear. | **PASS** (after fix) | Initially **FAIL**: empty list when SocialMCP down. Fixed in `connectors-settings.tsx` to seed empty platform shells and keep last known accounts. Re-verified: all three cards visible with unavailable banner. `soc5-connectors-platforms-after-fix.png`. |
+| 5 | Start each connect action and confirm only the expected provider host opens in the same tab. | **PARTIAL** | Connect buttons present after fix. Without SocialMCP, start connect shows a safe unavailable banner (no wrong host). Live authorize host open still needs SocialMCP. |
+| 6 | Simulate a SocialMCP outage and confirm the page says unavailable without changing an account to not connected. | **PASS** | Unavailable banner: existing accounts not marked disconnected. After fix, platforms still listed. Regression test keeps last known `@zayn` on failed refresh. |
+| 7 | Complete an OAuth callback and confirm the browser returns with safe query values, then refreshes live account status. | **PARTIAL** | Simulated `?platform=threads&result=connected` and `?result=error&code=TEST_CODE` show safe banners and keep platforms. Live SocialMCP callback not run. |
+| 8 | Test wide, tablet, and phone layouts with keyboard navigation and reduced motion enabled. | **PASS** | Desktop, tablet ~768, phone ~390 usable; Tab order on login works. Screenshots soc4-06..08. |
+| 9 | Search visible web copy and confirm the product name is Sochestral. | **PASS** | Branding on login and signed in shell. |
+| 10 | Confirm the orchestration allowlist and forced dry run behavior did not change. | **PASS** | `packages/orchestration/src/tools.test.ts` and related suites: allowlist `list_connected_accounts`, `validate_post`, `publish_now` with forced `dryRun: true`. No live Publish control in empty chat UI. |
+
+## Known drift
+
+- Login uses a **split promo** layout (`web/src/components/auth`). Spec AC 10 still describes a quieter centered product login. Deferred explicitly in 0004 Follow up item 3; do not treat as verify PASS for quiet chrome.
+
+## Overall
+
+**BLOCKED** for full Feature 4 close until SocialMCP + Thesean cover steps 2 (full), 3, 5 (live host), and 7 (live callback). Critical AC 4 empty connectors bug is **fixed and re-verified**.

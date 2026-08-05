@@ -89,7 +89,7 @@ describe("ConnectorsSettings", () => {
     expect(screen.getByRole("button", { name: "Reconnect" })).toBeInTheDocument();
   });
 
-  it("reports an unavailable service without calling accounts disconnected (AC 6)", async () => {
+  it("reports an unavailable service but still lists every platform (AC 4, AC 6)", async () => {
     vi.mocked(apiRequest).mockImplementation((path) =>
       path === "/publishing/preferences"
         ? Promise.resolve(preference)
@@ -100,7 +100,28 @@ describe("ConnectorsSettings", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Connector status is unavailable");
     expect(alert).toHaveTextContent("have not been marked as disconnected");
-    expect(screen.queryByText("No account connected yet")).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Threads" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "LinkedIn Personal" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Instagram" })).toBeInTheDocument();
+    expect(screen.queryByText("disconnected")).not.toBeInTheDocument();
+  });
+
+  it("keeps last known connected accounts when a refresh fails (AC 6)", async () => {
+    render(<ConnectorsSettings />);
+    await screen.findByRole("heading", { name: "Threads" });
+    expect(screen.getByText("@zayn")).toBeInTheDocument();
+
+    vi.mocked(apiRequest).mockImplementation((path) =>
+      path === "/publishing/preferences"
+        ? Promise.resolve(preference)
+        : Promise.reject(new Error("offline")),
+    );
+    window.dispatchEvent(new Event("focus"));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Connector status is unavailable");
+    expect(screen.getByText("@zayn")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect another" })).toBeInTheDocument();
   });
 
   it("refreshes connector status when the window regains focus (AC 6)", async () => {
