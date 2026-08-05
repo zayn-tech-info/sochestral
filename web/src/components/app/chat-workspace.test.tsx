@@ -238,8 +238,7 @@ describe("ChatWorkspace", () => {
     expect(screen.getByText("preview").tagName).toBe("STRONG");
   });
 
-  it("keeps persisted tool activity collapsed until requested (AC 3)", async () => {
-    const user = userEvent.setup();
+  it("hides tool activity from the chat transcript", () => {
     mocks.workspace.details = {
       conv_1: detail({
         turnActivities: [
@@ -264,82 +263,75 @@ describe("ChatWorkspace", () => {
     };
     render(<ChatWorkspace conversationId="conv_1" />);
 
-    const disclosure = screen.getByRole("button", { name: /Tool activity/i });
-    const assistantResponse = screen.getByText(/Your/);
-    expect(disclosure).toHaveAttribute("aria-expanded", "false");
-    expect(disclosure).toHaveTextContent("1 tool action");
-    expect(
-      assistantResponse.compareDocumentPosition(disclosure) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    await user.click(disclosure);
-
-    expect(disclosure).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("validate post")).toBeInTheDocument();
-    expect(screen.getByText("valid: true")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Tool activity/i })).toBeNull();
+    expect(screen.queryByText(/tool action/i)).toBeNull();
+    expect(screen.queryByText("validate post")).toBeNull();
   });
 
-  it("shows activity only beneath the assistant response that caused it", () => {
+  it("opens the live preview aside without a View review launcher", async () => {
+    vi.mocked(apiRequest).mockImplementation(async (path) => {
+      if (path === "/connectors") {
+        return {
+          connectors: [
+            {
+              platform: "threads",
+              state: "connected",
+              accounts: [
+                {
+                  id: "acct_1",
+                  username: "studio",
+                  displayName: "Studio",
+                  state: "connected",
+                },
+              ],
+            },
+          ],
+        };
+      }
+      return {};
+    });
     mocks.workspace.details = {
       conv_1: detail({
-        messages: [
-          {
-            id: "msg_1",
-            role: "user",
-            content: "Validate this Threads post",
-            sequence: 1,
-            createdAt: "2026-07-26T00:00:00.000Z",
-          },
-          {
-            id: "msg_2",
-            role: "assistant",
-            content: "The post is valid.",
-            sequence: 2,
-            createdAt: "2026-07-26T00:00:01.000Z",
-          },
-          {
-            id: "msg_3",
-            role: "user",
-            content: "Yeah",
-            sequence: 3,
-            createdAt: "2026-07-26T00:00:02.000Z",
-          },
-          {
-            id: "msg_4",
-            role: "assistant",
-            content: "What would you like to change?",
-            sequence: 4,
-            createdAt: "2026-07-26T00:00:03.000Z",
-          },
-        ],
         turnActivities: [
           {
             requestMessageId: "msg_1",
             assistantMessageId: "msg_2",
             runId: "run_1",
-            toolSummaries: [
+            toolSummaries: [],
+            reviewGroups: [
               {
-                id: "tool_1",
-                runId: "run_1",
-                toolName: "validate_post",
-                status: "succeeded",
-                summary: { valid: true },
-                safeError: null,
+                id: "review_1",
+                conversationId: "conv_1",
+                drafts: [
+                  {
+                    id: "draft_1",
+                    platform: "threads",
+                    body: "Hello threads",
+                    mediaUrls: [],
+                    selectedAccountId: "acct_1",
+                    revision: 1,
+                    status: "draft",
+                    validation: {
+                      errors: [],
+                      warnings: [],
+                      validatedRevision: 1,
+                    },
+                    latestAttempt: null,
+                  },
+                ],
               },
             ],
-            reviewGroups: [],
           },
         ],
       }),
     };
-
     render(<ChatWorkspace conversationId="conv_1" />);
 
-    const activity = screen.getByRole("button", { name: /Tool activity/i });
-    const firstResponse = screen.getByText("The post is valid.").closest("li");
-    const plainResponse = screen.getByText("What would you like to change?").closest("li");
-    expect(firstResponse).toContainElement(activity);
-    expect(plainResponse).not.toContainElement(activity);
+    expect(screen.queryByRole("button", { name: /View review/i })).toBeNull();
+    expect(
+      await screen.findByLabelText("Live platform preview"),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Threads post preview")).toBeInTheDocument();
   });
 
   it("announces pending work and blocks another send (AC 2)", () => {
@@ -390,6 +382,6 @@ describe("ChatWorkspace", () => {
     await user.click(screen.getByRole("button", { name: /^Delete$/ }));
 
     expect(mocks.workspace.deleteConversation).toHaveBeenCalledWith("conv_1");
-    expect(mocks.push).toHaveBeenCalledWith("/app");
+    expect(mocks.push).toHaveBeenCalledWith("/app/workspace");
   });
 });

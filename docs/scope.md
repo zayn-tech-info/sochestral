@@ -1,6 +1,8 @@
-# Scope: SocialMCP Product
+# Scope: SocialMCP Product (superseded)
 
-An AI social media manager for non technical business owners. They talk in plain language (web UI or optional messaging apps). The agent drafts, schedules, and publishes through official platform APIs. This monorepo holds the SocialMCP execution layer (MCP tools, adapters, worker) and the hosted product we build on top of it.
+**Superseded.** The living product scope for Sochestral is [`docs/scope/scope.md`](scope/scope.md). Keep this file only as historical context from when SocialMCP and the hosted product shared one planning doc.
+
+Sochestral is a business-strict AI social operator for physical product sellers, product founders, and builders who need steady online presence. Not a casual consumer tool. Users talk in plain language; the agent drafts, schedules, and publishes through official platform APIs.
 
 **Build approach:** Tracer Bullet (prove one real path through every layer before widening scope).
 **Weight profile:** multi tenant, orchestration, and Instagram are `full`; subscription tier design is `full`; most channel and agent features are `medium`.

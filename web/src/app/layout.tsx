@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Sora } from "next/font/google";
+import { Imprima, Inter, Sora } from "next/font/google";
 
 import "./globals.css";
 
@@ -11,6 +11,12 @@ const inter = Inter({
 const sora = Sora({
   subsets: ["latin"],
   variable: "--font-sora",
+});
+
+const imprima = Imprima({
+  subsets: ["latin"],
+  weight: "400",
+  variable: "--font-imprima",
 });
 
 export const metadata: Metadata = {
@@ -27,7 +33,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body
-        className={`${inter.variable} ${sora.variable} font-sans antialiased`}
+        className={`${inter.variable} ${sora.variable} ${imprima.variable} font-sans antialiased`}
       >
         {children}
       </body>

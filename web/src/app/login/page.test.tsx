@@ -29,7 +29,7 @@ async function signIn() {
   const user = userEvent.setup();
   await user.type(screen.getByLabelText("Email"), "person@example.com");
   await user.type(screen.getByLabelText("Password"), "password123");
-  await user.click(screen.getByRole("button", { name: /Enter workspace/ }));
+  await user.click(screen.getByRole("button", { name: /^Sign in$/i }));
 }
 
 describe("LoginPage", () => {
@@ -62,7 +62,7 @@ describe("LoginPage", () => {
 
     await signIn();
 
-    expect(navigation.replace).toHaveBeenCalledWith("/app");
+    expect(navigation.replace).toHaveBeenCalledWith("/app/workspace");
   });
 
   it("announces invalid credentials and associates the error with both inputs (AC 8)", async () => {
@@ -96,5 +96,30 @@ describe("LoginPage", () => {
       "The Sochestral API is unavailable. Please try again.",
     );
     expect(screen.queryByText("secret host")).not.toBeInTheDocument();
+  });
+
+  it("renders premium auth chrome without wiring secondary actions yet", () => {
+    render(<LoginPage />);
+
+    expect(
+      screen.getByRole("heading", { name: "Welcome back" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Manage every social channel from one intelligent workspace.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Continue with Google \(coming soon\)/i }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: /Continue with GitHub \(coming soon\)/i }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: /Forgot password \(coming soon\)/i }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: /Create account \(coming soon\)/i }),
+    ).toBeDisabled();
   });
 });

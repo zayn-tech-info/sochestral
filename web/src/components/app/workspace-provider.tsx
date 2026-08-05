@@ -54,7 +54,7 @@ type WorkspaceValue = {
 const WorkspaceContext = createContext<WorkspaceValue | null>(null);
 
 function safeReturnPath(pathname: string): string {
-  return pathname.startsWith("/app") ? pathname : "/app";
+  return pathname.startsWith("/app") ? pathname : "/app/workspace";
 }
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {

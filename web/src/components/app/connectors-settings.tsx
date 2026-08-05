@@ -130,11 +130,11 @@ export function ConnectorsSettings() {
 
   return (
     <AppShell
-      title="Connectors"
+      title="Connected accounts"
       description="Choose the social accounts Sochestral can safely work with."
     >
       <section
-        className="settings-content"
+        className="settings-content os-settings"
         aria-labelledby="available-socials-title"
       >
         <section className="publishing-settings" aria-labelledby="publishing-mode-title">

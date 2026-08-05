@@ -44,8 +44,9 @@ describe("PublishingModeControl", () => {
       });
     render(<PublishingModeControl source="settings" />);
 
-    const select = await screen.findByLabelText("Publishing mode");
-    await user.selectOptions(select, "full_access");
+    const trigger = await screen.findByRole("button", { name: "Publishing mode" });
+    await user.click(trigger);
+    await user.click(screen.getByRole("option", { name: /Full access/i }));
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveAttribute("open");
     const confirm = screen.getByRole("button", { name: "Confirm Full access" });
@@ -76,6 +77,8 @@ describe("PublishingModeControl", () => {
   it("keeps the selector disabled while rollout forces Always draft", async () => {
     vi.mocked(apiRequest).mockResolvedValue({ ...preference, enabled: false });
     render(<PublishingModeControl source="composer" compact />);
-    expect(await screen.findByLabelText("Publishing mode")).toBeDisabled();
+    expect(
+      await screen.findByRole("button", { name: "Publishing mode" }),
+    ).toBeDisabled();
   });
 });

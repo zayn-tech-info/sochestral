@@ -12,11 +12,21 @@ export const productMotion = {
     duration: 0.22,
     ease: [0.16, 1, 0.3, 1],
   },
+  label: {
+    duration: 0.18,
+    ease: [0.16, 1, 0.3, 1],
+  },
   sheet: {
     type: "spring",
     stiffness: 380,
     damping: 38,
     mass: 0.85,
+  },
+  rail: {
+    type: "spring",
+    stiffness: 420,
+    damping: 34,
+    mass: 0.78,
   },
 } as const;
 

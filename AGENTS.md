@@ -39,9 +39,16 @@ Local MCP identity: optional `SOCIALMCP_USER_ID` (defaults to `user_local_defaul
 
 Instagram Graph version: `INSTAGRAM_GRAPH_API_VERSION` (default `v21.0`).
 
+## Product (Sochestral)
+
+Business-strict AI social operator for three ICPs: physical product sellers (relevance and customers), founders launching a product (steady updates), and developers/builders who want to be seen while shipping. Not for casual “anyone who posts.” Prefer professional implementation and better practice defaults (official APIs, validated tool execution, review before live publish). Full intent and bar: `docs/scope/scope.md` and `docs/MASTER_PLAN.md`.
+
+Progress lives in `docs/scope/scope.md` (Progress snapshot + At a glance). Foundation and Slice 1 are largely built; close outs are verify/live smoke and Feature 12 rollout. Slice 2 (tiers, setup agent, channels) is not started.
+
 ## Context files
 
-- Product scope: `docs/scope/scope.md`
+- Product scope: `docs/scope/scope.md` (living; ignore stale `docs/scope.md`)
+- Product vision: `docs/MASTER_PLAN.md`
 - Platform capabilities: `docs/platform-capabilities.md`
 - Instagram setup: `docs/platform-setup/instagram.md`
 - Multi tenant identity: `docs/specs/0005-multi-tenant-identity.md`
