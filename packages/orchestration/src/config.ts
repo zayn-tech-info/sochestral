@@ -2,6 +2,8 @@ export type OrchestrationConfig = {
   theseanApiKey: string;
   theseanModel: string;
   theseanIntentModel: string;
+  theseanThinkingEnabled: boolean;
+  theseanThinkingBudgetTokens: number;
   socialMcpUrl: string;
   contextTokenLimit: number;
   outputTokenLimit: number;
@@ -40,6 +42,12 @@ export function loadOrchestrationConfig(
       env.THESEAN_INTENT_MODEL?.trim() ||
       env.THESEAN_MODEL?.trim() ||
       "ship-like/claude-sonnet-5",
+    theseanThinkingEnabled: env.THESEAN_THINKING_ENABLED === "true",
+    theseanThinkingBudgetTokens: positiveInteger(
+      env.THESEAN_THINKING_BUDGET_TOKENS,
+      2048,
+      "THESEAN_THINKING_BUDGET_TOKENS",
+    ),
     socialMcpUrl: required(env.SOCIALMCP_MCP_URL, "SOCIALMCP_MCP_URL"),
     contextTokenLimit: positiveInteger(
       env.ORCHESTRATION_CONTEXT_TOKEN_LIMIT,

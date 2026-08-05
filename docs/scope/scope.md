@@ -45,6 +45,7 @@ Treat the following as shipped in the external SocialMCP repo. This SaaS scope o
 | 10 | Web product UI | Slice 2 | planned |
 | 11 | Structured memory and correction loop | Slice 3 | planned |
 | 12 | Configurable publishing authority and image uploads | Slice 3 | in-progress |
+| 13 | Intent clarify and Thinking UI | Slice 3 | in-progress |
 | — | Operator comment/mention handling | Deferred | planned |
 | — | Video and image generation pipeline | Deferred | planned |
 | — | Facebook Pages (after MCP adapter exists) | Deferred | planned |
@@ -193,6 +194,21 @@ Users choose Always draft, Approve for me, or Full access across conversations. 
   - [ ] Complete storage, vision, contract, and rollout checks
 - [ ] Verify it: `/check verify configurable publishing authority and image uploads`
 - [ ] Test it: `/test configurable publishing authority and image uploads`
+
+### 13. Intent clarify and Thinking UI · medium · in-progress
+
+When Approve for me or Full access cannot tell live publish from draft, ask instead of silently drafting. Chat shows a Thinking disclosure with safe step labels and optional Thesean model reasoning over NDJSON streaming.
+**Done when:** unclear intent never calls `prepare_review`; clarify copy is product owned; stream emits safe steps and sanitized thinking; web shows an expandable Thinking control.
+**Spec:** [0007](../specs/0007-intent-clarify-thinking-ui/index.md)
+**Code:** `packages/database`, `packages/orchestration`, `packages/api`, `web/src/components/app`
+- [x] Design it (spec): `/architect intent clarify and Thinking UI`
+- [ ] Build it: `/develop intent clarify and Thinking UI`
+  - [x] Ternary intent + unclear clarify turn
+  - [x] Thinking persist + Thesean flag
+  - [x] NDJSON stream with step and thinking events
+  - [x] Web Thinking disclosure + stream client
+- [ ] Verify it: `/check verify intent clarify and Thinking UI`
+- [ ] Test it: `/test intent clarify and Thinking UI`
 
 ## Deferred
 

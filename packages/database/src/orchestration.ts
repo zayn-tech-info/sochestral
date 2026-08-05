@@ -72,6 +72,7 @@ export type CreateTurnInput = {
   publishingConsentVersion?: string | null;
   publishingAuthorityEventId?: string | null;
   explicitLiveIntent?: boolean;
+  liveIntentKind?: "live" | "draft" | "unclear" | null;
   staleRunBefore?: Date;
 };
 
@@ -198,6 +199,7 @@ function runValues(
     publishingConsentVersion: input.publishingConsentVersion ?? null,
     publishingAuthorityEventId: input.publishingAuthorityEventId ?? null,
     explicitLiveIntent: input.explicitLiveIntent ?? false,
+    liveIntentKind: input.liveIntentKind ?? null,
   } as const;
 }
 
@@ -567,6 +569,7 @@ export async function updateRunUsage(
     providerAttempts?: number;
     inputTokens?: number;
     outputTokens?: number;
+    thinkingText?: string | null;
   },
 ): Promise<void> {
   await db
@@ -588,6 +591,9 @@ export async function updateRunUsage(
         input.outputTokens === undefined
           ? undefined
           : sql`coalesce(${orchestrationRuns.outputTokens}, 0) + ${input.outputTokens}`,
+      ...(input.thinkingText !== undefined
+        ? { thinkingText: input.thinkingText }
+        : {}),
     })
     .where(eq(orchestrationRuns.id, runId));
 }

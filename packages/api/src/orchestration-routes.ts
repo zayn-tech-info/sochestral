@@ -1,5 +1,6 @@
 import type { Context, Hono } from "hono";
 import { getCookie, deleteCookie } from "hono/cookie";
+import { stream } from "hono/streaming";
 import {
   SESSION_COOKIE_NAME,
   validateSessionToken,
@@ -7,6 +8,7 @@ import {
 import type { Database } from "@sochestral/database";
 import {
   OrchestrationError,
+  createSequenceSink,
   type OrchestrationService,
 } from "@sochestral/orchestration";
 import type { Env } from "./app.js";
@@ -29,6 +31,20 @@ function errorResponse(error: unknown): {
   return { body: { error: "INTERNAL_ERROR" }, status: 500 };
 }
 
+function mutationInput(input: Record<string, unknown> | null) {
+  return {
+    message: typeof input?.message === "string" ? input.message : "",
+    requestId: typeof input?.requestId === "string" ? input.requestId : "",
+    ...(Array.isArray(input?.mediaAssetIds)
+      ? {
+          mediaAssetIds: input.mediaAssetIds.filter(
+            (value: unknown): value is string => typeof value === "string",
+          ),
+        }
+      : {}),
+  };
+}
+
 export function registerOrchestrationRoutes(
   app: Hono<Env>,
   db: Database["db"],
@@ -48,23 +64,35 @@ export function registerOrchestrationRoutes(
     if (!user) return c.json({ error: "UNAUTHORIZED" }, 401);
     const input = await c.req.json().catch(() => null);
     try {
-      const result = await getService().createConversation(user.id, {
-        message: typeof input?.message === "string" ? input.message : "",
-        requestId:
-          typeof input?.requestId === "string" ? input.requestId : "",
-        ...(Array.isArray(input?.mediaAssetIds)
-          ? {
-              mediaAssetIds: input.mediaAssetIds.filter(
-                (value: unknown): value is string => typeof value === "string",
-              ),
-            }
-          : {}),
-      });
+      const result = await getService().createConversation(
+        user.id,
+        mutationInput(input),
+      );
       return c.json(result, 200);
     } catch (error) {
       const mapped = errorResponse(error);
       return c.json(mapped.body, mapped.status);
     }
+  });
+
+  app.post("/orchestration/conversations/stream", async (c) => {
+    const user = await sessionUser(c);
+    if (!user) return c.json({ error: "UNAUTHORIZED" }, 401);
+    const input = await c.req.json().catch(() => null);
+    const body = mutationInput(input);
+    c.header("Content-Type", "application/x-ndjson; charset=utf-8");
+    c.header("Cache-Control", "no-store, no-transform");
+    c.header("X-Accel-Buffering", "no");
+    return stream(c, async (writer) => {
+      const sink = createSequenceSink((event) => {
+        void writer.write(`${JSON.stringify(event)}\n`);
+      });
+      try {
+        await getService().createConversationStream(user.id, body, sink);
+      } catch {
+        // Terminal turn_failed is emitted inside the service stream helper.
+      }
+    });
   });
 
   app.get("/orchestration/conversations", async (c) => {
@@ -91,24 +119,39 @@ export function registerOrchestrationRoutes(
       const result = await getService().addMessage(
         user.id,
         c.req.param("id"),
-        {
-          message: typeof input?.message === "string" ? input.message : "",
-          requestId:
-            typeof input?.requestId === "string" ? input.requestId : "",
-          ...(Array.isArray(input?.mediaAssetIds)
-            ? {
-                mediaAssetIds: input.mediaAssetIds.filter(
-                  (value: unknown): value is string => typeof value === "string",
-                ),
-              }
-            : {}),
-        },
+        mutationInput(input),
       );
       return c.json(result, 200);
     } catch (error) {
       const mapped = errorResponse(error);
       return c.json(mapped.body, mapped.status);
     }
+  });
+
+  app.post("/orchestration/conversations/:id/messages/stream", async (c) => {
+    const user = await sessionUser(c);
+    if (!user) return c.json({ error: "UNAUTHORIZED" }, 401);
+    const input = await c.req.json().catch(() => null);
+    const body = mutationInput(input);
+    const conversationId = c.req.param("id");
+    c.header("Content-Type", "application/x-ndjson; charset=utf-8");
+    c.header("Cache-Control", "no-store, no-transform");
+    c.header("X-Accel-Buffering", "no");
+    return stream(c, async (writer) => {
+      const sink = createSequenceSink((event) => {
+        void writer.write(`${JSON.stringify(event)}\n`);
+      });
+      try {
+        await getService().addMessageStream(
+          user.id,
+          conversationId,
+          body,
+          sink,
+        );
+      } catch {
+        // Terminal turn_failed is emitted inside the service stream helper.
+      }
+    });
   });
 
   app.get("/orchestration/conversations/:id", async (c) => {

@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
-import { apiRequest, type ToolSummary } from "@/lib/product-api";
+import { apiRequest, STREAM_STEP_LABELS, type StreamEvent, type StreamStep, type ToolSummary } from "@/lib/product-api";
 import { AppShell } from "./app-shell";
 import { MessageMarkdown } from "./message-markdown";
 import { productMotion } from "./product-motion-provider";
@@ -105,6 +105,60 @@ function ToolActivity({ items }: { items: ToolSummary[] }) {
   );
 }
 
+function ThinkingDisclosure({
+  label,
+  thinking,
+  live = false,
+}: {
+  label: string;
+  thinking: string | null;
+  live?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
+  const reduceMotion = useReducedMotion();
+  const body =
+    thinking?.trim() ||
+    (live
+      ? "Waiting for model reasoning…"
+      : "Reasoning unavailable for this model.");
+
+  return (
+    <div
+      className={`activity-card activity-group thinking-card${open ? " activity-card-open" : ""}`}
+    >
+      <button
+        type="button"
+        className="activity-summary"
+        aria-expanded={open}
+        aria-controls={panelId}
+        aria-label={`Thinking, ${label}`}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className="activity-icon">
+          {live ? (
+            <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <CheckCircle2 className="size-4" aria-hidden="true" />
+          )}
+        </span>
+        <span className="activity-label">{label}</span>
+        <ChevronRight className="activity-chevron size-4" aria-hidden="true" />
+      </button>
+      <motion.div
+        id={panelId}
+        initial={false}
+        animate={{ height: open ? "auto" : 0, opacity: open ? 1 : 0 }}
+        transition={reduceMotion ? { duration: 0 } : productMotion.quick}
+        className="activity-disclosure"
+        aria-hidden={!open}
+      >
+        <pre className="thinking-body">{body}</pre>
+      </motion.div>
+    </div>
+  );
+}
+
 export function ChatWorkspace({
   conversationId,
 }: {
@@ -118,6 +172,8 @@ export function ChatWorkspace({
   const [message, setMessage] = useState("");
   const [optimisticMessage, setOptimisticMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [liveStep, setLiveStep] = useState<StreamStep | null>(null);
+  const [liveThinking, setLiveThinking] = useState("");
   const [selectedMedia, setSelectedMedia] = useState<SelectedMedia[]>([]);
   const [optimisticMedia, setOptimisticMedia] = useState<SelectedMedia[]>([]);
   const {
@@ -138,6 +194,24 @@ export function ChatWorkspace({
       activity.assistantMessageId,
       activity,
     ]),
+  );
+  const thinkingByAssistantId = new Map(
+    (detail?.turnActivities ?? []).map((activity) => {
+      const run = detail?.runs.find((item) => item.id === activity.runId);
+      return [activity.assistantMessageId, run?.thinkingText ?? null] as const;
+    }),
+  );
+  const stepByAssistantId = new Map(
+    (detail?.turnActivities ?? []).map((activity) => {
+      const run = detail?.runs.find((item) => item.id === activity.runId);
+      const label =
+        run?.explicitLiveIntent
+          ? STREAM_STEP_LABELS.publishing
+          : activity.toolSummaries.some((tool) => tool.toolName === "prepare_review")
+            ? STREAM_STEP_LABELS.preparing_draft
+            : "Thinking";
+      return [activity.assistantMessageId, label] as const;
+    }),
   );
   const mediaPreviews = Object.fromEntries(
     (detail?.messages ?? []).flatMap((item) =>
@@ -181,11 +255,25 @@ export function ChatWorkspace({
     setOptimisticMessage(clean);
     setOptimisticMedia(selectedMedia);
     setSubmitting(true);
+    setLiveStep(null);
+    setLiveThinking("");
+    const onStreamEvent = (event: StreamEvent) => {
+      if (event.type === "step_started" && event.step) {
+        setLiveStep(event.step);
+      }
+      if (event.type === "thinking_delta" && event.delta) {
+        setLiveThinking((current) => `${current}${event.delta}`);
+      }
+    };
     try {
       const mediaAssetIds = selectedMedia.flatMap((item) => item.assetId ? [item.assetId] : []);
-      const createdId = mediaAssetIds.length > 0
-        ? await sendMessage(conversationId, clean, retry ?? undefined, mediaAssetIds)
-        : await sendMessage(conversationId, clean, retry ?? undefined);
+      const createdId = await sendMessage(
+        conversationId,
+        clean,
+        retry ?? undefined,
+        mediaAssetIds,
+        onStreamEvent,
+      );
       if (createdId) {
         selectedMedia.forEach((item) => URL.revokeObjectURL(item.previewUrl));
         setSelectedMedia([]);
@@ -203,6 +291,8 @@ export function ChatWorkspace({
       }
     } finally {
       setSubmitting(false);
+      setLiveStep(null);
+      setLiveThinking("");
     }
   }
 
@@ -448,15 +538,21 @@ export function ChatWorkspace({
                       {item.role === "assistant" ? (
                         <>
                           <MessageMarkdown content={item.content} />
-                          {activity?.toolSummaries.length ? (
+                          {activity || thinkingByAssistantId.get(item.id) ? (
                             <motion.section
                               initial={{ opacity: 0, y: 4 }}
                               animate={{ opacity: 1, y: 0 }}
                               transition={productMotion.enter}
                               className="activity-stack"
-                              aria-label="Tool activity"
+                              aria-label="Thinking and tool activity"
                             >
-                              <ToolActivity items={activity.toolSummaries} />
+                              <ThinkingDisclosure
+                                label={stepByAssistantId.get(item.id) ?? "Thinking"}
+                                thinking={thinkingByAssistantId.get(item.id) ?? null}
+                              />
+                              {activity?.toolSummaries.length ? (
+                                <ToolActivity items={activity.toolSummaries} />
+                              ) : null}
                             </motion.section>
                           ) : null}
                           {conversationId
@@ -523,9 +619,15 @@ export function ChatWorkspace({
                     aria-label="Sochestral is working"
                   >
                     <span className="message-author">Sochestral</span>
-                    <span className="assistant-progress" aria-hidden="true">
-                      <LoaderCircle className="animate-spin" />
-                    </span>
+                    <ThinkingDisclosure
+                      label={
+                        liveStep
+                          ? STREAM_STEP_LABELS[liveStep]
+                          : "Thinking"
+                      }
+                      thinking={liveThinking || null}
+                      live
+                    />
                   </motion.li>
                 ) : null}
               </ol>

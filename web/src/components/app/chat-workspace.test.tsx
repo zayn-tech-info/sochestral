@@ -155,6 +155,8 @@ describe("ChatWorkspace", () => {
       null,
       "Draft a Threads post",
       undefined,
+      [],
+      expect.any(Function),
     );
     expect(mocks.push).toHaveBeenCalledWith("/app/chat/conv_1");
   });
@@ -189,6 +191,7 @@ describe("ChatWorkspace", () => {
       "Publish this image",
       undefined,
       ["media_owned1"],
+      expect.any(Function),
     );
   });
 
@@ -206,6 +209,8 @@ describe("ChatWorkspace", () => {
       null,
       "Which social accounts are connected?",
       undefined,
+      [],
+      expect.any(Function),
     );
   });
 
@@ -222,10 +227,10 @@ describe("ChatWorkspace", () => {
   });
 
   it("renders a conversation detail that omits turnActivities", () => {
-    const incomplete = detail() as ConversationDetail & {
-      turnActivities?: ConversationDetail["turnActivities"];
-    };
-    delete incomplete.turnActivities;
+    const incomplete = {
+      ...detail(),
+      turnActivities: undefined,
+    } as unknown as ConversationDetail;
     mocks.workspace.details = { conv_1: incomplete };
     render(<ChatWorkspace conversationId="conv_1" />);
 

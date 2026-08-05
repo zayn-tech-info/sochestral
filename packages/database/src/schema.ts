@@ -375,6 +375,8 @@ export const orchestrationRuns = pgTable(
       { onDelete: "set null" },
     ),
     explicitLiveIntent: boolean("explicit_live_intent").notNull().default(false),
+    liveIntentKind: text("live_intent_kind"),
+    thinkingText: text("thinking_text"),
     modelStepCount: integer("model_step_count").notNull().default(0),
     providerAttemptCount: integer("provider_attempt_count").notNull().default(0),
     inputTokens: integer("input_tokens"),
@@ -409,6 +411,10 @@ export const orchestrationRuns = pgTable(
     check(
       "orchestration_runs_publishing_mode_check",
       sql`${table.publishingMode} in ('always_draft', 'approve_for_me', 'full_access')`,
+    ),
+    check(
+      "orchestration_runs_live_intent_kind_check",
+      sql`${table.liveIntentKind} is null or ${table.liveIntentKind} in ('live', 'draft', 'unclear')`,
     ),
   ],
 );

@@ -14,9 +14,11 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   ApiError,
   apiRequest,
+  apiStreamTurn,
   type Conversation,
   type ConversationDetail,
   type ProductUser,
+  type StreamEvent,
   type TurnResponse,
 } from "@/lib/product-api";
 
@@ -44,6 +46,7 @@ type WorkspaceValue = {
     message: string,
     retry?: RetryItem,
     mediaAssetIds?: string[],
+    onStreamEvent?: (event: StreamEvent) => void,
   ) => Promise<string | null>;
   deleteConversation: (id: string) => Promise<void>;
 };
@@ -185,6 +188,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       message: string,
       retry?: RetryItem,
       mediaAssetIds: string[] = [],
+      onStreamEvent?: (event: StreamEvent) => void,
     ) => {
       const key = conversationId ?? "new";
       const requestId =
@@ -197,18 +201,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
       try {
         const effectiveMediaAssetIds = retry?.mediaAssetIds ?? mediaAssetIds;
-        const result = await apiRequest<TurnResponse>(
-          conversationId
-            ? `/orchestration/conversations/${conversationId}/messages`
-            : "/orchestration/conversations",
+        const path = conversationId
+          ? `/orchestration/conversations/${conversationId}/messages/stream`
+          : "/orchestration/conversations/stream";
+        const result = await apiStreamTurn(
+          path,
           {
-            method: "POST",
-            body: JSON.stringify({
-              message,
-              requestId,
-              ...(effectiveMediaAssetIds.length > 0 ? { mediaAssetIds: effectiveMediaAssetIds } : {}),
-            }),
+            message,
+            requestId,
+            ...(effectiveMediaAssetIds.length > 0
+              ? { mediaAssetIds: effectiveMediaAssetIds }
+              : {}),
           },
+          (event) => onStreamEvent?.(event),
         );
         setDetails((current) => {
           const next = {

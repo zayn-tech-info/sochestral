@@ -80,11 +80,22 @@ export {
   LIVE_PUBLISH_INTENT_TOOL_NAME,
   LIVE_PUBLISH_INTENT_USER_MESSAGE_END,
   LIVE_PUBLISH_INTENT_USER_MESSAGE_START,
+  intentClarification,
+  localDraftIntent,
   resolveExplicitLivePublishIntent,
+  resolveLivePublishIntent,
   vetoesExplicitLivePublishIntent,
   wrapUserMessageForIntentClassification,
   PublishingPreferenceError,
   PublishingPreferenceService,
+  type LiveIntentKind,
   type PublicPublishingPreference,
   type PublishingAuthoritySnapshot,
 } from "./publishing.js";
+export {
+  createSequenceSink,
+  STEP_LABELS,
+  type OrchestrationStreamEvent,
+  type OrchestrationStreamSink,
+  type OrchestrationStreamStep,
+} from "./stream.js";

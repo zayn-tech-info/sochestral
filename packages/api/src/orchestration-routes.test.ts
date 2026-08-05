@@ -52,6 +52,8 @@ const turnResponse: TurnResponse = {
     completedAt: "2026-07-26T00:00:01.000Z",
     publishingMode: "always_draft",
     explicitLiveIntent: false,
+    liveIntentKind: null,
+    thinkingText: null,
   },
   toolSummaries: [],
   reviewGroups: [],
@@ -61,7 +63,17 @@ const turnResponse: TurnResponse = {
 function serviceMock(): OrchestrationService {
   return {
     createConversation: vi.fn().mockResolvedValue(turnResponse),
+    createConversationStream: vi.fn().mockImplementation(async (_userId, _input, sink) => {
+      sink.emit({ type: "turn_started" });
+      sink.emit({ type: "turn_completed", result: turnResponse });
+      return turnResponse;
+    }),
     addMessage: vi.fn().mockResolvedValue(turnResponse),
+    addMessageStream: vi.fn().mockImplementation(async (_userId, _id, _input, sink) => {
+      sink.emit({ type: "turn_started" });
+      sink.emit({ type: "turn_completed", result: turnResponse });
+      return turnResponse;
+    }),
     listConversations: vi.fn().mockResolvedValue({
       conversations: [turnResponse.conversation],
       nextCursor: null,
@@ -188,7 +200,10 @@ describe("orchestration API routes", () => {
       },
     );
     expect(history.status).toBe(200);
-    const historyBody = await history.json();
+    const historyBody = (await history.json()) as {
+      turnActivities: unknown;
+      reviewGroups: unknown;
+    };
     expect(Array.isArray(historyBody.turnActivities)).toBe(true);
     expect(Array.isArray(historyBody.reviewGroups)).toBe(true);
     expect(service.getConversation).toHaveBeenCalledWith(

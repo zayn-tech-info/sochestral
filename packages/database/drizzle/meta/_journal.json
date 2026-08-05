@@ -50,6 +50,13 @@
       "when": 1785624110784,
       "tag": "0006_mighty_jetstream",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785930000000,
+      "tag": "0007_intent_clarify_thinking",
+      "breakpoints": true
     }
   ]
 }

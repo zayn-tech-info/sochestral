@@ -103,7 +103,106 @@ export type Run = {
   safeError: string | null;
   publishingMode?: PublishingMode;
   explicitLiveIntent?: boolean;
+  liveIntentKind?: "live" | "draft" | "unclear" | null;
+  thinkingText?: string | null;
 };
+
+export type StreamStep =
+  | "checking_intent"
+  | "clarifying_intent"
+  | "preparing_draft"
+  | "validating"
+  | "publishing";
+
+export type StreamEvent = {
+  type: string;
+  sequence?: number;
+  step?: StreamStep;
+  delta?: string;
+  toolName?: string;
+  status?: string;
+  error?: string;
+  result?: TurnResponse;
+};
+
+export const STREAM_STEP_LABELS: Record<StreamStep, string> = {
+  checking_intent: "Checking intent",
+  clarifying_intent: "Clarifying intent",
+  preparing_draft: "Preparing a draft",
+  validating: "Validating",
+  publishing: "Publishing",
+};
+
+export async function apiStreamTurn(
+  path: string,
+  body: Record<string, unknown>,
+  onEvent: (event: StreamEvent) => void,
+): Promise<TurnResponse> {
+  const response = await fetch(`${apiBase}${path}`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+    if (
+      response.status === 401 &&
+      typeof window !== "undefined"
+    ) {
+      const returnTo = window.location.pathname.startsWith("/app")
+        ? window.location.pathname
+        : "/app";
+      window.location.assign(
+        `/login?returnTo=${encodeURIComponent(returnTo)}`,
+      );
+    }
+    throw new ApiError(
+      response.status,
+      typeof payload.error === "string" ? payload.error : "REQUEST_FAILED",
+      payload,
+    );
+  }
+
+  if (!response.body) {
+    throw new ApiError(502, "STREAM_UNAVAILABLE", {});
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let terminal: TurnResponse | null = null;
+  let failedCode: string | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const event = JSON.parse(trimmed) as StreamEvent;
+      onEvent(event);
+      if (event.type === "turn_completed" && event.result) {
+        terminal = event.result as TurnResponse;
+      }
+      if (event.type === "turn_failed") {
+        failedCode = event.error ?? "INTERNAL_ERROR";
+        if (event.result) terminal = event.result as TurnResponse;
+      }
+    }
+  }
+
+  if (terminal) return terminal;
+  if (failedCode) throw new ApiError(500, failedCode, {});
+  throw new ApiError(502, "STREAM_INCOMPLETE", {});
+}
 
 export type ToolSummary = {
   id: string;

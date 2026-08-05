@@ -14,6 +14,8 @@ describe("loadOrchestrationConfig", () => {
       theseanApiKey: "thesean-secret",
       theseanModel: "ship-like/claude-sonnet-5",
       theseanIntentModel: "ship-like/claude-sonnet-5",
+      theseanThinkingEnabled: false,
+      theseanThinkingBudgetTokens: 2048,
       socialMcpUrl: "https://social.example/mcp",
       contextTokenLimit: 6000,
       outputTokenLimit: 1500,
