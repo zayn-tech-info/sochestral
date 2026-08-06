@@ -15,8 +15,8 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages ./packages
 COPY scripts ./scripts
 
-# Full install: packages run as TypeScript via tsx in production image.
-RUN pnpm install --frozen-lockfile
+# Runtime uses tsx (declared as a package dependency for api + database).
+RUN pnpm install --frozen-lockfile --prod
 
 FROM base AS runtime
 

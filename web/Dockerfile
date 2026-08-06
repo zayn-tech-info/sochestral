@@ -12,10 +12,15 @@ COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
 # Must be set at *build* time (inlined into the browser bundle).
-ARG NEXT_PUBLIC_API_URL=https://api.sochestral.shop
+# No production default: Fly passes this via fly.toml [build.args]; local builds must set it.
+ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
-RUN npm run build
+RUN if [ -z "$NEXT_PUBLIC_API_URL" ]; then \
+      echo "NEXT_PUBLIC_API_URL build arg is required" >&2; \
+      exit 1; \
+    fi \
+  && npm run build
 
 FROM base AS runner
 ENV NODE_ENV=production

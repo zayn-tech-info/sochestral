@@ -80,7 +80,15 @@ jobs:
     if: needs.changes.outputs.web == 'true'
     steps:
       - uses: actions/checkout@v4
-      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Require FLY_API_TOKEN
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          if [ -z "${FLY_API_TOKEN}" ]; then
+            echo "::error::FLY_API_TOKEN secret is empty. Add a Fly deploy token at Repo → Settings → Secrets → Actions."
+            exit 1
+          fi
+      - uses: superfly/flyctl-actions/setup-flyctl@v1
       - name: Deploy web
         working-directory: web
         run: flyctl deploy --remote-only --app sochestral --config fly.toml
@@ -94,7 +102,15 @@ jobs:
     if: needs.changes.outputs.api == 'true'
     steps:
       - uses: actions/checkout@v4
-      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Require FLY_API_TOKEN
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          if [ -z "${FLY_API_TOKEN}" ]; then
+            echo "::error::FLY_API_TOKEN secret is empty. Add a Fly deploy token at Repo → Settings → Secrets → Actions."
+            exit 1
+          fi
+      - uses: superfly/flyctl-actions/setup-flyctl@v1
       - name: Deploy API
         run: flyctl deploy --remote-only --app sochestral-api --config fly.api.toml
         env:
