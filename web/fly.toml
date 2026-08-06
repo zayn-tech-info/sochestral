@@ -1,12 +1,12 @@
 # Sochestral web (marketing + product UI)
 # From this directory:
-#   fly apps create sochestral-web   # first time only
+#   fly apps create sochestral   # first time only
 #   fly deploy
 # Domains:
 #   fly certs add sochestral.shop
 #   fly certs add app.sochestral.shop
 
-app = "sochestral-web"
+app = "sochestral"
 primary_region = "lhr"
 
 [build]
