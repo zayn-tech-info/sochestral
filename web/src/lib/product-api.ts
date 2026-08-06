@@ -1,5 +1,7 @@
-export const apiBase =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
+export const apiBase = (() => {
+  const raw = process.env.NEXT_PUBLIC_API_URL?.trim();
+  return raw && raw.length > 0 ? raw.replace(/\/$/, "") : "http://localhost:8787";
+})();
 
 export class ApiError extends Error {
   constructor(

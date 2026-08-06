@@ -11,8 +11,8 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
-# Baked into the client bundle at build time (optional until product API is live).
-ARG NEXT_PUBLIC_API_URL=
+# Must be set at *build* time (inlined into the browser bundle).
+ARG NEXT_PUBLIC_API_URL=https://api.sochestral.shop
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 RUN npm run build
