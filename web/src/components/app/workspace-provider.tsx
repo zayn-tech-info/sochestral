@@ -19,7 +19,6 @@ import {
   type ConversationDetail,
   type ProductUser,
   type StreamEvent,
-  type TurnResponse,
 } from "@/lib/product-api";
 
 type RetryItem = {

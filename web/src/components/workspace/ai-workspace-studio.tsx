@@ -112,7 +112,7 @@ export function AiWorkspaceStudio() {
                 role="listitem"
                 className={cn(
                   "os-prompt-pill",
-                  item.accent && "os-prompt-pill-accent",
+                  "accent" in item && item.accent && "os-prompt-pill-accent",
                 )}
                 disabled={busy}
                 onClick={() => void startPrompt(item.prompt)}
