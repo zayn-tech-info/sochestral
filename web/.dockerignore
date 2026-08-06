@@ -1,0 +1,13 @@
+node_modules
+.next
+.next-dev
+.git
+.env
+.env.*
+*.md
+coverage
+tsconfig.tsbuildinfo
+npm-debug.log*
+Dockerfile
+.dockerignore
+fly.toml
