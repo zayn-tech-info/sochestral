@@ -93,6 +93,13 @@ export function createApp(
     await next();
   });
 
+  app.get("/health", (c) =>
+    c.json({
+      ok: true,
+      service: "sochestral-api",
+    }),
+  );
+
   app.post("/auth/login", async (c) => {
     const body = await c.req.json().catch(() => null);
     const email = typeof body?.email === "string" ? body.email : "";

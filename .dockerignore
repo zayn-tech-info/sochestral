@@ -1,0 +1,17 @@
+# Context: monorepo root (used with Dockerfile.api)
+node_modules
+**/node_modules
+.git
+.agents
+.cursor
+.pnpm-store
+web
+docs
+**/*.md
+**/.env
+**/.env.*
+!**/.env.example
+**/*.log
+**/.DS_Store
+test-preferences.json
+skills-lock.json
