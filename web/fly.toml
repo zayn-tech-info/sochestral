@@ -1,32 +1,30 @@
-# Sochestral web (marketing + product UI)
-# From this directory:
-#   fly apps create sochestral   # first time only
-#   fly deploy
-# Domains:
-#   fly certs add sochestral.shop
-#   fly certs add app.sochestral.shop
+# fly.toml app configuration file generated for sochestral on 2026-08-06T14:52:57Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
-app = "sochestral"
-primary_region = "lhr"
+app = 'sochestral'
+primary_region = 'lhr'
 
 [build]
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
-  processes = ["app"]
+  processes = ['app']
 
   [[http_service.checks]]
-    interval = "30s"
-    timeout = "5s"
-    grace_period = "15s"
-    method = "GET"
-    path = "/"
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '15s'
+    method = 'GET'
+    path = '/'
 
 [[vm]]
-  memory = "512mb"
-  cpu_kind = "shared"
+  memory = '512mb'
+  cpu_kind = 'shared'
   cpus = 1
+  memory_mb = 512
