@@ -1,5 +1,5 @@
-import { ChatWorkspace } from "@/components/app/chat-workspace";
+import { redirect } from "next/navigation";
 
-export default function NewChatPage() {
-  return <ChatWorkspace conversationId={null} />;
+export default function AppIndexPage() {
+  redirect("/app/workspace");
 }

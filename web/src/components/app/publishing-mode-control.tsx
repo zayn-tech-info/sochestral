@@ -1,13 +1,20 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { Check, ChevronDown, ShieldAlert, X } from "lucide-react";
+import { Check, ShieldAlert, X } from "lucide-react";
 import {
   ApiError,
   apiRequest,
   type PublishingMode,
   type PublishingPreference,
 } from "@/lib/product-api";
+import { SelectChip } from "@/components/workspace/select-chip";
+
+const modeOptions = [
+  { value: "always_draft", label: "Always draft" },
+  { value: "approve_for_me", label: "Approve for me" },
+  { value: "full_access", label: "Full access" },
+] as const;
 
 export function PublishingModeControl({
   source,
@@ -75,22 +82,19 @@ export function PublishingModeControl({
 
   return (
     <div className={`publishing-mode-control${compact ? " publishing-mode-compact" : ""}`}>
-      <label>
-        <span className={compact ? "sr-only" : "publishing-mode-label"}>Publishing mode</span>
-        <span className="publishing-mode-select-wrap">
-          <select
-            value={preference?.currentMode ?? "always_draft"}
-            onChange={(event) => select(event.target.value as PublishingMode)}
-            disabled={!preference || busy || !preference.enabled}
-            aria-describedby={error ? descriptionId : undefined}
-          >
-            <option value="always_draft">Always draft</option>
-            <option value="approve_for_me">Approve for me</option>
-            <option value="full_access">Full access</option>
-          </select>
-          <ChevronDown aria-hidden="true" />
+      <div className="publishing-mode-field">
+        <span className={compact ? "sr-only" : "publishing-mode-label"}>
+          Publishing mode
         </span>
-      </label>
+        <SelectChip
+          label="Publishing mode"
+          className={compact ? "os-select-chip-compact" : undefined}
+          value={preference?.currentMode ?? "always_draft"}
+          onChange={(value) => select(value as PublishingMode)}
+          disabled={!preference || busy || !preference.enabled}
+          options={modeOptions}
+        />
+      </div>
       {!compact && preference ? (
         <p>
           {preference.enabled
@@ -102,7 +106,11 @@ export function PublishingModeControl({
             : "Always draft is enforced while publishing authority rollout checks finish."}
         </p>
       ) : null}
-      {error ? <p id={descriptionId} className="publishing-mode-error" role="alert">{error}</p> : null}
+      {error ? (
+        <p id={descriptionId} className="publishing-mode-error" role="alert">
+          {error}
+        </p>
+      ) : null}
 
       <dialog
         ref={dialogRef}
@@ -112,21 +120,37 @@ export function PublishingModeControl({
         onClose={() => setAcknowledged(false)}
       >
         <header>
-          <span><ShieldAlert aria-hidden="true" /></span>
+          <span>
+            <ShieldAlert aria-hidden="true" />
+          </span>
           <div>
             <h2 id="full-access-title">Turn on Full access?</h2>
             <p id="full-access-description">
-              Sochestral may publish an explicit live request to your connected social accounts without opening review first.
+              Sochestral may publish an explicit live request to your connected
+              social accounts without opening review first.
             </p>
           </div>
-          <button type="button" onClick={() => dialogRef.current?.close()} aria-label="Close Full access warning">
+          <button
+            type="button"
+            onClick={() => dialogRef.current?.close()}
+            aria-label="Close Full access warning"
+          >
             <X aria-hidden="true" />
           </button>
         </header>
         <ul>
-          <li><Check aria-hidden="true" /> Ownership and connected account checks still apply.</li>
-          <li><Check aria-hidden="true" /> Blocking validation errors still open review.</li>
-          <li><Check aria-hidden="true" /> Rate limits and duplicate protection remain active.</li>
+          <li>
+            <Check aria-hidden="true" /> Ownership and connected account checks
+            still apply.
+          </li>
+          <li>
+            <Check aria-hidden="true" /> Blocking validation errors still open
+            review.
+          </li>
+          <li>
+            <Check aria-hidden="true" /> Rate limits and duplicate protection
+            remain active.
+          </li>
         </ul>
         <label className="authority-acknowledgement">
           <input
@@ -134,11 +158,20 @@ export function PublishingModeControl({
             checked={acknowledged}
             onChange={(event) => setAcknowledged(event.target.checked)}
           />
-          <span>I understand Sochestral may publish immediately without reviewing each post.</span>
+          <span>
+            I understand Sochestral may publish immediately without reviewing
+            each post.
+          </span>
         </label>
         <footer>
-          <button type="button" onClick={() => dialogRef.current?.close()}>Cancel</button>
-          <button type="button" disabled={!acknowledged || busy} onClick={() => void change("full_access", true)}>
+          <button type="button" onClick={() => dialogRef.current?.close()}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!acknowledged || busy}
+            onClick={() => void change("full_access", true)}
+          >
             Confirm Full access
           </button>
         </footer>

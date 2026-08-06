@@ -1,7 +1,13 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, apiRequest, type ConversationDetail, type TurnResponse } from "@/lib/product-api";
+import {
+  ApiError,
+  apiRequest,
+  apiStreamTurn,
+  type ConversationDetail,
+  type TurnResponse,
+} from "@/lib/product-api";
 import { useWorkspace, WorkspaceProvider } from "./workspace-provider";
 
 const navigation = vi.hoisted(() => {
@@ -16,7 +22,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/product-api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/product-api")>();
-  return { ...actual, apiRequest: vi.fn() };
+  return { ...actual, apiRequest: vi.fn(), apiStreamTurn: vi.fn() };
 });
 
 const conversation = {
@@ -110,6 +116,7 @@ function renderProvider() {
 beforeEach(() => {
   navigation.replace.mockReset();
   vi.mocked(apiRequest).mockReset();
+  vi.mocked(apiStreamTurn).mockReset();
   vi.spyOn(crypto, "randomUUID").mockReturnValue(
     "10000000-0000-4000-8000-000000000001",
   );
@@ -141,11 +148,11 @@ describe("WorkspaceProvider", () => {
   });
 
   it("creates a conversation with a browser request id (AC 1)", async () => {
-    vi.mocked(apiRequest).mockImplementation(async (path, init) => {
+    vi.mocked(apiRequest).mockImplementation(async (path) => {
       if (path === "/auth/me") return { id: "user_1", email: "person@example.com" };
-      if (init?.method === "POST") return turn;
       return { conversations: [], nextCursor: null };
     });
+    vi.mocked(apiStreamTurn).mockResolvedValue(turn);
     const user = userEvent.setup();
     renderProvider();
     await screen.findByText("person@example.com");
@@ -153,27 +160,28 @@ describe("WorkspaceProvider", () => {
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
     await waitFor(() =>
-      expect(apiRequest).toHaveBeenCalledWith("/orchestration/conversations", {
-        method: "POST",
-        body: JSON.stringify({
+      expect(apiStreamTurn).toHaveBeenCalledWith(
+        "/orchestration/conversations/stream",
+        {
           message: "Hello",
           requestId: "10000000-0000-4000-8000-000000000001",
-        }),
-      }),
+        },
+        expect.any(Function),
+      ),
     );
     expect(await screen.findByText("Ready")).toBeInTheDocument();
   });
 
   it("reuses the request id only after an uncertain network failure (AC 1)", async () => {
     let postAttempts = 0;
-    vi.mocked(apiRequest).mockImplementation(async (path, init) => {
+    vi.mocked(apiRequest).mockImplementation(async (path) => {
       if (path === "/auth/me") return { id: "user_1", email: "person@example.com" };
-      if (init?.method === "POST") {
-        postAttempts += 1;
-        if (postAttempts === 1) throw new Error("connection reset");
-        return turn;
-      }
       return { conversations: [], nextCursor: null };
+    });
+    vi.mocked(apiStreamTurn).mockImplementation(async () => {
+      postAttempts += 1;
+      if (postAttempts === 1) throw new Error("connection reset");
+      return turn;
     });
     const user = userEvent.setup();
     renderProvider();
@@ -184,11 +192,10 @@ describe("WorkspaceProvider", () => {
     await user.click(screen.getByRole("button", { name: "Retry message" }));
 
     await waitFor(() => expect(postAttempts).toBe(2));
-    const postBodies = vi
-      .mocked(apiRequest)
-      .mock.calls.filter(([, init]) => init?.method === "POST")
-      .map(([, init]) => JSON.parse(String(init?.body)) as { requestId: string });
-    expect(postBodies[0].requestId).toBe(postBodies[1].requestId);
+    const bodies = vi.mocked(apiStreamTurn).mock.calls.map(([, body]) => body as {
+      requestId: string;
+    });
+    expect(bodies[0].requestId).toBe(bodies[1].requestId);
   });
 
   it("prepends older messages and removes a deleted conversation (AC 1)", async () => {

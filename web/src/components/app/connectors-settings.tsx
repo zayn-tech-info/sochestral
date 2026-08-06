@@ -35,6 +35,13 @@ const descriptions: Record<ConnectorPlatform, string> = {
   instagram: "Prepare captions and image post previews.",
 };
 
+/** Always render these platforms even when SocialMCP is unreachable (AC 4, AC 6). */
+const EMPTY_CONNECTORS: ConnectorSummary[] = [
+  { platform: "threads", state: "not_connected", accounts: [] },
+  { platform: "linkedin_personal", state: "not_connected", accounts: [] },
+  { platform: "instagram", state: "not_connected", accounts: [] },
+];
+
 function PlatformIcon({ platform }: { platform: ConnectorPlatform }) {
   if (platform === "linkedin_personal") {
     return <BriefcaseBusiness className="size-5" aria-hidden="true" />;
@@ -67,6 +74,9 @@ export function ConnectorsSettings() {
       setConnectors(result.connectors);
       setUnavailable(false);
     } catch {
+      // Keep last known accounts when a refresh fails. If we never loaded,
+      // still show the three platforms so the page is never empty (AC 4).
+      setConnectors((prev) => prev ?? EMPTY_CONNECTORS);
       setUnavailable(true);
     } finally {
       setLoading(false);
@@ -130,11 +140,11 @@ export function ConnectorsSettings() {
 
   return (
     <AppShell
-      title="Connectors"
+      title="Connected accounts"
       description="Choose the social accounts Sochestral can safely work with."
     >
       <section
-        className="settings-content"
+        className="settings-content os-settings"
         aria-labelledby="available-socials-title"
       >
         <section className="publishing-settings" aria-labelledby="publishing-mode-title">

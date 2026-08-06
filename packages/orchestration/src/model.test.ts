@@ -59,6 +59,7 @@ describe("TheseanModelProvider", () => {
       inputTokens: 12,
       outputTokens: 4,
       attempts: 1,
+      thinking: null,
     });
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       "https://api.thesean.ai/v1/messages",

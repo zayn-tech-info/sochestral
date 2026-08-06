@@ -1,32 +1,35 @@
 # Verify review mode publish loop
 
+Recorded during Tracer Bullet close out (SOC-6), 2026-08-05.
+
 ## Automated proof
 
-1. Apply the product migration to a fresh test database and prove legacy drafts survive with empty ordered media.
-2. Run product database, orchestration, API, auth, and web tests sequentially with the isolated test database.
-3. Run SocialMCP database, MCP server, adapter, and shared contract tests on Node 22 with provider calls mocked.
-4. Run product and SocialMCP type checks, lint, and production builds.
+| # | Check | Result | Evidence |
+|---|-------|--------|----------|
+| 1 | Apply product migration to test DB; legacy drafts survive with empty ordered media | **PASS** | `sochestral_test` migrated; `packages/database` review tests green (`review.test.ts`) |
+| 2 | Product database, orchestration, API, auth, and web tests with isolated test DB | **PASS** | `pnpm run test:database` 43/43; `test:auth` 25/25; `test:api` 34/34; `@sochestral/orchestration` 97/97 (after fixing `model.test.ts` thinking field); web preview + chat-workspace 16/16 |
+| 3 | SocialMCP database, MCP server, adapter, shared contract tests (external repo) | **BLOCKED** | SocialMCP not available in this checkout |
+| 4 | Product and SocialMCP type checks, lint, and production builds | **PARTIAL** | Web `npm run lint` clean (1 unused-import warning). SocialMCP build N/A here |
 
 ## Product behavior
 
-1. Ask for a Threads draft, confirm one inline review set appears, edit it, save it, and approve it.
-2. Confirm chat text and model tool calls cannot publish without the button.
-3. Confirm the only connected account is selected automatically and multiple accounts require a selection.
-4. Confirm an invalid Instagram draft remains editable and disables the whole group action.
-5. Confirm a duplicate click replays the same approval and does not create another platform post.
-6. Confirm partial success leaves successful cards read only and retry includes only failed cards.
-7. Confirm an unknown card is locked and Check status never creates another platform call.
-8. Refresh and reopen the conversation. Confirm every draft and latest attempt is restored.
-9. Confirm conversation deletion cascades idle review data and is blocked during a publishing attempt.
+| # | Check | Result |
+|---|-------|--------|
+| 1–9 | Draft → edit → approve → idempotency → partial/unknown → restore → delete guards | **BLOCKED** | Needs Thesean + SocialMCP + connected accounts. Covered in unit form by `review-routes.test.ts` and orchestration review/service tests with mocks. |
 
 ## Security and accessibility
 
-1. Confirm another tenant receives masked not found responses for edit, publish, and check.
-2. Confirm missing or foreign Origin, wrong content type, and missing `X-Sochestral-Request` are rejected.
-3. Confirm responses and structured logs omit tokens, raw payloads, post body, media URLs, and internal errors.
-4. Use keyboard only to edit media ordering, choose accounts, save, approve, retry, and check status.
-5. Confirm visible focus, semantic labels, polite status announcements, mobile layout, and reduced motion behavior.
+| # | Check | Result |
+|---|-------|--------|
+| 1–3 | Tenant isolation, Origin / request headers, no secret leakage | **PARTIAL** | Exercised in `review-routes.test.ts` / API auth tests; not re-driven live in browser this run |
+| 4–5 | Keyboard / a11y / mobile for preview aside | **BLOCKED** | Pair with SOC-7 live UI verify |
 
 ## Manual live proof
 
-Publish one harmless approved test post to Threads, LinkedIn Personal, and Instagram. Confirm failed preflight, stale revisions, duplicate actions, and status checks produce no extra live posts.
+| Check | Result |
+|-------|--------|
+| Harmless live posts to Threads, LinkedIn Personal, Instagram | **BLOCKED** | Needs SocialMCP + live platform accounts |
+
+## Overall
+
+**BLOCKED** for Feature 5 Verify close until SocialMCP live path exists. Product automated suite for this repo is green.

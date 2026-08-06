@@ -1,27 +1,50 @@
-# SocialMCP SaaS — Master Plan
+# Sochestral — Master Plan
 
 ## 1. Product Definition
 
-An AI agent that acts as an autonomous social media manager for non-technical
-business owners. The user never sees code, client IDs, or configuration
-files. They talk to the agent in plain language; the agent produces content,
-schedules it, publishes it, and manages replies/comments/mentions on their
-behalf, learning and correcting itself from user feedback over time.
+**Sochestral** is a business-strict AI social operator. It acts as a social
+media manager for people who sell or ship something real and need steady
+online presence. The product is plain language first: users never see code,
+client IDs, or configuration files. They talk to the agent; the agent drafts
+content, schedules it, publishes it, and later can manage
+replies/comments/mentions, learning from corrections over time.
 
-The existing SocialMCP MCP server (Threads full ops, LinkedIn publish-only)
-is the execution layer this product is built on top of. This plan covers
-everything above that layer: the SaaS product, multi-tenant support, the
-onboarding agent, orchestration, memory, and the GUI.
+### Who this is for (ICP)
+
+1. **Physical product sellers** — need consistent posts to stay relevant and
+   win more customers without running a separate marketing stack alone.
+2. **Founders launching a product** — need a reliable cadence of launch and
+   progress updates without becoming full time social media operators.
+3. **Developers and builders** — want to be seen while they build; they
+   refuse to get stuck only shipping code with no public signal.
+
+The ICP includes technical people. “Plain language” means no platform
+credentials or ops busywork in the UI, not “non technical users only.”
+
+### Product bar
+
+Business-strict and professionally implemented. Prefer better practice
+defaults: official platform APIs, validated tool execution (model decides,
+code executes), review-before-publish safety, clear tenant boundaries, and
+serious operator tone over playful chatbot chrome.
 
 ### What this product is not (v1 scope guard)
 
-- Not a "manage every platform" product on day one. Threads + LinkedIn first,
-Instagram/Facebook after the multi-tenant rework, others later.
+- Not for casual consumers or “anyone who posts.” Real business, launch, or
+  builder presence stakes are required.
+- Not a "manage every platform" product on day one. Threads + LinkedIn +
+  Instagram first; Facebook and others later when adapters exist.
 - Not a fully autonomous system on day one. New users start in
-review-before-publish mode and graduate to autonomous mode once the agent
-has a track record with their account.
-- Not a custom-trained model. The reasoning layer is Claude/GPT with tool
-use, function calling, and per-user structured memory — no fine-tuning.
+  review-before-publish mode and graduate to autonomous mode once the agent
+  has a track record with their account.
+- Not a custom-trained model. The reasoning layer is Claude/GPT (Thesean)
+  with tool use, function calling, and per-user structured memory — no
+  fine-tuning.
+
+The existing SocialMCP MCP server is the execution layer this product calls
+as an external dependency. This plan covers everything above that layer: the
+SaaS product, multi-tenant product data, the onboarding agent, orchestration,
+memory, and the GUI.
 
 ---
 
@@ -30,7 +53,7 @@ use, function calling, and per-user structured memory — no fine-tuning.
 ## 2. Core Architecture
 
 ```
-User (chat UI, non-technical)
+User (chat UI, plain language; seller / founder / builder)
    │
    ▼
 Orchestration Backend (Node/Express or Next.js API routes)
@@ -58,19 +81,19 @@ The model never generates and runs arbitrary code. It is given a fixed set of to
 
 
 
-## 3. Multi-Tenancy (prerequisite for everything else)
+## 3. Multi-Tenancy (prerequisite — shipped in SocialMCP)
 
-The current MCP is single-tenant (`user_local_default`). This is the first
-real engineering task, not a footnote:
+SocialMCP multi tenant identity is already shipped in the external MCP
+repo. Product callers authenticate with `Authorization: Bearer` JWT
+(`sub` = SaaS `users.id`). Do not rebuild MCP token storage or adapters
+here.
 
-- Add `userId` foreign key to: `connected_accounts`, `oauth_sessions`,
-`posts`, `post_variants`, `scheduled_posts`, `publish_logs`,
-`analytics_snapshots`
-- Every tool handler must resolve identity from the calling context
-(session/user token) instead of assuming a default user
-- OAuth flow: one developer app per platform under Us(the builder of the product)(not per user) — users hit a standard consent screen and never see client ID/secret, same pattern as Buffer/Later/Hootsuite
-- Token storage stays per-user, encrypted, as already implemented —
-just keyed by real user IDs instead of one default
+Product side still owns:
+
+- Postgres users, sessions, orchestration, review drafts, publishing
+  prefs, and media metadata
+- Minting short lived MCP JWTs for the signed in tenant
+- Never storing platform OAuth tokens in the product database
 
 ---
 
@@ -81,7 +104,10 @@ just keyed by real user IDs instead of one default
 Two distinct agent roles:
 
 1. **Setup agent** — runs once (and re-runs when the user wants to update
-  their profile). Its only job is turning a plain-language conversation  into a structured profile. Non-technical users describe their business,  voice, and rules, skill (What the agent should be capable of doing)conversationally; the setup agent extracts and writes  structured data.
+  their profile). Its only job is turning a plain-language conversation into
+  a structured profile. Sellers, founders, and builders describe their
+  business or product, voice, rules, and skills conversationally; the setup
+  agent extracts and writes structured data.
 2. **Operator agent** — runs on every trigger (cron, webhook, user message).
   Reads the structured profile + memory, decides actions, calls tools.
 
@@ -203,27 +229,51 @@ scheduled job volume reaches thousands/hour across all users
 
 ## 9. Build Order (sequenced, not simultaneous)
 
-1. Fix known MCP bugs (see BUG_FIX_PLAN.md) — do this before extending (We already done that)
-2. Multi-tenant rework of the MCP (Section 3)
-3. OAuth connection flow in the GUI for Threads (already understood)
-  and LinkedIn (This is when we being the work on the GUI)
-4. Setup agent — chat-based onboarding that builds the structured profile
-5. Text/image post generation + scheduling, review-mode only
-6. Structured memory + correction loop (Section 5)
-7. Auto-publish once review-mode output is trusted
-8. Video generation (Runway/HeyGen) wired through job queue + R2 storage
-9. Comment/mention handling (webhooks + reply tools)
-10. Instagram + Facebook adapters (after multi-tenant is proven stable)
-11. Analytics/trend detection last — needs data volume to say anything
-  useful
+Living detail and checkboxes live in `docs/scope/scope.md`. This section
+is the coarse sequence against real progress.
 
+### Shipped in this SaaS repo
 
+1. Product Postgres + migrations (`packages/database`)
+2. Auth sessions + MCP JWT minting (`packages/auth`, API `/auth/*`, login)
+3. Orchestration backend + Thesean tool loop (`packages/orchestration`)
+4. Chat workspace + Settings connectors (Feature 4 build complete; verify open)
+5. Review mode publish APIs for Threads, LinkedIn Personal, Instagram
+   (Feature 5 build complete; live verify open)
+6. Publishing authority + private image upload path (Feature 12 code present;
+   `PUBLISHING_AUTHORITY_ENABLED` still false until R2 / vision / `connectedAt`)
+7. Intent clarify + Thinking / NDJSON stream (Feature 13 build complete;
+   verify/test open)
+8. Live platform preview aside replacing the review modal (Feature 14 build
+   complete in working tree; verify open)
+
+### Close out before Slice 2
+
+1. `/check verify` Features 4 and 5 (include live three platform smoke for 5)
+2. `/check verify` + finish tests for Features 13 and 14
+3. Feature 12 rollout: configure R2, vision smoke, SocialMCP `connectedAt`,
+   then enable the authority flag
+4. Commit / land the uncommitted login, workspace studio, and preview work
+   only after it matches the business-strict product bar
+
+### Next to design and build (Slice 2+)
+
+1. Subscription tier model and gates (Feature 6) — replaces temporary
+   env run and upload caps
+2. Setup agent + structured business profile (Feature 7)
+3. Remaining web surfaces: schedule view, profile settings (Feature 10)
+4. WhatsApp channel, then Telegram (Features 8 and 9)
+5. Structured memory + correction loop (Feature 11)
+6. Later: comments/mentions, video generation, Facebook Pages, analytics,
+   payments, system dark mode
 
 ### Explicit non-goals for early phases
 
 - No custom/fine-tuned model
 - No full autonomy before review-mode has proven the content quality
-- No new platforms before the multi-tenant rework is complete and stable
+- No new platforms before SocialMCP has a stable adapter
+- No casual consumer positioning; stay business-strict for sellers,
+  founders, and builders
 
 ---
 
@@ -240,4 +290,7 @@ current automated-behavior policies before building deep on a platform.
 effort goes here, not into infrastructure.
 - **Trust adoption curve**: review-mode-first is not just safer
 engineering, it is likely the only realistic path to real adoption.
+- **External dependency coupling**: publishing and connectors fail
+closed without a healthy SocialMCP deployment and Thesean key; that is
+expected for this repo, not a broken product schema.
 

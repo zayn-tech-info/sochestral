@@ -11,7 +11,6 @@ import {
 import { useRouter } from "next/navigation";
 import {
   ArrowUp,
-  CheckCircle2,
   ChevronRight,
   CircleAlert,
   LoaderCircle,
@@ -21,11 +20,14 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
-import { apiRequest, STREAM_STEP_LABELS, type StreamEvent, type StreamStep, type ToolSummary } from "@/lib/product-api";
+import { apiRequest, STREAM_STEP_LABELS, type StreamEvent, type StreamStep } from "@/lib/product-api";
+import {
+  LivePreviewAside,
+  pickActiveReviewGroup,
+} from "@/components/preview";
 import { AppShell } from "./app-shell";
 import { MessageMarkdown } from "./message-markdown";
 import { productMotion } from "./product-motion-provider";
-import { ReviewGroup } from "./review-group";
 import { PublishingModeControl } from "./publishing-mode-control";
 import { useWorkspace } from "./workspace-provider";
 
@@ -44,67 +46,6 @@ type SelectedMedia = {
   progress: number;
 };
 
-function safeSummary(summary: Record<string, unknown> | null): string {
-  if (!summary) return "No additional detail";
-  return Object.entries(summary)
-    .map(([key, value]) => `${key}: ${String(value)}`)
-    .join(" · ");
-}
-
-function ToolActivity({ items }: { items: ToolSummary[] }) {
-  const [open, setOpen] = useState(false);
-  const panelId = useId();
-  const reduceMotion = useReducedMotion();
-  const hasFailure = items.some((item) => item.status !== "succeeded");
-
-  return (
-    <div
-      className={`activity-card activity-group${open ? " activity-card-open" : ""}`}
-    >
-      <button
-        type="button"
-        className="activity-summary"
-        aria-expanded={open}
-        aria-controls={panelId}
-        aria-label={`Tool activity, ${items.length} ${items.length === 1 ? "action" : "actions"}`}
-        onClick={() => setOpen((current) => !current)}
-      >
-        <span className="activity-icon">
-          {hasFailure ? (
-            <CircleAlert className="size-4" aria-hidden="true" />
-          ) : (
-            <CheckCircle2 className="size-4" aria-hidden="true" />
-          )}
-        </span>
-        <span className="activity-label">
-          {items.length} tool {items.length === 1 ? "action" : "actions"}
-        </span>
-        <ChevronRight className="activity-chevron size-4" aria-hidden="true" />
-      </button>
-      <motion.div
-        id={panelId}
-        initial={false}
-        animate={{ height: open ? "auto" : 0, opacity: open ? 1 : 0 }}
-        transition={reduceMotion ? { duration: 0 } : productMotion.quick}
-        className="activity-disclosure"
-        aria-hidden={!open}
-      >
-        <ul className="activity-items">
-          {items.map((item) => (
-            <li key={item.id}>
-              <span>
-                <strong>{item.toolName.replaceAll("_", " ")}</strong>
-                <small>{item.status}</small>
-              </span>
-              <p>{safeSummary(item.summary)}</p>
-            </li>
-          ))}
-        </ul>
-      </motion.div>
-    </div>
-  );
-}
-
 function ThinkingDisclosure({
   label,
   thinking,
@@ -114,46 +55,54 @@ function ThinkingDisclosure({
   thinking: string | null;
   live?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const hasThinking = Boolean(thinking?.trim());
+  const [open, setOpen] = useState(live && hasThinking);
   const panelId = useId();
   const reduceMotion = useReducedMotion();
-  const body =
-    thinking?.trim() ||
-    (live
-      ? "Waiting for model reasoning…"
-      : "Reasoning unavailable for this model.");
+
+  useEffect(() => {
+    if (live && hasThinking) setOpen(true);
+  }, [live, hasThinking]);
+
+  const body = hasThinking
+    ? thinking!.trim()
+    : live
+      ? ""
+      : "Reasoning unavailable for this model.";
+  const showBody = open && (hasThinking || !live);
 
   return (
-    <div
-      className={`activity-card activity-group thinking-card${open ? " activity-card-open" : ""}`}
-    >
+    <div className={`thinking-inline${open ? " thinking-inline-open" : ""}${live ? " thinking-inline-live" : ""}`}>
       <button
         type="button"
-        className="activity-summary"
+        className="thinking-toggle"
         aria-expanded={open}
         aria-controls={panelId}
         aria-label={`Thinking, ${label}`}
         onClick={() => setOpen((current) => !current)}
       >
-        <span className="activity-icon">
-          {live ? (
-            <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
-          ) : (
-            <CheckCircle2 className="size-4" aria-hidden="true" />
-          )}
-        </span>
-        <span className="activity-label">{label}</span>
-        <ChevronRight className="activity-chevron size-4" aria-hidden="true" />
+        <ChevronRight className="thinking-chevron size-3.5" aria-hidden="true" />
+        <span className="thinking-label">{label}</span>
+        {live ? (
+          <LoaderCircle className="thinking-spinner size-3.5 animate-spin" aria-hidden="true" />
+        ) : null}
       </button>
       <motion.div
         id={panelId}
         initial={false}
-        animate={{ height: open ? "auto" : 0, opacity: open ? 1 : 0 }}
+        animate={{
+          height: showBody ? "auto" : 0,
+          opacity: showBody ? 1 : 0,
+        }}
         transition={reduceMotion ? { duration: 0 } : productMotion.quick}
-        className="activity-disclosure"
-        aria-hidden={!open}
+        className="thinking-disclosure"
+        aria-hidden={!showBody}
       >
-        <pre className="thinking-body">{body}</pre>
+        {showBody ? (
+          <p className={`thinking-body${hasThinking ? "" : " thinking-body-empty"}`}>
+            {body}
+          </p>
+        ) : null}
       </motion.div>
     </div>
   );
@@ -218,14 +167,14 @@ export function ChatWorkspace({
       (item.attachments ?? []).map((attachment) => [attachment.id, attachment.previewUrl]),
     ),
   );
-  const automaticReviewId = detail
-    ? (detail.turnActivities ?? [])
-        .flatMap((activity) => activity.reviewGroups ?? [])
-        .reverse()
-        .find((group) =>
-          group.drafts.some((draft) => draft.status !== "published"),
-        )?.id
-    : undefined;
+  const activeReviewGroup = detail
+    ? pickActiveReviewGroup(
+        (detail.turnActivities ?? []).flatMap(
+          (activity) => activity.reviewGroups ?? [],
+        ),
+      ) ??
+      pickActiveReviewGroup(detail.reviewGroups ?? [])
+    : null;
 
   useEffect(() => {
     if (conversationId && !detail) {
@@ -285,7 +234,8 @@ export function ChatWorkspace({
       if (
         !conversationId &&
         createdId &&
-        window.location.pathname === "/app"
+        (window.location.pathname === "/app" ||
+          window.location.pathname === "/app/workspace")
       ) {
         router.push(`/app/chat/${createdId}`);
       }
@@ -435,7 +385,7 @@ export function ChatWorkspace({
     if (!conversationId || isPending) return;
     await deleteConversation(conversationId);
     dialogRef.current?.close();
-    router.push("/app");
+    router.push("/app/workspace");
   }
 
   return (
@@ -457,19 +407,22 @@ export function ChatWorkspace({
         ) : undefined
       }
     >
+      <div
+        className={`chat-with-preview${activeReviewGroup ? " chat-with-preview-open" : ""}`}
+      >
       <section
-        className={`chat-surface ${conversationId ? "" : "chat-surface-empty"}`}
+        className={`chat-surface os-chat-thread ${conversationId ? "" : "chat-surface-empty"}`}
         aria-label="Conversation"
       >
         <div className="transcript" aria-live="polite">
           {!conversationId && !optimisticMessage ? (
-            <div className="chat-empty">
-              <p className="chat-kicker">New conversation</p>
-              <h1>What are we creating today?</h1>
+            <div className="chat-empty os-chat-empty">
+              <p className="chat-kicker">AI Workspace</p>
+              <h1>Continue in a focused conversation</h1>
               <p>
                 Ask for a content idea, a channel check, or feedback on a post.
               </p>
-              <form onSubmit={onSubmit} className="composer composer-empty">
+              <form onSubmit={onSubmit} className="composer composer-empty os-composer-inline">
                 <label htmlFor="chat-message" className="sr-only">
                   Message Sochestral
                 </label>
@@ -544,28 +497,14 @@ export function ChatWorkspace({
                               animate={{ opacity: 1, y: 0 }}
                               transition={productMotion.enter}
                               className="activity-stack"
-                              aria-label="Thinking and tool activity"
+                              aria-label="Thinking"
                             >
                               <ThinkingDisclosure
                                 label={stepByAssistantId.get(item.id) ?? "Thinking"}
                                 thinking={thinkingByAssistantId.get(item.id) ?? null}
                               />
-                              {activity?.toolSummaries.length ? (
-                                <ToolActivity items={activity.toolSummaries} />
-                              ) : null}
                             </motion.section>
                           ) : null}
-                          {conversationId
-                            ? activity?.reviewGroups.map((group) => (
-                                <ReviewGroup
-                                  key={group.id}
-                                  group={group}
-                                  autoOpen={group.id === automaticReviewId}
-                                  mediaPreviews={mediaPreviews}
-                                  onRefresh={() => loadConversation(conversationId)}
-                                />
-                              ))
-                            : null}
                         </>
                       ) : (
                         <>
@@ -696,6 +635,15 @@ export function ChatWorkspace({
           </div>
         ) : null}
       </section>
+
+      {activeReviewGroup && conversationId ? (
+        <LivePreviewAside
+          group={activeReviewGroup}
+          mediaPreviews={mediaPreviews}
+          onRefresh={() => loadConversation(conversationId)}
+        />
+      ) : null}
+      </div>
 
       <dialog
         ref={dialogRef}

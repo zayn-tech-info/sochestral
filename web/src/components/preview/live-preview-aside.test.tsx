@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiRequest, type ReviewGroup as ReviewGroupValue } from "@/lib/product-api";
-import { ReviewGroup } from "./review-group";
+import { LivePreviewAside } from "./live-preview-aside";
 
 vi.mock("@/lib/product-api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/product-api")>();
@@ -21,7 +21,11 @@ const group: ReviewGroupValue = {
       selectedAccountId: null,
       revision: 1,
       status: "draft",
-      validation: { errors: [], warnings: ["Review the link."], validatedRevision: null },
+      validation: {
+        errors: [],
+        warnings: ["Review the link."],
+        validatedRevision: null,
+      },
       latestAttempt: null,
     },
   ],
@@ -44,7 +48,7 @@ const connectorResponse = {
   ],
 };
 
-describe("ReviewGroup", () => {
+describe("LivePreviewAside", () => {
   beforeEach(() => {
     vi.mocked(apiRequest).mockReset().mockResolvedValue(connectorResponse);
   });
@@ -52,11 +56,14 @@ describe("ReviewGroup", () => {
   it("auto selects the only account and requires an explicit save before approval", async () => {
     const user = userEvent.setup();
     const onRefresh = vi.fn().mockResolvedValue(undefined);
-    render(<ReviewGroup group={group} onRefresh={onRefresh} autoOpen />);
+    render(<LivePreviewAside group={group} onRefresh={onRefresh} />);
 
-    expect(screen.getByRole("dialog")).toHaveAttribute("open");
-    const account = await screen.findByLabelText("Destination account");
-    expect(account).toHaveValue("acct_threads");
+    expect(screen.getByLabelText("Live platform preview")).toBeInTheDocument();
+    expect(screen.getByLabelText("Threads post preview")).toBeInTheDocument();
+    const account = await screen.findByRole("button", {
+      name: "Destination account",
+    });
+    expect(account).toHaveTextContent("Studio");
     expect(screen.getByRole("button", { name: "Approve and publish" })).toBeDisabled();
     expect(screen.getByText("Review the link.")).toBeInTheDocument();
 
@@ -94,9 +101,16 @@ describe("ReviewGroup", () => {
         },
       ],
     };
-    render(<ReviewGroup group={unknown} onRefresh={vi.fn().mockResolvedValue(undefined)} autoOpen />);
-    await screen.findByLabelText("Destination account");
-    expect(screen.queryByRole("button", { name: /Try failed platforms/i })).not.toBeInTheDocument();
+    render(
+      <LivePreviewAside
+        group={unknown}
+        onRefresh={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+    await screen.findByRole("button", { name: "Destination account" });
+    expect(
+      screen.queryByRole("button", { name: /Try failed platforms/i }),
+    ).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Check status" }));
     await waitFor(() =>
       expect(apiRequest).toHaveBeenCalledWith(
@@ -106,58 +120,64 @@ describe("ReviewGroup", () => {
     );
   });
 
-  it("closes to a compact launcher and can be reopened without page scrolling", async () => {
-    const user = userEvent.setup();
-    render(<ReviewGroup group={group} onRefresh={vi.fn().mockResolvedValue(undefined)} autoOpen />);
-
-    const dialog = screen.getByRole("dialog");
-    const launcher = screen.getByRole("button", { name: /Review social set/i });
-    expect(dialog).toHaveAttribute("open");
-
-    await user.click(screen.getByRole("button", { name: "Close review" }));
-    expect(dialog).not.toHaveAttribute("open");
-    expect(launcher).toHaveFocus();
-
-    await user.click(launcher);
-    expect(dialog).toHaveAttribute("open");
-  });
-
-  it("does not automatically open completed review history", () => {
+  it("shows a Live badge and locked preview after publish", async () => {
     const completed: ReviewGroupValue = {
       ...group,
       drafts: group.drafts.map((draft) => ({ ...draft, status: "published" })),
     };
-    render(<ReviewGroup group={completed} onRefresh={vi.fn().mockResolvedValue(undefined)} autoOpen />);
-
-    expect(screen.getByRole("dialog", { hidden: true })).not.toHaveAttribute("open");
-    expect(screen.getByRole("button", { name: /Published/i })).toBeInTheDocument();
+    render(
+      <LivePreviewAside
+        group={completed}
+        onRefresh={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+    await screen.findByRole("button", { name: "Destination account" });
+    expect(screen.getByText("Live")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve and publish" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
   });
 
-  it("shows automatic Full access success without a draft launcher or dialog", () => {
-    const completed: ReviewGroupValue = {
-      ...group,
-      drafts: group.drafts.map((draft) => ({
-        ...draft,
-        status: "published",
-        latestAttempt: {
-          id: "attempt_auto",
-          draftId: draft.id,
-          platform: draft.platform,
-          state: "succeeded",
-          mcpPostId: "post_1",
-          error: null,
-          createdAt: "2026-08-01T00:00:00.000Z",
-          completedAt: "2026-08-01T00:00:01.000Z",
-          authorizationKind: "full_access",
-        },
-      })),
-    };
+  it("shows all platforms so users can preview each look", async () => {
+    const user = userEvent.setup();
+    render(
+      <LivePreviewAside
+        group={group}
+        onRefresh={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+    await screen.findByRole("button", { name: "Destination account" });
+    expect(screen.getByRole("tab", { name: /Threads/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /LinkedIn/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Instagram/i })).toBeInTheDocument();
 
-    render(<ReviewGroup group={completed} onRefresh={vi.fn().mockResolvedValue(undefined)} autoOpen />);
+    await user.click(screen.getByRole("tab", { name: /LinkedIn/i }));
+    expect(screen.getByLabelText("LinkedIn post preview")).toBeInTheDocument();
+    expect(screen.getByText(/Preview only for LinkedIn/i)).toBeInTheDocument();
+  });
 
-    expect(screen.getByRole("status", { name: "Published social set" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /review/i })).toBeNull();
-    expect(screen.queryByRole("dialog", { hidden: true })).toBeNull();
-    expect(apiRequest).not.toHaveBeenCalled();
+  it("rejects video files when adding media", async () => {
+    const { fireEvent } = await import("@testing-library/react");
+    render(
+      <LivePreviewAside
+        group={group}
+        onRefresh={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+    await screen.findByRole("button", { name: "Destination account" });
+    const input = document.querySelector(
+      'input[type="file"][accept="image/*"]',
+    ) as HTMLInputElement;
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File([new Uint8Array([1, 2, 3])], "clip.mp4", {
+            type: "video/mp4",
+          }),
+        ],
+      },
+    });
+    expect(
+      await screen.findByText(/Videos are not supported yet/i),
+    ).toBeInTheDocument();
   });
 });

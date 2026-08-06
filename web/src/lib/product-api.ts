@@ -39,7 +39,7 @@ export async function apiRequest<T>(
     ) {
       const returnTo = window.location.pathname.startsWith("/app")
         ? window.location.pathname
-        : "/app";
+        : "/app/workspace";
       window.location.assign(
         `/login?returnTo=${encodeURIComponent(returnTo)}`,
       );
@@ -156,7 +156,7 @@ export async function apiStreamTurn(
     ) {
       const returnTo = window.location.pathname.startsWith("/app")
         ? window.location.pathname
-        : "/app";
+        : "/app/workspace";
       window.location.assign(
         `/login?returnTo=${encodeURIComponent(returnTo)}`,
       );
