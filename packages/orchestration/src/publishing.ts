@@ -159,6 +159,34 @@ export function shortLiveAffirmative(message: string): boolean {
   );
 }
 
+/** Prior turns already asked to post/publish to a named platform. */
+export function priorHasLivePublishRequest(
+  priorMessages: string[] | undefined,
+): boolean {
+  const prior = (priorMessages ?? [])
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .slice(-6)
+    .join("\n");
+  if (!prior) return false;
+  if (localLiveIntent(prior)) return true;
+  return (
+    /\b(?:post|publish|ship)\b/i.test(prior) && PLATFORM_LIVE_PATTERN.test(prior)
+  );
+}
+
+/**
+ * After the user already asked to post on a platform, later turns keep that live
+ * intent unless they clearly switch to draft or cancel.
+ */
+export function continuesLivePublishContext(
+  message: string,
+  priorMessages?: string[],
+): boolean {
+  if (!message.trim() || localDraftIntent(message)) return false;
+  return priorHasLivePublishRequest(priorMessages);
+}
+
 function intentClassificationWindow(
   message: string,
   priorMessages: string[] | undefined,
@@ -246,7 +274,8 @@ export async function resolveLivePublishIntent(
   if (
     localLiveIntent(message) ||
     localLiveIntent(window) ||
-    (shortLiveAffirmative(message) && PLATFORM_LIVE_PATTERN.test(window))
+    (shortLiveAffirmative(message) && PLATFORM_LIVE_PATTERN.test(window)) ||
+    continuesLivePublishContext(message, input.priorMessages)
   ) {
     logIntentResolution({
       outcome: "live",

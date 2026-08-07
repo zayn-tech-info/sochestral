@@ -8,6 +8,7 @@ import {
   localDraftIntent,
   localLiveIntent,
   resolveLivePublishIntent,
+  continuesLivePublishContext,
   vetoesExplicitLivePublishIntent,
   wrapUserMessageForIntentClassification,
 } from "./publishing.js";
@@ -212,6 +213,22 @@ describe("resolveLivePublishIntent", () => {
     await expect(
       resolveLivePublishIntent(model, {
         message: "Yes post it live on Instagarm",
+        priorMessages: ["Post this on my Instagram"],
+        modelName: "intent-model",
+        mode: "full_access",
+      }),
+    ).resolves.toBe("live");
+    expect(model.complete).not.toHaveBeenCalled();
+  });
+
+  it("keeps live intent for use this after a prior Instagram post request", async () => {
+    expect(
+      continuesLivePublishContext("use this", ["Post this on my Instagram"]),
+    ).toBe(true);
+    const model: ModelProvider = { complete: vi.fn() };
+    await expect(
+      resolveLivePublishIntent(model, {
+        message: "use this",
         priorMessages: ["Post this on my Instagram"],
         modelName: "intent-model",
         mode: "full_access",

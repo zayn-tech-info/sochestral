@@ -71,6 +71,17 @@ describe("resolvePlatforms", () => {
     });
   });
 
+  it("inherits platforms for use this media follow-ups", () => {
+    expect(
+      resolvePlatforms("use this", {
+        inheritedPlatforms: ["instagram"],
+      }),
+    ).toEqual({
+      kind: "resolved",
+      platforms: ["instagram"],
+    });
+  });
+
   it("still clarifies unsupported platforms even when inherited platforms exist", () => {
     expect(
       resolvePlatforms("Share this on Facebook", {

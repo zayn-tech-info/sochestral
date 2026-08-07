@@ -4,7 +4,7 @@ const ACTION_PATTERN =
   /\b(post|publish|share|schedule|draft|validate|preview|send)\b/i;
 /** Short follow-ups that continue a prior post request without renaming the platform. */
 const FOLLOW_UP_ACTION_PATTERN =
-  /^(?:yes[,.]?\s+)?(?:publish|post(?:\s+it)?(?:\s+live)?|go\s+live|live(?:\s+please)?|do\s+it|ship\s+it)[.!]?$/i;
+  /^(?:yes[,.]?\s+)?(?:publish|post(?:\s+it)?(?:\s+live)?|go\s+live|live(?:\s+please)?|do\s+it|ship\s+it|use\s+this|this\s+one|here(?:\s+it\s+is)?|attached|this(?:\s+image|\s+photo|\s+video)?)[.!]?$/i;
 const UNSUPPORTED_PATTERN =
   /\b(facebook|tiktok|twitter|reddit|discord|youtube|pinterest|snapchat)\b/i;
 const AMBIGUOUS_PATTERN = /\b(everywhere|all platforms|all accounts)\b/i;

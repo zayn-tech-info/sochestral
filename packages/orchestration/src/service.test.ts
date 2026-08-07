@@ -400,21 +400,6 @@ describe("DefaultOrchestrationService", () => {
       new PublishingPreferenceService(database.db),
       review,
     );
-    vi.mocked(model.complete)
-      .mockResolvedValueOnce(
-        modelCompletion({
-          toolCalls: [
-            toolCall("call_review_ig", "prepare_review", {
-              variants: [
-                { platform: "instagram", body: "Shopydash", mediaUrls: [] },
-              ],
-            }),
-          ],
-        }),
-      )
-      .mockResolvedValueOnce(
-        modelCompletion({ content: "Publishing the prepared set." }),
-      );
 
     try {
       const first = await service.createConversation(userId, {
@@ -426,27 +411,14 @@ describe("DefaultOrchestrationService", () => {
         liveIntentKind: "live",
         explicitLiveIntent: true,
       });
+      expect(first.assistantMessage.content).toContain("Instagram needs an image");
       expect(first.assistantMessage.content).not.toContain("Which supported platform");
       expect(first.assistantMessage.content).not.toContain("draft for review");
-
-      vi.mocked(model.complete)
-        .mockResolvedValueOnce(
-          modelCompletion({
-            toolCalls: [
-              toolCall("call_review_ig2", "prepare_review", {
-                variants: [
-                  { platform: "instagram", body: "Shopydash", mediaUrls: [] },
-                ],
-              }),
-            ],
-          }),
-        )
-        .mockResolvedValueOnce(
-          modelCompletion({ content: "Publishing the prepared set." }),
-        );
+      expect(model.complete).not.toHaveBeenCalled();
 
       const followUp = await service.addMessage(userId, first.conversation.id, {
-        message: "Publish",
+        message:
+          "use this https://cdn.example.com/product.jpg",
         requestId: "00000000-0000-4000-8000-000000000292",
       });
       expect(followUp.run).toMatchObject({
@@ -457,6 +429,12 @@ describe("DefaultOrchestrationService", () => {
       expect(followUp.assistantMessage.content).not.toContain(
         "Which supported platform",
       );
+      expect(followUp.assistantMessage.content).not.toContain("draft for review");
+      expect(followUp.toolSummaries.some((row) => row.toolName === "prepare_review")).toBe(
+        true,
+      );
+      expect(review.publishGroup).toHaveBeenCalled();
+      expect(followUp.assistantMessage.content).toContain("Published successfully");
     } finally {
       if (previousEnabled === undefined) delete process.env.PUBLISHING_AUTHORITY_ENABLED;
       else process.env.PUBLISHING_AUTHORITY_ENABLED = previousEnabled;
