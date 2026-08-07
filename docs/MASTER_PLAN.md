@@ -232,34 +232,38 @@ scheduled job volume reaches thousands/hour across all users
 Living detail and checkboxes live in `docs/scope/scope.md`. This section
 is the coarse sequence against real progress.
 
-### Shipped in this SaaS repo
+### Shipped in this SaaS repo (matches Linear, 2026-08-07)
 
-1. Product Postgres + migrations (`packages/database`)
+1. Product Postgres on **Neon** + migrations (`packages/database`)
 2. Auth sessions + MCP JWT minting (`packages/auth`, API `/auth/*`, login)
 3. Orchestration backend + Thesean tool loop (`packages/orchestration`)
-4. Chat workspace + Settings connectors (Feature 4 build complete; verify open)
-5. Review mode publish APIs for Threads, LinkedIn Personal, Instagram
-   (Feature 5 build complete; live verify open)
-6. Publishing authority + private image upload path (Feature 12 code present;
-   `PUBLISHING_AUTHORITY_ENABLED` still false until R2 / vision / `connectedAt`)
-7. Intent clarify + Thinking / NDJSON stream (Feature 13 build complete;
-   verify/test open)
-8. Live platform preview aside replacing the review modal (Feature 14 build
-   complete in working tree; verify open)
+4. Chat workspace + Settings connectors (Feature 4 **Done**; SOC-5 / SOC-18)
+5. Review mode publish loop for Threads, LinkedIn Personal, Instagram
+   (Feature 5 **Done**; SOC-6 / SOC-19) via cloud SocialMCP
+6. Live platform preview aside replacing the review modal
+   (Feature 14 **Done**; SOC-7)
+7. Publishing authority + private image upload path (Feature 12 code present;
+   **R2 wired** in cloud; `PUBLISHING_AUTHORITY_ENABLED` still false until
+   live smoke — SOC-9)
+8. Intent clarify + Thinking / NDJSON stream (Feature 13 build complete;
+   Thinking / `THESEAN_THINKING_ENABLED` flag smoke still open — SOC-8)
+
+Tracer Bullet path proven on `https://app.sochestral.shop` with Fly apps
+`sochestral` + `sochestral-api` and cloud SocialMCP.
 
 ### Close out before Slice 2
 
-1. `/check verify` Features 4 and 5 (include live three platform smoke for 5)
-2. `/check verify` + finish tests for Features 13 and 14
-3. Feature 12 rollout: configure R2, vision smoke, SocialMCP `connectedAt`,
-   then enable the authority flag
-4. Commit / land the uncommitted login, workspace studio, and preview work
-   only after it matches the business-strict product bar
+1. Feature 12 live smoke on product URL (image attach → approve → publish),
+   then enable `PUBLISHING_AUTHORITY_ENABLED` (SOC-9)
+2. Feature 13 Thinking flag / Thesean extended reasoning smoke + verify
+   (SOC-8)
+3. Free beta invites can proceed without billing (billing parallel in
+   Monetization; not a beta gate)
 
 ### Next to design and build (Slice 2+)
 
-1. Subscription tier model and gates (Feature 6) — replaces temporary
-   env run and upload caps
+1. Subscription tier model and gates (Feature 6) — free beta entitlements
+   first; Paystack + Paddle later
 2. Setup agent + structured business profile (Feature 7)
 3. Remaining web surfaces: schedule view, profile settings (Feature 10)
 4. WhatsApp channel, then Telegram (Features 8 and 9)

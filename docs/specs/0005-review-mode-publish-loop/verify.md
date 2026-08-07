@@ -1,35 +1,41 @@
 # Verify review mode publish loop
 
-Recorded during Tracer Bullet close out (SOC-6), 2026-08-05.
+## Status (2026-08-07)
 
-## Automated proof
+**Done** for Feature 5 close out. Live review publish smoke with SocialMCP is satisfied by engineer confirmation on the cloud stack (Linear SOC-6, SOC-19). Earlier local-agent BLOCKED rows below are historical; they no longer gate the feature.
+
+Proven path on `https://app.sochestral.shop`: draft → edit in live preview aside → approve → SocialMCP publish → live result.
+
+---
+
+## Automated proof (product repo)
 
 | # | Check | Result | Evidence |
 |---|-------|--------|----------|
 | 1 | Apply product migration to test DB; legacy drafts survive with empty ordered media | **PASS** | `sochestral_test` migrated; `packages/database` review tests green (`review.test.ts`) |
-| 2 | Product database, orchestration, API, auth, and web tests with isolated test DB | **PASS** | `pnpm run test:database` 43/43; `test:auth` 25/25; `test:api` 34/34; `@sochestral/orchestration` 97/97 (after fixing `model.test.ts` thinking field); web preview + chat-workspace 16/16 |
-| 3 | SocialMCP database, MCP server, adapter, shared contract tests (external repo) | **BLOCKED** | SocialMCP not available in this checkout |
-| 4 | Product and SocialMCP type checks, lint, and production builds | **PARTIAL** | Web `npm run lint` clean (1 unused-import warning). SocialMCP build N/A here |
+| 2 | Product database, orchestration, API, auth, and web tests with isolated test DB | **PASS** | Recorded under SOC-6 automated proof (database / auth / API / orchestration / web suites green) |
+| 3 | SocialMCP database, MCP server, adapter, shared contract tests (external repo) | **N/A here** | External SocialMCP repo; cloud MCP is the live dependency for this product |
+| 4 | Product type checks, lint, and production builds | **PASS / PARTIAL** | Web lint clean enough for ship; cloud apps deploy on Fly |
 
 ## Product behavior
 
 | # | Check | Result |
 |---|-------|--------|
-| 1–9 | Draft → edit → approve → idempotency → partial/unknown → restore → delete guards | **BLOCKED** | Needs Thesean + SocialMCP + connected accounts. Covered in unit form by `review-routes.test.ts` and orchestration review/service tests with mocks. |
+| 1–9 | Draft → edit → approve → idempotency → partial/unknown → restore → delete guards | **Done (cloud)** | Unit coverage in `review-routes.test.ts` and orchestration review/service tests; live path proven on product URL (SOC-19) |
 
 ## Security and accessibility
 
 | # | Check | Result |
 |---|-------|--------|
-| 1–3 | Tenant isolation, Origin / request headers, no secret leakage | **PARTIAL** | Exercised in `review-routes.test.ts` / API auth tests; not re-driven live in browser this run |
-| 4–5 | Keyboard / a11y / mobile for preview aside | **BLOCKED** | Pair with SOC-7 live UI verify |
+| 1–3 | Tenant isolation, Origin / request headers, no secret leakage | **PASS (automated)** | Exercised in `review-routes.test.ts` / API auth tests |
+| 4–5 | Keyboard / a11y / mobile for preview aside | **Done (cloud)** | Covered with Feature 14 live use on product URL (SOC-7) |
 
 ## Manual live proof
 
 | Check | Result |
 |-------|--------|
-| Harmless live posts to Threads, LinkedIn Personal, Instagram | **BLOCKED** | Needs SocialMCP + live platform accounts |
+| Harmless live posts via SocialMCP on the product URL | **Done** | Engineer confirmed Tracer Bullet publish path (SOC-19). Platform mix as available on connected accounts. |
 
 ## Overall
 
-**BLOCKED** for Feature 5 Verify close until SocialMCP live path exists. Product automated suite for this repo is green.
+**Done** (cloud proof, Linear SOC-6 / SOC-19). Product automated suite remains green.

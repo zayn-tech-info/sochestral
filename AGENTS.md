@@ -43,11 +43,12 @@ Instagram Graph version: `INSTAGRAM_GRAPH_API_VERSION` (default `v21.0`).
 
 Business-strict AI social operator for three ICPs: physical product sellers (relevance and customers), founders launching a product (steady updates), and developers/builders who want to be seen while shipping. Not for casual “anyone who posts.” Prefer professional implementation and better practice defaults (official APIs, validated tool execution, review before live publish). Full intent and bar: `docs/scope/scope.md` and `docs/MASTER_PLAN.md`.
 
-Progress lives in `docs/scope/scope.md` (Progress snapshot + At a glance). Foundation and Slice 1 are largely built; close outs are verify/live smoke and Feature 12 rollout. Slice 2 (tiers, setup agent, channels) is not started.
+Progress lives in `docs/scope/scope.md` (Progress snapshot + At a glance) and `sochestral-master-plan.md` §2. Tracer Bullet path is proven on the cloud product URL. Slice 1 Features 4/5/14 are Done. Remaining close outs: Feature 12 live smoke + authority flag (SOC-9), Feature 13 Thinking flag (SOC-8). Slice 2 (tiers, setup agent, channels) is not started. Free beta access; billing is parallel and not a beta gate.
 
 ## Context files
 
 - Product scope: `docs/scope/scope.md` (living; ignore stale `docs/scope.md`)
+- Operational status + locked pricing: `sochestral-master-plan.md`
 - Product vision: `docs/MASTER_PLAN.md`
 - Platform capabilities: `docs/platform-capabilities.md`
 - Instagram setup: `docs/platform-setup/instagram.md`
@@ -60,24 +61,36 @@ Skills live in `.agents/skills/` (project) and `.cursor/skills-cursor/` (Cursor 
 
 ## Cursor Cloud specific instructions
 
-Heads up: most of this file above (and `README.md`) describes the external **SocialMCP** infra repo and is stale for this checkout. This repo is actually the **Sochestral** hosted SaaS product (root `package.json` name `sochestral`). The real, runnable services here are a Next.js web app, a Hono API, and Postgres. SocialMCP and the Thesean LLM are **external** dependencies, not in this repo.
+Heads up: most of this file above (and `README.md`) describes the external **SocialMCP** infra repo and is stale for this checkout. This repo is the **Sochestral** hosted SaaS product (root `package.json` name `sochestral`). SocialMCP and the Thesean LLM are **external** cloud dependencies, not in this repo.
 
-### Services
+### Live stack (primary)
 
-- **Postgres 16** on host port **5433** (not the default 5432). Role/password `sochestral`/`sochestral`, databases `sochestral` and `sochestral_test`. The update script does not manage Postgres; on a fresh VM boot start it with `sudo pg_ctlcluster 16 main start`, then confirm with `pg_lsclusters`. Data and the port config persist in the snapshot.
-- **Product API** (`@sochestral/api`, Hono): `pnpm run dev:api` → `http://localhost:8787`. Routes include `/auth/login`, `/auth/me`, `/auth/mcp-token`.
-- **Web** (Next.js): run `npm run dev` **from `web/`** → `http://localhost:3000`. `web/` is a standalone npm project with its own `package-lock.json` and is **not** part of the pnpm workspace (`pnpm-workspace.yaml` only lists `packages/*`), so it needs its own `npm install`.
+- **Product URL**: `https://app.sochestral.shop` (Fly app `sochestral`)
+- **Product API**: `https://api.sochestral.shop` (Fly app `sochestral-api`, Hono)
+- **Product Postgres**: **Neon** is the primary production database (`DATABASE_URL` secret on `sochestral-api`). Do not treat local Docker Postgres as the live story.
+- **SocialMCP**: runs in cloud and is reached via `SOCIALMCP_MCP_URL` (product secret). Platform OAuth tokens stay in the MCP execution DB.
+- **R2**: Cloudflare R2 private media is fully wired in cloud for Feature 12 uploads. `PUBLISHING_AUTHORITY_ENABLED` stays false until Feature 12 live smoke (SOC-9).
+- **Thesean**: cloud LLM for orchestration. `THESEAN_THINKING_ENABLED` / Thinking UI smoke is tracked on SOC-8.
+
+### Local agent / Cursor Cloud VM services (secondary)
+
+These are for package tests and local UI work on the agent VM. They are **not** the production stack.
+
+- Optional local **Postgres 16** on host port **5433** (role/password `sochestral`/`sochestral`, DBs `sochestral` and `sochestral_test`). On a fresh VM: `sudo pg_ctlcluster 16 main start`, then `pg_lsclusters`.
+- **Product API** locally: `pnpm run dev:api` → `http://localhost:8787` (`/auth/login`, `/auth/me`, `/auth/mcp-token`, …).
+- **Web** locally: `npm run dev` **from `web/`** → `http://localhost:3000`. `web/` is a standalone npm project (`package-lock.json`) and is **not** in the pnpm workspace (`pnpm-workspace.yaml` only lists `packages/*`), so it needs its own `npm install`.
 
 ### Gotchas
 
 - Root pnpm scripts use colons in their names (`db:migrate`, `dev:api`, …). `pnpm db:migrate` is misread as a recursive filter and fails; always use `pnpm run db:migrate` (or `pnpm run dev:api`, etc.) from the repo root.
-- `.env` is required; copy it from `.env.example` (its local Postgres/JWT defaults already work). Run `pnpm run db:migrate` for the main DB and `DATABASE_URL=postgresql://sochestral:sochestral@localhost:5433/sochestral_test pnpm run db:migrate` for the test DB.
+- `.env` is required for local work; copy it from `.env.example` (local Postgres/JWT defaults). For local migrate: `pnpm run db:migrate` and `DATABASE_URL=postgresql://sochestral:sochestral@localhost:5433/sochestral_test pnpm run db:migrate`.
 - Package tests (`pnpm run test:database`, `test:auth`, `test:api`) need a migrated `sochestral_test` DB. Web tests/lint run without a DB: `npm run test` and `npm run lint` in `web/`.
+- Cloud deploy configs: `fly.api.toml` (`sochestral-api`), `web/fly.toml` (`sochestral`). Production `DATABASE_URL` is the Neon connection string set as a Fly secret, not the `.env.example` localhost URL.
 
-### Provision + login (no external deps)
+### Provision + login (local, no external deps)
 
-`pnpm run db:provision <email>` then `pnpm run db:set-password <email> <password>`, then log in at `http://localhost:3000/login`. This exercises Postgres + API + auth end-to-end.
+`pnpm run db:provision <email>` then `pnpm run db:set-password <email> <password>`, then log in at `http://localhost:3000/login`. This exercises local Postgres + API + auth only.
 
-### External-only features
+### Cloud vs local for chat / publish
 
-Chat orchestration needs `THESEAN_API_KEY` (Thesean LLM) plus a running SocialMCP server at `SOCIALMCP_MCP_URL`; connectors/publishing need the SocialMCP OAuth service. Without those, login and the workspace UI work, but sending a chat message or publishing will fail. That is expected in this repo, not a broken setup.
+On the **product URL**, chat and publish use cloud Thesean + cloud SocialMCP. On a **local/agent** checkout without `THESEAN_API_KEY` and a reachable `SOCIALMCP_MCP_URL`, login and workspace UI still work, but sending a chat message or publishing fails closed. That is expected for this repo when external services are not pointed at cloud.
