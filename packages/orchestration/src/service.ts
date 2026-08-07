@@ -43,7 +43,10 @@ import type {
   ModelProvider,
 } from "./model.js";
 import { TheseanModelProvider } from "./model.js";
-import { resolvePlatforms } from "./platforms.js";
+import {
+  platformsFromRecentMessages,
+  resolvePlatforms,
+} from "./platforms.js";
 import { redactRecord, redactText } from "./redaction.js";
 import {
   MODEL_TOOLS,
@@ -1009,7 +1012,30 @@ export class DefaultOrchestrationService implements OrchestrationService {
     );
     if (existing) return this.existingResponse(existing);
 
-    const resolution = resolvePlatforms(input.message);
+    let inheritedPlatforms: TargetPlatform[] = [];
+    let priorUserMessages: string[] = [];
+    if (conversationId) {
+      const previousRuns = await listConversationRuns(this.db, conversationId);
+      inheritedPlatforms =
+        previousRuns
+          .find((run) => run.targetPlatforms.some(isTargetPlatform))
+          ?.targetPlatforms.filter(isTargetPlatform) ?? [];
+      const recentMessages = await listConversationMessages(
+        this.db,
+        conversationId,
+        24,
+      );
+      priorUserMessages = recentMessages
+        .filter((entry) => entry.role === "user")
+        .map((entry) => entry.content);
+      if (inheritedPlatforms.length === 0) {
+        inheritedPlatforms = platformsFromRecentMessages(priorUserMessages);
+      }
+    }
+
+    const resolution = resolvePlatforms(input.message, {
+      inheritedPlatforms,
+    });
     const common = {
       userId,
       requestId: input.requestId,
@@ -1041,17 +1067,10 @@ export class DefaultOrchestrationService implements OrchestrationService {
         return this.existingResponse(turn);
       }
 
-      let targetPlatforms = resolution.platforms;
-      if (conversationId && targetPlatforms.length === 0) {
-        const previousRuns = await listConversationRuns(
-          this.db,
-          conversationId,
-        );
-        targetPlatforms =
-          previousRuns
-            .find((run) => run.targetPlatforms.some(isTargetPlatform))
-            ?.targetPlatforms.filter(isTargetPlatform) ?? [];
-      }
+      const targetPlatforms =
+        resolution.platforms.length > 0
+          ? resolution.platforms
+          : inheritedPlatforms;
 
       const authority = await this.publishingPreferences.snapshot(
         userId,
@@ -1060,6 +1079,7 @@ export class DefaultOrchestrationService implements OrchestrationService {
           this.emit({ type: "step_started", step: "checking_intent" });
           const kind = await resolveLivePublishIntent(this.model, {
             message,
+            priorMessages: priorUserMessages,
             modelName: this.config.theseanIntentModel,
             mode,
           });

@@ -110,6 +110,46 @@ export function localDraftIntent(message: string): boolean {
   return false;
 }
 
+/** Clear affirmative live publish wording that does not need an LLM round trip. */
+export function localLiveIntent(message: string): boolean {
+  const value = message.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!value || localDraftIntent(message)) return false;
+  if (
+    /\b(?:post|publish|ship|share)\b[\s\S]{0,48}\b(?:live|now|immediately)\b/.test(
+      value,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(?:post|publish|ship)\b[\s\S]{0,48}\b(?:instagram|insta|instgram|instalgram|threads|linkedin)\b/.test(
+      value,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /^(?:yes[,.]?\s+)?(?:post|publish)\s+(?:it|this|that)(?:\s+live)?(?:\s+on\s+\w+)?[.!]?$/.test(
+      value,
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function intentClassificationWindow(
+  message: string,
+  priorMessages: string[] | undefined,
+): string {
+  const prior = (priorMessages ?? [])
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .slice(-6);
+  if (prior.length === 0) return message.trim();
+  return `${prior.join("\n")}\n${message.trim()}`.trim();
+}
+
 export function wrapUserMessageForIntentClassification(message: string): string {
   return `${LIVE_PUBLISH_INTENT_USER_MESSAGE_START}\n${message}\n${LIVE_PUBLISH_INTENT_USER_MESSAGE_END}`;
 }
@@ -131,7 +171,13 @@ export function intentClarification(platforms: TargetPlatform[]): string {
   return `Do you want me to publish this live on ${head} and ${last}, or keep it as a draft for review?`;
 }
 
-type IntentLogReason = "local_draft" | "llm_live" | "llm_draft" | "llm_unclear" | "provider_error";
+type IntentLogReason =
+  | "local_draft"
+  | "local_live"
+  | "llm_live"
+  | "llm_draft"
+  | "llm_unclear"
+  | "provider_error";
 
 function logIntentResolution(input: {
   outcome: LiveIntentKind;
@@ -150,7 +196,13 @@ function parseIntentKind(value: unknown): LiveIntentKind | null {
 
 export async function resolveLivePublishIntent(
   model: ModelProvider,
-  input: { message: string; modelName: string; mode?: PublishingMode },
+  input: {
+    message: string;
+    modelName: string;
+    mode?: PublishingMode;
+    /** Recent prior user messages (oldest first). Used so short replies keep context. */
+    priorMessages?: string[];
+  },
 ): Promise<LiveIntentKind> {
   const message = input.message.trim();
   if (!message) {
@@ -169,8 +221,17 @@ export async function resolveLivePublishIntent(
     });
     return "draft";
   }
+  const window = intentClassificationWindow(message, input.priorMessages);
+  if (localLiveIntent(message) || localLiveIntent(window)) {
+    logIntentResolution({
+      outcome: "live",
+      reason: "local_live",
+      mode: input.mode,
+    });
+    return "live";
+  }
   try {
-    const classifiedMessage = wrapUserMessageForIntentClassification(message);
+    const classifiedMessage = wrapUserMessageForIntentClassification(window);
     const result = await model.complete({
       system: LIVE_PUBLISH_INTENT_SYSTEM,
       messages: [

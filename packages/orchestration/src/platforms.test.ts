@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   PLATFORM_CLARIFICATION,
+  extractPlatforms,
+  platformsFromRecentMessages,
   resolvePlatforms,
 } from "./platforms.js";
 
@@ -38,5 +40,43 @@ describe("resolvePlatforms", () => {
       kind: "resolved",
       platforms: ["linkedin_personal", "instagram"],
     });
+  });
+
+  it("accepts common Instagram typos", () => {
+    expect(extractPlatforms("Post this on instgram")).toEqual(["instagram"]);
+  });
+
+  it("inherits platforms when a follow-up action omits the platform name", () => {
+    expect(
+      resolvePlatforms("Post it live", {
+        inheritedPlatforms: ["instagram"],
+      }),
+    ).toEqual({
+      kind: "resolved",
+      platforms: ["instagram"],
+    });
+  });
+
+  it("still clarifies unsupported platforms even when inherited platforms exist", () => {
+    expect(
+      resolvePlatforms("Share this on Facebook", {
+        inheritedPlatforms: ["instagram"],
+      }),
+    ).toEqual({
+      kind: "clarify",
+      message: PLATFORM_CLARIFICATION,
+    });
+  });
+});
+
+describe("platformsFromRecentMessages", () => {
+  it("prefers the newest message that names a platform", () => {
+    expect(
+      platformsFromRecentMessages([
+        "Post this on Threads",
+        "Actually put it on Instagram",
+        "Post it live",
+      ]),
+    ).toEqual(["instagram"]);
   });
 });
