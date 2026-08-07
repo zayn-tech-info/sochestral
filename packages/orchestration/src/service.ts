@@ -1016,7 +1016,7 @@ export class DefaultOrchestrationService implements OrchestrationService {
     let priorUserMessages: string[] = [];
     if (conversationId) {
       const previousRuns = await listConversationRuns(this.db, conversationId);
-      inheritedPlatforms =
+      const runPlatforms =
         previousRuns
           .find((run) => run.targetPlatforms.some(isTargetPlatform))
           ?.targetPlatforms.filter(isTargetPlatform) ?? [];
@@ -1028,9 +1028,11 @@ export class DefaultOrchestrationService implements OrchestrationService {
       priorUserMessages = recentMessages
         .filter((entry) => entry.role === "user")
         .map((entry) => entry.content);
-      if (inheritedPlatforms.length === 0) {
-        inheritedPlatforms = platformsFromRecentMessages(priorUserMessages);
-      }
+      // Prefer platforms the user named recently over older run platforms so a
+      // clarify loop (or typo reply) cannot resurrect a stale Threads target.
+      const messagePlatforms = platformsFromRecentMessages(priorUserMessages);
+      inheritedPlatforms =
+        messagePlatforms.length > 0 ? messagePlatforms : runPlatforms;
     }
 
     const resolution = resolvePlatforms(input.message, {

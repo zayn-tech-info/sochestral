@@ -253,11 +253,6 @@ describe("DefaultOrchestrationService", () => {
     );
     vi.mocked(model.complete)
       .mockResolvedValueOnce(modelCompletion({
-        toolCalls: [toolCall("intent_1", "resolve_live_publish_intent", {
-          intent: "live",
-        })],
-      }))
-      .mockResolvedValueOnce(modelCompletion({
         toolCalls: [toolCall("call_review_auto", "prepare_review", {
           variants: [{ platform: "threads", body: "Launch now", mediaUrls: [] }],
         })],
@@ -275,9 +270,13 @@ describe("DefaultOrchestrationService", () => {
         explicitLiveIntent: true,
         liveIntentKind: "live",
       });
+      // Clear live wording resolves locally; no intent LLM round trip.
       expect(vi.mocked(model.complete).mock.calls[0]?.[0]).toMatchObject({
-        toolChoice: { type: "tool", name: "resolve_live_publish_intent" },
-        model: "intent-model",
+        model: "contract-model",
+      });
+      expect(vi.mocked(model.complete).mock.calls[0]?.[0].toolChoice).not.toEqual({
+        type: "tool",
+        name: "resolve_live_publish_intent",
       });
       expect(review.publishGroup).toHaveBeenCalledWith(
         userId,
@@ -293,7 +292,7 @@ describe("DefaultOrchestrationService", () => {
       expect(result.assistantMessage.content).toBe(
         "Published successfully to Threads.",
       );
-      expect(vi.mocked(model.complete).mock.calls[1]?.[0].system).toContain(
+      expect(vi.mocked(model.complete).mock.calls[0]?.[0].system).toContain(
         "image only, no caption, or without caption",
       );
       const storedMessages = await database.db
@@ -356,6 +355,108 @@ describe("DefaultOrchestrationService", () => {
       expect(vi.mocked(model.complete).mock.calls[0]?.[0]).toMatchObject({
         toolChoice: { type: "tool", name: "resolve_live_publish_intent" },
       });
+    } finally {
+      if (previousEnabled === undefined) delete process.env.PUBLISHING_AUTHORITY_ENABLED;
+      else process.env.PUBLISHING_AUTHORITY_ENABLED = previousEnabled;
+    }
+  });
+
+  it("posts live on Instagram from Full access without re-asking platform or draft", async () => {
+    const previousEnabled = process.env.PUBLISHING_AUTHORITY_ENABLED;
+    process.env.PUBLISHING_AUTHORITY_ENABLED = "true";
+    await updatePublishingPreference(database.db, {
+      userId,
+      expectedRevision: 0,
+      mode: "full_access",
+      source: "settings",
+      currentConsentVersion: "2026-08-01",
+      acknowledged: true,
+      consentVersion: "2026-08-01",
+    });
+    const review = {
+      updateDraft: vi.fn(),
+      publishGroup: vi.fn().mockResolvedValue({
+        results: [
+          {
+            id: "attempt_ig",
+            draftId: "draft_ig",
+            platform: "instagram",
+            state: "succeeded",
+            mcpPostId: "post_ig",
+            error: null,
+            createdAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+            authorizationKind: "full_access",
+          },
+        ],
+      }),
+      checkAttempt: vi.fn(),
+    } as unknown as ReviewService;
+    service = new DefaultOrchestrationService(
+      database.db,
+      config,
+      model,
+      mcp,
+      new PublishingPreferenceService(database.db),
+      review,
+    );
+    vi.mocked(model.complete)
+      .mockResolvedValueOnce(
+        modelCompletion({
+          toolCalls: [
+            toolCall("call_review_ig", "prepare_review", {
+              variants: [
+                { platform: "instagram", body: "Shopydash", mediaUrls: [] },
+              ],
+            }),
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        modelCompletion({ content: "Publishing the prepared set." }),
+      );
+
+    try {
+      const first = await service.createConversation(userId, {
+        message: "Post this on my Instagram",
+        requestId: "00000000-0000-4000-8000-000000000291",
+      });
+      expect(first.run).toMatchObject({
+        targetPlatforms: ["instagram"],
+        liveIntentKind: "live",
+        explicitLiveIntent: true,
+      });
+      expect(first.assistantMessage.content).not.toContain("Which supported platform");
+      expect(first.assistantMessage.content).not.toContain("draft for review");
+
+      vi.mocked(model.complete)
+        .mockResolvedValueOnce(
+          modelCompletion({
+            toolCalls: [
+              toolCall("call_review_ig2", "prepare_review", {
+                variants: [
+                  { platform: "instagram", body: "Shopydash", mediaUrls: [] },
+                ],
+              }),
+            ],
+          }),
+        )
+        .mockResolvedValueOnce(
+          modelCompletion({ content: "Publishing the prepared set." }),
+        );
+
+      const followUp = await service.addMessage(userId, first.conversation.id, {
+        message: "Publish",
+        requestId: "00000000-0000-4000-8000-000000000292",
+      });
+      expect(followUp.run).toMatchObject({
+        targetPlatforms: ["instagram"],
+        liveIntentKind: "live",
+        explicitLiveIntent: true,
+      });
+      expect(followUp.assistantMessage.content).not.toContain(
+        "Which supported platform",
+      );
     } finally {
       if (previousEnabled === undefined) delete process.env.PUBLISHING_AUTHORITY_ENABLED;
       else process.env.PUBLISHING_AUTHORITY_ENABLED = previousEnabled;
@@ -457,7 +558,8 @@ describe("DefaultOrchestrationService", () => {
 
     try {
       const result = await service.createConversation(userId, {
-        message: "Ship the Threads launch post now",
+        // Wording that is not a local live match, so the intent LLM can still classify draft.
+        message: "Put the launch update on Threads for me",
         requestId: "00000000-0000-4000-8000-000000000097",
       });
 

@@ -2,6 +2,9 @@ import type { TargetPlatform } from "@sochestral/database";
 
 const ACTION_PATTERN =
   /\b(post|publish|share|schedule|draft|validate|preview|send)\b/i;
+/** Short follow-ups that continue a prior post request without renaming the platform. */
+const FOLLOW_UP_ACTION_PATTERN =
+  /^(?:yes[,.]?\s+)?(?:publish|post(?:\s+it)?(?:\s+live)?|go\s+live|live(?:\s+please)?|do\s+it|ship\s+it)[.!]?$/i;
 const UNSUPPORTED_PATTERN =
   /\b(facebook|tiktok|twitter|reddit|discord|youtube|pinterest|snapchat)\b/i;
 const AMBIGUOUS_PATTERN = /\b(everywhere|all platforms|all accounts)\b/i;
@@ -17,7 +20,9 @@ const PLATFORM_PATTERNS: Array<{
   },
   {
     platform: "instagram",
-    pattern: /\b(?:instagram|insta|instgram|instalgram)\b/i,
+    // Common typos seen in chat: Instagarm, instgram, instalgram, instagam, instagrma
+    pattern:
+      /\b(?:instagram|instagrma|instagarm|instagam|instgram|instalgram|insta)\b/i,
   },
 ];
 
@@ -65,7 +70,10 @@ export function resolvePlatforms(
     return { kind: "clarify", message: PLATFORM_CLARIFICATION };
   }
 
-  if (requestsAction && platforms.length === 0) {
+  const needsPlatform =
+    requestsAction || FOLLOW_UP_ACTION_PATTERN.test(message.trim());
+
+  if (needsPlatform && platforms.length === 0) {
     if (inherited.length > 0) {
       return { kind: "resolved", platforms: inherited };
     }

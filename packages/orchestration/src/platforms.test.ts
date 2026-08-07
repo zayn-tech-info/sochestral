@@ -44,11 +44,25 @@ describe("resolvePlatforms", () => {
 
   it("accepts common Instagram typos", () => {
     expect(extractPlatforms("Post this on instgram")).toEqual(["instagram"]);
+    expect(extractPlatforms("Yes post it live on Instagarm")).toEqual([
+      "instagram",
+    ]);
   });
 
   it("inherits platforms when a follow-up action omits the platform name", () => {
     expect(
       resolvePlatforms("Post it live", {
+        inheritedPlatforms: ["instagram"],
+      }),
+    ).toEqual({
+      kind: "resolved",
+      platforms: ["instagram"],
+    });
+  });
+
+  it("inherits platforms for bare Publish follow-ups", () => {
+    expect(
+      resolvePlatforms("Publish", {
         inheritedPlatforms: ["instagram"],
       }),
     ).toEqual({
@@ -76,6 +90,16 @@ describe("platformsFromRecentMessages", () => {
         "Post this on Threads",
         "Actually put it on Instagram",
         "Post it live",
+      ]),
+    ).toEqual(["instagram"]);
+  });
+
+  it("recovers Instagram from typo replies after an older Threads mention", () => {
+    expect(
+      platformsFromRecentMessages([
+        "Post this on Threads",
+        "Yes post it live on Instagarm",
+        "instgram",
       ]),
     ).toEqual(["instagram"]);
   });

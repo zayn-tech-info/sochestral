@@ -56,6 +56,7 @@ describe("localLiveIntent", () => {
     "Publish this on Threads",
     "Post it live",
     "Yes post it live on Instagram",
+    "Yes post it live on Instagarm",
     "Ship the Threads launch post now",
   ])("maps clear live publish wording to live: %s", (message) => {
     expect(localLiveIntent(message)).toBe(true);
@@ -67,7 +68,8 @@ describe("localLiveIntent", () => {
     "Yeah",
     "Just shot it there",
     "Instagram",
-  ])("does not treat draft, questions, or bare platform names as local live: %s", (message) => {
+    "Publish",
+  ])("does not treat draft, questions, or bare replies as local live alone: %s", (message) => {
     expect(localLiveIntent(message)).toBe(false);
   });
 });
@@ -184,6 +186,32 @@ describe("resolveLivePublishIntent", () => {
     await expect(
       resolveLivePublishIntent(model, {
         message: "Post it live",
+        priorMessages: ["Post this on my Instagram"],
+        modelName: "intent-model",
+        mode: "full_access",
+      }),
+    ).resolves.toBe("live");
+    expect(model.complete).not.toHaveBeenCalled();
+  });
+
+  it("treats bare Publish as live when the prior turn already named a platform", async () => {
+    const model: ModelProvider = { complete: vi.fn() };
+    await expect(
+      resolveLivePublishIntent(model, {
+        message: "Publish",
+        priorMessages: ["Post this on my Instagram"],
+        modelName: "intent-model",
+        mode: "full_access",
+      }),
+    ).resolves.toBe("live");
+    expect(model.complete).not.toHaveBeenCalled();
+  });
+
+  it("treats Instagarm typo replies as live with prior post context", async () => {
+    const model: ModelProvider = { complete: vi.fn() };
+    await expect(
+      resolveLivePublishIntent(model, {
+        message: "Yes post it live on Instagarm",
         priorMessages: ["Post this on my Instagram"],
         modelName: "intent-model",
         mode: "full_access",
