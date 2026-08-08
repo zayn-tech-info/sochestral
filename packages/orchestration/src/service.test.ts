@@ -40,13 +40,14 @@ const config: OrchestrationConfig = {
 function modelCompletion(
   input: {
     content?: string | null;
+    thinking?: string | null;
     toolCalls?: Array<{ id: string; name: string; input: unknown }>;
     attempts?: number;
   } = {},
 ) {
   return {
     content: input.content ?? null,
-    thinking: null,
+    thinking: input.thinking ?? null,
     toolCalls: input.toolCalls ?? [],
     inputTokens: 10,
     outputTokens: 5,
@@ -350,11 +351,20 @@ describe("DefaultOrchestrationService", () => {
       expect(result.assistantMessage.content).toContain("publish this live");
       expect(result.assistantMessage.content).toContain("Threads");
       expect(result.reviewGroups).toHaveLength(0);
+      expect(result.toolSummaries).toEqual([]);
       expect(review.publishGroup).not.toHaveBeenCalled();
+      expect(review.updateDraft).not.toHaveBeenCalled();
+      expect(mcp.callTool).not.toHaveBeenCalled();
       expect(vi.mocked(model.complete)).toHaveBeenCalledTimes(1);
       expect(vi.mocked(model.complete).mock.calls[0]?.[0]).toMatchObject({
         toolChoice: { type: "tool", name: "resolve_live_publish_intent" },
+        thinking: { enabled: false },
       });
+      expect(
+        vi.mocked(model.complete).mock.calls.some((call) =>
+          JSON.stringify(call[0]?.tools ?? []).includes("prepare_review"),
+        ),
+      ).toBe(false);
     } finally {
       if (previousEnabled === undefined) delete process.env.PUBLISHING_AUTHORITY_ENABLED;
       else process.env.PUBLISHING_AUTHORITY_ENABLED = previousEnabled;
@@ -1076,5 +1086,129 @@ describe("DefaultOrchestrationService", () => {
     ).rejects.toBeDefined();
     expect(model.complete).not.toHaveBeenCalled();
     expect(mcp.callTool).not.toHaveBeenCalled();
+  });
+
+  it("streams step events without thinking when the flag is off (SOC-8 AC-3, AC-5)", async () => {
+    const events: Array<{ type: string; step?: string; delta?: string }> = [];
+    vi.mocked(model.complete)
+      .mockImplementationOnce(async (input) => {
+        expect(input.thinking).toEqual({
+          enabled: false,
+          budgetTokens: 2048,
+        });
+        expect(input.stream).toBeDefined();
+        return modelCompletion({
+          toolCalls: [
+            toolCall("call_review", "prepare_review", {
+              variants: [
+                { platform: "threads", body: "Launch day", mediaUrls: [] },
+              ],
+            }),
+          ],
+        });
+      })
+      .mockResolvedValueOnce(
+        modelCompletion({ content: "Your Threads draft is ready to review." }),
+      );
+
+    const result = await service.createConversationStream(
+      userId,
+      {
+        message: "Draft Launch day on Threads",
+        requestId: "00000000-0000-4000-8000-000000000801",
+      },
+      {
+        emit(event) {
+          events.push(event);
+        },
+      },
+    );
+
+    expect(result.run?.thinkingText ?? null).toBeNull();
+    expect(events.map((event) => event.type)).toEqual(
+      expect.arrayContaining([
+        "turn_started",
+        "step_started",
+        "step_completed",
+        "turn_completed",
+      ]),
+    );
+    expect(events.some((event) => event.type === "thinking_delta")).toBe(false);
+    expect(events.some((event) => event.type === "thinking_completed")).toBe(
+      false,
+    );
+    expect(
+      events.some(
+        (event) =>
+          event.type === "step_started" && event.step === "preparing_draft",
+      ),
+    ).toBe(true);
+  });
+
+  it("streams thinking deltas and persists sanitized thinking when enabled (SOC-8 AC-2, AC-5)", async () => {
+    const events: Array<{ type: string; step?: string; delta?: string }> = [];
+    service = new DefaultOrchestrationService(
+      database.db,
+      {
+        ...config,
+        theseanThinkingEnabled: true,
+        theseanThinkingBudgetTokens: 1024,
+      },
+      model,
+      mcp,
+    );
+    vi.mocked(model.complete)
+      .mockImplementationOnce(async (input) => {
+        expect(input.thinking).toEqual({
+          enabled: true,
+          budgetTokens: 1024,
+        });
+        input.stream?.onThinkingDelta?.("Consider Threads tone");
+        return modelCompletion({
+          thinking: "Consider Threads tone",
+          toolCalls: [
+            toolCall("call_review", "prepare_review", {
+              variants: [
+                { platform: "threads", body: "Launch day", mediaUrls: [] },
+              ],
+            }),
+          ],
+        });
+      })
+      .mockImplementationOnce(async (input) => {
+        input.stream?.onThinkingDelta?.("Finish the draft reply");
+        return modelCompletion({
+          thinking: "Finish the draft reply",
+          content: "Your Threads draft is ready to review.",
+        });
+      });
+
+    const result = await service.createConversationStream(
+      userId,
+      {
+        message: "Draft Launch day on Threads",
+        requestId: "00000000-0000-4000-8000-000000000802",
+      },
+      {
+        emit(event) {
+          events.push(event);
+        },
+      },
+    );
+
+    expect(result.run?.thinkingText).toContain("Consider Threads tone");
+    expect(result.run?.thinkingText).toContain("Finish the draft reply");
+    expect(
+      events.filter((event) => event.type === "thinking_delta").map((event) => event.delta),
+    ).toEqual(["Consider Threads tone", "Finish the draft reply"]);
+    expect(
+      events.filter((event) => event.type === "thinking_completed"),
+    ).toHaveLength(2);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "step_started" && event.step === "preparing_draft",
+      ),
+    ).toBe(true);
   });
 });

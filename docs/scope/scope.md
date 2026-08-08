@@ -31,7 +31,7 @@ Implementation stays professional and conservative: official APIs only, validate
 |------|---------|
 | Foundation (1 to 2) | Shipped: product schema on **Neon** Postgres, sessions, MCP JWT minting |
 | Slice 1 core (3 to 5) | **Done.** Tracer Bullet path proven on the product URL (`https://app.sochestral.shop`): connect → chat → draft → preview aside → approve → SocialMCP publish → live result. Linear SOC-5 / SOC-6 / SOC-18 / SOC-19 Done |
-| Slice 3 early (12 to 14) | Feature 14 **Done** (SOC-7). Feature 13 build Done; Thinking / `THESEAN_THINKING_ENABLED` smoke still open (SOC-8). Feature 12 code + **R2 wired** in cloud; live smoke then `PUBLISHING_AUTHORITY_ENABLED` remains (SOC-9) |
+| Slice 3 early (12 to 14) | Feature 14 **Done** (SOC-7). Feature 13 build + Thinking automated tests Done; cloud Thinking flag smoke still open (SOC-8). Feature 12 code + **R2 wired** in cloud; live smoke then `PUBLISHING_AUTHORITY_ENABLED` remains (SOC-9) |
 | Slice 2 (6 to 10) | Not started. Feature 10 is narrowed: chat/connectors/preview already ship under 4/5/14 |
 | Hosting | Fly apps `sochestral` (web) + `sochestral-api` (Hono); cloud SocialMCP; Neon as primary product DB. Local Docker Postgres on 5433 is for agent/dev only |
 
@@ -234,8 +234,8 @@ Users choose Always draft, Approve for me, or Full access across conversations. 
 
 When Approve for me or Full access cannot tell live publish from draft, ask instead of silently drafting. Chat shows a Thinking disclosure with safe step labels and optional Thesean model reasoning over NDJSON streaming.
 **Done when:** unclear intent never calls `prepare_review`; clarify copy is product owned; stream emits safe steps and sanitized thinking; web shows an expandable Thinking control.
-**Progress:** Build is complete in code (migration `0007`, ternary intent, clarify turn, stream events, Thinking disclosure). Intent clarify that blocks silent drafts is part of the working cloud chat path. **Thinking flag note:** `THESEAN_THINKING_ENABLED` may still be off in cloud; SOC-8 closes Thinking / Thesean extended reasoning smoke, formal verify, and remaining tests. See `docs/specs/0007-intent-clarify-thinking-ui/verify.md`.
-**Spec:** [0007](../specs/0007-intent-clarify-thinking-ui/index.md)
+**Progress:** Build is complete in code (migration `0007`, ternary intent, clarify turn, stream events, Thinking disclosure). Intent clarify that blocks silent drafts is part of the working cloud chat path. Automated Thinking / stream close out tests for SOC-8 are landed. **Thinking flag note:** cloud `THESEAN_THINKING_ENABLED` still needs operator smoke + Fly secret record (or intentional delay). See `docs/specs/SOC-8-spec.md` and `docs/specs/0007-intent-clarify-thinking-ui/verify.md`.
+**Spec:** [0007](../specs/0007-intent-clarify-thinking-ui/index.md) · close out [SOC-8](../specs/SOC-8-spec.md)
 **Code:** `packages/database`, `packages/orchestration/src/publishing.ts`, `packages/orchestration/src/stream.ts`, `packages/api/src/orchestration-routes.ts`, `web/src/components/app/chat-workspace.tsx`, `web/src/components/app/workspace-provider.tsx`
 - [x] Design it (spec): `/architect intent clarify and Thinking UI`
 - [x] Build it: `/develop intent clarify and Thinking UI`
@@ -244,7 +244,7 @@ When Approve for me or Full access cannot tell live publish from draft, ask inst
   - [x] NDJSON stream with step and thinking events
   - [x] Web Thinking disclosure + stream client
 - [ ] Verify it: `/check verify intent clarify and Thinking UI`
-- [ ] Test it: `/test intent clarify and Thinking UI`
+- [x] Test it: `/test intent clarify and Thinking UI`
 
 ### 14. Live platform preview aside · medium · done
 
