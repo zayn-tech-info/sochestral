@@ -19,6 +19,7 @@ import {
   type ConversationDetail,
   type ProductUser,
   type StreamEvent,
+  type StreamStep,
 } from "@/lib/product-api";
 
 type RetryItem = {
@@ -26,6 +27,18 @@ type RetryItem = {
   requestId: string;
   useSameRequestId: boolean;
   mediaAssetIds: string[];
+};
+
+export type PendingLaunchMedia = {
+  key: string;
+  previewUrl: string;
+  fileName: string;
+};
+
+export type PendingLaunch = {
+  message: string;
+  mediaAssetIds: string[];
+  optimisticMedia: PendingLaunchMedia[];
 };
 
 type WorkspaceValue = {
@@ -38,6 +51,13 @@ type WorkspaceValue = {
   pending: Record<string, boolean>;
   errors: Record<string, string | null>;
   retries: Record<string, RetryItem | null>;
+  pendingLaunch: PendingLaunch | null;
+  launchOptimistic: PendingLaunch | null;
+  liveStep: StreamStep | null;
+  liveThinking: string;
+  startNewChat: (launch: PendingLaunch) => void;
+  takePendingLaunch: () => PendingLaunch | null;
+  clearLaunchOptimistic: () => void;
   refreshConversations: (append?: boolean) => Promise<void>;
   loadConversation: (id: string, older?: boolean) => Promise<void>;
   sendMessage: (
@@ -72,8 +92,43 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string | null>>({});
   const [retries, setRetries] = useState<Record<string, RetryItem | null>>({});
+  const [pendingLaunch, setPendingLaunch] = useState<PendingLaunch | null>(
+    null,
+  );
+  const [launchOptimistic, setLaunchOptimistic] =
+    useState<PendingLaunch | null>(null);
+  const [liveStep, setLiveStep] = useState<StreamStep | null>(null);
+  const [liveThinking, setLiveThinking] = useState("");
+  const pendingLaunchRef = useRef<PendingLaunch | null>(null);
+  const launchStartedRef = useRef(false);
   const cursorRef = useRef<string | null>(null);
   const detailsRef = useRef<Record<string, ConversationDetail>>({});
+
+  const startNewChat = useCallback(
+    (launch: PendingLaunch) => {
+      pendingLaunchRef.current = launch;
+      launchStartedRef.current = false;
+      setPendingLaunch(launch);
+      setLaunchOptimistic(launch);
+      router.push("/app/chat/new");
+    },
+    [router],
+  );
+
+  const takePendingLaunch = useCallback(() => {
+    if (launchStartedRef.current) return null;
+    const launch = pendingLaunchRef.current;
+    if (!launch) return null;
+    launchStartedRef.current = true;
+    pendingLaunchRef.current = null;
+    setPendingLaunch(null);
+    return launch;
+  }, []);
+
+  const clearLaunchOptimistic = useCallback(() => {
+    setLaunchOptimistic(null);
+    launchStartedRef.current = false;
+  }, []);
 
   const refreshConversations = useCallback(async (append = false) => {
     setConversationsLoading(true);
@@ -197,6 +252,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setPending((current) => ({ ...current, [key]: true }));
       setErrors((current) => ({ ...current, [key]: null }));
       setRetries((current) => ({ ...current, [key]: null }));
+      setLiveStep(null);
+      setLiveThinking("");
 
       try {
         const effectiveMediaAssetIds = retry?.mediaAssetIds ?? mediaAssetIds;
@@ -212,7 +269,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               ? { mediaAssetIds: effectiveMediaAssetIds }
               : {}),
           },
-          (event) => onStreamEvent?.(event),
+          (event) => {
+            if (event.type === "step_started" && event.step) {
+              setLiveStep(event.step);
+            }
+            if (event.type === "thinking_delta" && event.delta) {
+              setLiveThinking((current) => `${current}${event.delta}`);
+            }
+            onStreamEvent?.(event);
+          },
         );
         setDetails((current) => {
           const next = {
@@ -280,6 +345,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         return null;
       } finally {
         setPending((current) => ({ ...current, [key]: false }));
+        setLiveStep(null);
+        setLiveThinking("");
       }
     },
     [refreshConversations],
@@ -311,6 +378,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pending,
       errors,
       retries,
+      pendingLaunch,
+      launchOptimistic,
+      liveStep,
+      liveThinking,
+      startNewChat,
+      takePendingLaunch,
+      clearLaunchOptimistic,
       refreshConversations,
       loadConversation,
       sendMessage,
@@ -326,6 +400,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pending,
       errors,
       retries,
+      pendingLaunch,
+      launchOptimistic,
+      liveStep,
+      liveThinking,
+      startNewChat,
+      takePendingLaunch,
+      clearLaunchOptimistic,
       refreshConversations,
       loadConversation,
       sendMessage,

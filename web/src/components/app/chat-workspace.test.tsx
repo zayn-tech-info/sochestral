@@ -6,12 +6,13 @@ import { ChatWorkspace } from "./chat-workspace";
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
+  replace: vi.fn(),
   scrollIntoView: vi.fn(),
   workspace: {} as Record<string, unknown>,
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: mocks.push }),
+  useRouter: () => ({ push: mocks.push, replace: mocks.replace }),
 }));
 
 vi.mock("@/lib/product-api", async (importOriginal) => {
@@ -82,6 +83,7 @@ function detail(overrides: Partial<ConversationDetail> = {}): ConversationDetail
 beforeEach(() => {
   window.history.replaceState({}, "", "/app");
   mocks.push.mockReset();
+  mocks.replace.mockReset();
   mocks.scrollIntoView.mockReset();
   Object.defineProperty(Element.prototype, "scrollIntoView", {
     configurable: true,
@@ -137,6 +139,13 @@ beforeEach(() => {
     pending: {},
     errors: {},
     retries: {},
+    pendingLaunch: null,
+    launchOptimistic: null,
+    liveStep: null,
+    liveThinking: "",
+    startNewChat: vi.fn(),
+    takePendingLaunch: vi.fn(() => null),
+    clearLaunchOptimistic: vi.fn(),
     loadConversation: vi.fn().mockResolvedValue(undefined),
     sendMessage: vi.fn().mockResolvedValue("conv_1"),
     deleteConversation: vi.fn().mockResolvedValue(undefined),
@@ -158,7 +167,47 @@ describe("ChatWorkspace", () => {
       [],
       expect.any(Function),
     );
-    expect(mocks.push).toHaveBeenCalledWith("/app/chat/conv_1");
+    expect(mocks.replace).toHaveBeenCalledWith("/app/chat/conv_1");
+  });
+
+  it("starts a pending launch immediately on /app/chat/new", async () => {
+    const launch = {
+      message: "Plan a week of posts",
+      mediaAssetIds: [],
+      optimisticMedia: [],
+    };
+    mocks.workspace.pendingLaunch = launch;
+    mocks.workspace.launchOptimistic = launch;
+    let launchTaken = false;
+    mocks.workspace.takePendingLaunch = vi.fn(() => {
+      if (launchTaken) return null;
+      launchTaken = true;
+      return launch;
+    });
+    mocks.workspace.sendMessage = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => resolve("conv_launch"), 20);
+        }),
+    );
+
+    render(<ChatWorkspace conversationId="new" />);
+
+    expect(screen.getByText("Plan a week of posts")).toBeInTheDocument();
+    expect(mocks.workspace.takePendingLaunch).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(mocks.workspace.sendMessage).toHaveBeenCalledWith(
+        null,
+        "Plan a week of posts",
+        undefined,
+        [],
+        expect.any(Function),
+      );
+    });
+    await waitFor(() => {
+      expect(mocks.workspace.clearLaunchOptimistic).toHaveBeenCalled();
+      expect(mocks.replace).toHaveBeenCalledWith("/app/chat/conv_launch");
+    });
   });
 
   it("keeps Shift Enter as a new line without sending (AC 2)", async () => {

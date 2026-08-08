@@ -7,14 +7,12 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
-import { useRouter } from "next/navigation";
 import {
   ArrowUp,
-  Mic,
   Paperclip,
   Share2,
-  Slash,
   Sparkles,
+  Trash2,
   WandSparkles,
   Zap,
 } from "lucide-react";
@@ -22,6 +20,7 @@ import {
 import { PublishingModeControl } from "@/components/app/publishing-mode-control";
 import { useWorkspace } from "@/components/app/workspace-provider";
 import { SelectChip } from "@/components/workspace/select-chip";
+import { apiRequest } from "@/lib/product-api";
 import { cn } from "@/lib/utils";
 
 type ComposerCommandProps = {
@@ -30,6 +29,15 @@ type ComposerCommandProps = {
   initialValue?: string;
   autoFocus?: boolean;
   placeholder?: string;
+};
+
+type SelectedMedia = {
+  key: string;
+  file: File;
+  previewUrl: string;
+  assetId: string | null;
+  status: "uploading" | "ready" | "error";
+  progress: number;
 };
 
 const platforms = [
@@ -71,8 +79,7 @@ export function ComposerCommand({
   autoFocus = false,
   placeholder = "Ask Sochestral to plan, draft, or publish…",
 }: ComposerCommandProps) {
-  const router = useRouter();
-  const { sendMessage, pending } = useWorkspace();
+  const { startNewChat, pending } = useWorkspace();
   const [message, setMessage] = useState(initialValue);
   const [platform, setPlatform] = useState<(typeof platforms)[number]["value"]>(
     "all",
@@ -81,9 +88,12 @@ export function ComposerCommand({
     "workspace",
   );
   const [model, setModel] = useState<(typeof models)[number]["value"]>("auto");
+  const [selectedMedia, setSelectedMedia] = useState<SelectedMedia[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const isPending = submitting || Boolean(pending.new);
+  const mediaBlocked = selectedMedia.some((item) => item.status !== "ready");
   const isLanding = Boolean(className?.includes("os-composer-landing"));
 
   useEffect(() => {
@@ -102,30 +112,122 @@ export function ComposerCommand({
     node.style.height = `${Math.min(node.scrollHeight, isLanding ? 160 : 220)}px`;
   }, [message, isLanding]);
 
-  async function submit(text: string) {
-    const clean = text.trim();
-    if (!clean || isPending) return;
-    setMessage("");
-    setSubmitting(true);
+  async function uploadFiles(files: File[]) {
+    const accepted = files.slice(0, Math.max(0, 5 - selectedMedia.length));
+    if (accepted.length === 0) return;
+    const pendingItems = accepted.map((file) => ({
+      key: crypto.randomUUID(),
+      file,
+      previewUrl: URL.createObjectURL(file),
+      assetId: null,
+      status: "uploading" as const,
+      progress: 10,
+    }));
+    setSelectedMedia((current) => [...current, ...pendingItems]);
     try {
-      const createdId = await sendMessage(null, clean);
-      if (createdId) {
-        router.push(`/app/chat/${createdId}`);
-      }
-    } finally {
-      setSubmitting(false);
+      const tickets = await apiRequest<{
+        uploads: Array<{ assetId: string; uploadUrl: string }>;
+      }>("/media/uploads", {
+        method: "POST",
+        headers: { "X-Sochestral-Request": "publishing-action" },
+        body: JSON.stringify({
+          files: accepted.map((file) => ({
+            name: file.name,
+            mimeType: file.type,
+            byteSize: file.size,
+          })),
+        }),
+      });
+      await Promise.all(
+        pendingItems.map(async (item, index) => {
+          const ticket = tickets.uploads[index];
+          if (!ticket) throw new Error("Missing upload ticket");
+          setSelectedMedia((current) =>
+            current.map((entry) =>
+              entry.key === item.key
+                ? { ...entry, assetId: ticket.assetId, progress: 45 }
+                : entry,
+            ),
+          );
+          const put = await fetch(ticket.uploadUrl, {
+            method: "PUT",
+            headers: { "Content-Type": item.file.type },
+            body: item.file,
+          });
+          if (!put.ok) throw new Error("Upload failed");
+          await apiRequest(`/media/uploads/${ticket.assetId}/complete`, {
+            method: "POST",
+            headers: { "X-Sochestral-Request": "publishing-action" },
+            body: "{}",
+          });
+          setSelectedMedia((current) =>
+            current.map((entry) =>
+              entry.key === item.key
+                ? { ...entry, status: "ready", progress: 100 }
+                : entry,
+            ),
+          );
+        }),
+      );
+    } catch {
+      setSelectedMedia((current) =>
+        current.map((entry) =>
+          pendingItems.some((item) => item.key === entry.key)
+            ? { ...entry, status: "error", progress: 100 }
+            : entry,
+        ),
+      );
     }
+  }
+
+  async function removeMedia(item: SelectedMedia) {
+    if (item.assetId) {
+      try {
+        await apiRequest(`/media/uploads/${item.assetId}`, {
+          method: "DELETE",
+          headers: { "X-Sochestral-Request": "publishing-action" },
+        });
+      } catch {
+        // Keep local removal so the composer stays usable.
+      }
+    }
+    URL.revokeObjectURL(item.previewUrl);
+    setSelectedMedia((current) =>
+      current.filter((entry) => entry.key !== item.key),
+    );
+  }
+
+  function submit(text: string) {
+    const clean = text.trim();
+    if (!clean || isPending || mediaBlocked) return;
+    setSubmitting(true);
+    const mediaAssetIds = selectedMedia.flatMap((item) =>
+      item.assetId ? [item.assetId] : [],
+    );
+    const optimisticMedia = selectedMedia.map((item) => ({
+      key: item.key,
+      previewUrl: item.previewUrl,
+      fileName: item.file.name,
+    }));
+    setMessage("");
+    setSelectedMedia([]);
+    startNewChat({
+      message: clean,
+      mediaAssetIds,
+      optimisticMedia,
+    });
+    setSubmitting(false);
   }
 
   function onSubmit(event: FormEvent) {
     event.preventDefault();
-    void submit(message);
+    submit(message);
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      void submit(message);
+      submit(message);
     }
   }
 
@@ -167,6 +269,45 @@ export function ComposerCommand({
         </div>
       ) : null}
 
+      {selectedMedia.length ? (
+        <ul className="composer-media" aria-label="Selected images">
+          {selectedMedia.map((item) => (
+            <li key={item.key}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={item.previewUrl}
+                alt={`Selected upload ${item.file.name}`}
+              />
+              {item.status === "uploading" ? (
+                <progress
+                  value={item.progress}
+                  max={100}
+                  aria-label={`Uploading ${item.file.name}`}
+                />
+              ) : item.status === "error" ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void removeMedia(item).then(() =>
+                      uploadFiles([item.file]),
+                    );
+                  }}
+                >
+                  Retry
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => void removeMedia(item)}
+                aria-label={`Remove ${item.file.name}`}
+              >
+                <Trash2 aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
       <label htmlFor={`${id}-input`} className="sr-only">
         Message Sochestral
       </label>
@@ -183,35 +324,30 @@ export function ComposerCommand({
       />
       <div className="os-composer-toolbar">
         <div className="os-composer-tools">
+          <input
+            ref={fileInputRef}
+            className="sr-only"
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            multiple
+            onChange={(event) => {
+              void uploadFiles(Array.from(event.target.files ?? []));
+              event.target.value = "";
+            }}
+          />
           <button
             type="button"
             className="os-tool-btn"
-            disabled
-            aria-disabled="true"
-            title="Coming soon"
-            aria-label="Attach (coming soon)"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isPending || selectedMedia.length >= 5}
+            aria-label={
+              selectedMedia.length
+                ? `Attach images, ${selectedMedia.length} of 5 selected`
+                : "Attach images"
+            }
+            title="Attach images"
           >
             <Paperclip className="size-4" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className="os-tool-btn"
-            disabled
-            aria-disabled="true"
-            title="Coming soon"
-            aria-label="Voice input (coming soon)"
-          >
-            <Mic className="size-4" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className="os-tool-btn"
-            disabled
-            aria-disabled="true"
-            title="Coming soon"
-            aria-label="Slash commands (coming soon)"
-          >
-            <Slash className="size-4" aria-hidden="true" />
           </button>
           {!isLanding ? (
             <PublishingModeControl source="composer" compact />
@@ -235,7 +371,7 @@ export function ComposerCommand({
           <button
             type="submit"
             className={cn("os-generate-btn", isLanding && "os-generate-btn-icon")}
-            disabled={isPending || !message.trim()}
+            disabled={isPending || mediaBlocked || !message.trim()}
             aria-label="Generate"
           >
             <ArrowUp className="size-4" aria-hidden="true" />

@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   ArrowUpRight,
   CalendarDays,
@@ -66,9 +65,8 @@ function relativeTime(value: string) {
 }
 
 export function AiWorkspaceStudio() {
-  const router = useRouter();
   const reduceMotion = useReducedMotion();
-  const { user, conversations, conversationsLoading, sendMessage, pending } =
+  const { user, conversations, conversationsLoading, startNewChat, pending } =
     useWorkspace();
   const [showAllChats, setShowAllChats] = useState(false);
   const busy = Boolean(pending.new);
@@ -83,10 +81,13 @@ export function AiWorkspaceStudio() {
     : conversations.slice(0, RECENT_PREVIEW);
   const hasMoreChats = conversations.length > RECENT_PREVIEW;
 
-  async function startPrompt(prompt: string) {
+  function startPrompt(prompt: string) {
     if (busy) return;
-    const id = await sendMessage(null, prompt);
-    if (id) router.push(`/app/chat/${id}`);
+    startNewChat({
+      message: prompt,
+      mediaAssetIds: [],
+      optimisticMedia: [],
+    });
   }
 
   return (
@@ -115,7 +116,7 @@ export function AiWorkspaceStudio() {
                   "accent" in item && item.accent && "os-prompt-pill-accent",
                 )}
                 disabled={busy}
-                onClick={() => void startPrompt(item.prompt)}
+                onClick={() => startPrompt(item.prompt)}
                 whileHover={reduceMotion || busy ? undefined : { y: -1 }}
                 transition={productMotion.quick}
               >

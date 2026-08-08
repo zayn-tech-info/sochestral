@@ -130,14 +130,39 @@ export function ChatWorkspace({
     pending,
     errors,
     retries,
+    pendingLaunch,
+    launchOptimistic,
+    liveStep: workspaceLiveStep,
+    liveThinking: workspaceLiveThinking,
+    takePendingLaunch,
+    clearLaunchOptimistic,
     loadConversation,
     sendMessage,
     deleteConversation,
   } = useWorkspace();
-  const key = conversationId ?? "new";
-  const detail = conversationId ? details[conversationId] : null;
+  const isLaunchRoute = conversationId === "new";
+  const activeConversationId = isLaunchRoute ? null : conversationId;
+  const key = activeConversationId ?? "new";
+  const detail = activeConversationId ? details[activeConversationId] : null;
   const isPending = Boolean(pending[key]) || submitting;
+  const activeLiveStep = liveStep ?? workspaceLiveStep;
+  const activeLiveThinking = liveThinking || workspaceLiveThinking;
   const mediaBlocked = selectedMedia.some((item) => item.status !== "ready");
+  const displayOptimisticMessage =
+    optimisticMessage ?? (isLaunchRoute ? launchOptimistic?.message ?? null : null);
+  const displayOptimisticMedia =
+    optimisticMedia.length > 0
+      ? optimisticMedia
+      : isLaunchRoute
+        ? (launchOptimistic?.optimisticMedia ?? []).map((item) => ({
+            key: item.key,
+            file: new File([], item.fileName),
+            previewUrl: item.previewUrl,
+            assetId: null,
+            status: "ready" as const,
+            progress: 100,
+          }))
+        : [];
   const activityByAssistantId = new Map(
     (detail?.turnActivities ?? []).map((activity) => [
       activity.assistantMessageId,
@@ -177,17 +202,60 @@ export function ChatWorkspace({
     : null;
 
   useEffect(() => {
-    if (conversationId && !detail) {
-      void loadConversation(conversationId);
+    if (activeConversationId && !detail) {
+      void loadConversation(activeConversationId);
     }
-  }, [conversationId, detail, loadConversation]);
+  }, [activeConversationId, detail, loadConversation]);
 
   useEffect(() => {
-    if (conversationId) setOptimisticMessage(null);
-  }, [conversationId]);
+    if (activeConversationId) {
+      setOptimisticMessage(null);
+      setOptimisticMedia([]);
+    }
+  }, [activeConversationId]);
 
   useEffect(() => {
-    if (!optimisticMessage) return;
+    if (!isLaunchRoute) return;
+    const launch = takePendingLaunch();
+    if (launch) {
+      setOptimisticMessage(launch.message);
+      setOptimisticMedia(
+        launch.optimisticMedia.map((item) => ({
+          key: item.key,
+          file: new File([], item.fileName),
+          previewUrl: item.previewUrl,
+          assetId: null,
+          status: "ready" as const,
+          progress: 100,
+        })),
+      );
+      void submit(launch.message, undefined, launch.mediaAssetIds);
+      return;
+    }
+    if (
+      !pendingLaunch &&
+      !launchOptimistic &&
+      !pending.new &&
+      !optimisticMessage &&
+      !submitting
+    ) {
+      router.replace("/app/workspace");
+    }
+    // One shot launch from the welcome composer; submit closes over current media gate.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    isLaunchRoute,
+    pendingLaunch,
+    launchOptimistic,
+    takePendingLaunch,
+    pending.new,
+    optimisticMessage,
+    submitting,
+    router,
+  ]);
+
+  useEffect(() => {
+    if (!displayOptimisticMessage) return;
     const frame = window.requestAnimationFrame(() => {
       transcriptEndRef.current?.scrollIntoView({
         behavior: reduceMotion ? "auto" : "smooth",
@@ -195,14 +263,22 @@ export function ChatWorkspace({
       });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [optimisticMessage, reduceMotion]);
+  }, [displayOptimisticMessage, reduceMotion]);
 
-  async function submit(text: string, retry = retries[key] ?? undefined) {
+  async function submit(
+    text: string,
+    retry = retries[key] ?? undefined,
+    launchMediaAssetIds?: string[],
+  ) {
     const clean = text.trim();
-    if (!clean || isPending || (!retry && mediaBlocked)) return;
+    if (!clean || isPending || (!retry && !launchMediaAssetIds && mediaBlocked)) {
+      return;
+    }
     setMessage("");
     setOptimisticMessage(clean);
-    setOptimisticMedia(selectedMedia);
+    if (!launchMediaAssetIds) {
+      setOptimisticMedia(selectedMedia);
+    }
     setSubmitting(true);
     setLiveStep(null);
     setLiveThinking("");
@@ -215,9 +291,11 @@ export function ChatWorkspace({
       }
     };
     try {
-      const mediaAssetIds = selectedMedia.flatMap((item) => item.assetId ? [item.assetId] : []);
+      const mediaAssetIds =
+        launchMediaAssetIds ??
+        selectedMedia.flatMap((item) => (item.assetId ? [item.assetId] : []));
       const createdId = await sendMessage(
-        conversationId,
+        activeConversationId,
         clean,
         retry ?? undefined,
         mediaAssetIds,
@@ -227,17 +305,15 @@ export function ChatWorkspace({
         selectedMedia.forEach((item) => URL.revokeObjectURL(item.previewUrl));
         setSelectedMedia([]);
       }
-      if (conversationId && createdId) {
+      if (activeConversationId && createdId) {
         setOptimisticMessage(null);
         setOptimisticMedia([]);
       }
-      if (
-        !conversationId &&
-        createdId &&
-        (window.location.pathname === "/app" ||
-          window.location.pathname === "/app/workspace")
-      ) {
-        router.push(`/app/chat/${createdId}`);
+      if (!activeConversationId && createdId) {
+        setOptimisticMessage(null);
+        setOptimisticMedia([]);
+        clearLaunchOptimistic();
+        router.replace(`/app/chat/${createdId}`);
       }
     } finally {
       setSubmitting(false);
@@ -382,19 +458,27 @@ export function ChatWorkspace({
   }
 
   async function confirmDelete() {
-    if (!conversationId || isPending) return;
-    await deleteConversation(conversationId);
+    if (!activeConversationId || isPending) return;
+    await deleteConversation(activeConversationId);
     dialogRef.current?.close();
     router.push("/app/workspace");
   }
 
+  const showThread = Boolean(
+    activeConversationId || displayOptimisticMessage || isLaunchRoute,
+  );
+
   return (
     <AppShell
       title={
-        conversationId ? detail?.conversation.title ?? "Conversation" : undefined
+        activeConversationId
+          ? detail?.conversation.title ?? "Conversation"
+          : displayOptimisticMessage
+            ? "New chat"
+            : undefined
       }
       actions={
-        conversationId ? (
+        activeConversationId ? (
           <button
             type="button"
             className="delete-chat"
@@ -411,11 +495,11 @@ export function ChatWorkspace({
         className={`chat-with-preview${activeReviewGroup ? " chat-with-preview-open" : ""}`}
       >
       <section
-        className={`chat-surface os-chat-thread ${conversationId ? "" : "chat-surface-empty"}`}
+        className={`chat-surface os-chat-thread ${showThread ? "" : "chat-surface-empty"}`}
         aria-label="Conversation"
       >
         <div className="transcript" aria-live="polite">
-          {!conversationId && !optimisticMessage ? (
+          {!showThread ? (
             <div className="chat-empty os-chat-empty">
               <p className="chat-kicker">AI Workspace</p>
               <h1>Continue in a focused conversation</h1>
@@ -455,18 +539,18 @@ export function ChatWorkspace({
                 ))}
               </ul>
             </div>
-          ) : conversationId && !detail ? (
+          ) : activeConversationId && !detail && !displayOptimisticMessage ? (
             <div className="chat-state" role="status">
               <LoaderCircle className="size-5 animate-spin" aria-hidden="true" />
               Loading conversation
             </div>
           ) : (
             <>
-              {conversationId && detail?.nextCursor ? (
+              {activeConversationId && detail?.nextCursor ? (
                 <button
                   type="button"
                   className="load-history"
-                  onClick={() => void loadConversation(conversationId, true)}
+                  onClick={() => void loadConversation(activeConversationId, true)}
                 >
                   Load older messages
                 </button>
@@ -524,7 +608,7 @@ export function ChatWorkspace({
                     </motion.li>
                   );
                 })}
-                {optimisticMessage ? (
+                {displayOptimisticMessage ? (
                   <motion.li
                     key="optimistic-user-message"
                     initial={{ opacity: 0, y: 4 }}
@@ -533,9 +617,9 @@ export function ChatWorkspace({
                     className="message message-user message-optimistic"
                   >
                     <span className="message-author">You</span>
-                    {optimisticMedia.length ? (
+                    {displayOptimisticMedia.length ? (
                       <ul className="message-attachments">
-                        {optimisticMedia.map((item) => (
+                        {displayOptimisticMedia.map((item) => (
                           <li key={item.key}>
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src={item.previewUrl} alt={`Attached ${item.file.name}`} />
@@ -543,7 +627,7 @@ export function ChatWorkspace({
                         ))}
                       </ul>
                     ) : null}
-                    <p>{optimisticMessage}</p>
+                    <p>{displayOptimisticMessage}</p>
                   </motion.li>
                 ) : null}
                 {isPending ? (
@@ -560,11 +644,11 @@ export function ChatWorkspace({
                     <span className="message-author">Sochestral</span>
                     <ThinkingDisclosure
                       label={
-                        liveStep
-                          ? STREAM_STEP_LABELS[liveStep]
+                        activeLiveStep
+                          ? STREAM_STEP_LABELS[activeLiveStep]
                           : "Thinking"
                       }
-                      thinking={liveThinking || null}
+                      thinking={activeLiveThinking || null}
                       live
                     />
                   </motion.li>
@@ -606,7 +690,7 @@ export function ChatWorkspace({
           />
         </div>
 
-        {conversationId || optimisticMessage ? (
+        {showThread ? (
           <div className="composer-zone">
             <form onSubmit={onSubmit} className="composer">
               <label htmlFor="chat-message" className="sr-only">
@@ -636,11 +720,11 @@ export function ChatWorkspace({
         ) : null}
       </section>
 
-      {activeReviewGroup && conversationId ? (
+      {activeReviewGroup && activeConversationId ? (
         <LivePreviewAside
           group={activeReviewGroup}
           mediaPreviews={mediaPreviews}
-          onRefresh={() => loadConversation(conversationId)}
+          onRefresh={() => loadConversation(activeConversationId)}
         />
       ) : null}
       </div>

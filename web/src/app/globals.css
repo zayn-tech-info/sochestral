@@ -4244,9 +4244,18 @@
     color: var(--muted-foreground);
   }
 
+  .os-tool-btn:hover:not(:disabled) {
+    color: var(--foreground);
+    background: color-mix(in oklab, var(--foreground) 4%, #fff);
+  }
+
   .os-tool-btn:disabled {
     opacity: 0.55;
     cursor: not-allowed;
+  }
+
+  .os-composer .composer-media {
+    margin: 0 0 0.5rem;
   }
 
   .os-composer-send-row {

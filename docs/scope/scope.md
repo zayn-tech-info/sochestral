@@ -139,7 +139,7 @@ Backend that loads SaaS user context, calls the LLM with a **fixed SocialMCP too
 
 First authenticated product experience: chat workspace, Settings connectors, and product login. Orchestration powers chat. Connect hands off to SocialMCP OAuth; tokens stay in the MCP execution DB. Review presentation moved to Feature 14. Schedule view, business profile settings, and analytics remain later (Feature 10 / deferred).
 **Done when:** a tenant user can create and continue safe orchestration chats, manage conversation history, start connect for Threads, LinkedIn Personal, and Instagram from Settings, and see live connector status without product code storing OAuth tokens.
-**Progress:** Done on cloud product path (Linear SOC-5, SOC-18). Connectors + chat work against live SocialMCP / Thesean on `https://app.sochestral.shop`. Product unit tests remain green. See `docs/specs/0004-chat-connectors-ui/verify.md`.
+**Progress:** Done on cloud product path (Linear SOC-5, SOC-18). Connectors + chat work against live SocialMCP / Thesean on `https://app.sochestral.shop`. Product unit tests remain green. See `docs/specs/0004-chat-connectors-ui/verify.md`. Welcome composer polish (2026-08-08): attach enabled, mic/slash removed, send navigates to `/app/chat/new` immediately with optimistic message and planning UI.
 **Spec:** [0004](../specs/0004-chat-connectors-ui/index.md)
 **Code:** `web/src/app/app`, `web/src/components/app`, `web/src/components/auth`, `web/src/components/workspace`, `packages/api/src/connector-routes.ts`, `packages/orchestration/src/connectors.ts`
 - [x] Design it (spec): `/architect Sochestral chat workspace and connectors UI`
