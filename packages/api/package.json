@@ -18,12 +18,12 @@
     "@sochestral/orchestration": "workspace:*",
     "dotenv": "^16.4.7",
     "hono": "^4.7.2",
-    "sharp": "^0.34.3"
+    "sharp": "^0.34.3",
+    "tsx": "^4.19.2"
   },
   "devDependencies": {
     "@types/node": "^22.13.4",
     "jose": "^6.0.8",
-    "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vitest": "^3.0.5"
   }

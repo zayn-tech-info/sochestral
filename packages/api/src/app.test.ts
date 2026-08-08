@@ -52,6 +52,15 @@ describe("auth API routes", () => {
     return user;
   }
 
+  it("GET /health reports the product API service", async () => {
+    const res = await app.request("/health");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      service: "sochestral-api",
+    });
+  });
+
   it("POST /auth/login sets session cookie and returns public user (AC-3, AC-9)", async () => {
     const user = await provisionWithPassword(
       "login@example.com",
