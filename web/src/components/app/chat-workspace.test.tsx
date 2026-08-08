@@ -317,6 +317,94 @@ describe("ChatWorkspace", () => {
     expect(screen.queryByText("validate post")).toBeNull();
   });
 
+  it("shows unavailable reasoning copy when persisted thinking text is empty (SOC-8 AC-3, AC-5)", async () => {
+    const user = userEvent.setup();
+    mocks.workspace.details = {
+      conv_1: detail({
+        runs: [
+          {
+            id: "run_1",
+            status: "completed",
+            safeError: null,
+            thinkingText: null,
+            explicitLiveIntent: false,
+          },
+        ],
+        turnActivities: [
+          {
+            requestMessageId: "msg_1",
+            assistantMessageId: "msg_2",
+            runId: "run_1",
+            toolSummaries: [
+              {
+                id: "tool_1",
+                runId: "run_1",
+                toolName: "prepare_review",
+                status: "succeeded",
+                summary: { ok: true },
+                safeError: null,
+              },
+            ],
+            reviewGroups: [],
+          },
+        ],
+      }),
+    };
+    render(<ChatWorkspace conversationId="conv_1" />);
+
+    const toggle = screen.getByRole("button", { name: /Thinking,/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await user.click(toggle);
+
+    expect(
+      screen.getByText("Reasoning unavailable for this model."),
+    ).toBeInTheDocument();
+  });
+
+  it("expands completed Thinking disclosure with persisted thinking text (SOC-8 AC-2, AC-5)", async () => {
+    const user = userEvent.setup();
+    mocks.workspace.details = {
+      conv_1: detail({
+        runs: [
+          {
+            id: "run_1",
+            status: "completed",
+            safeError: null,
+            thinkingText: "  Prefer a short Threads draft  ",
+            explicitLiveIntent: false,
+          },
+        ],
+        turnActivities: [
+          {
+            requestMessageId: "msg_1",
+            assistantMessageId: "msg_2",
+            runId: "run_1",
+            toolSummaries: [
+              {
+                id: "tool_1",
+                runId: "run_1",
+                toolName: "prepare_review",
+                status: "succeeded",
+                summary: { ok: true },
+                safeError: null,
+              },
+            ],
+            reviewGroups: [],
+          },
+        ],
+      }),
+    };
+    render(<ChatWorkspace conversationId="conv_1" />);
+
+    const toggle = screen.getByRole("button", { name: /Thinking,/i });
+    await user.click(toggle);
+
+    expect(screen.getByText("Prefer a short Threads draft")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Reasoning unavailable for this model."),
+    ).toBeNull();
+  });
+
   it("opens the live preview aside without a View review launcher", async () => {
     vi.mocked(apiRequest).mockImplementation(async (path) => {
       if (path === "/connectors") {

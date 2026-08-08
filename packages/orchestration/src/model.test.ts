@@ -260,4 +260,111 @@ describe("TheseanModelProvider", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("sends the Anthropic thinking payload when enabled (SOC-8 AC-5)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      messageResponse([
+        { type: "thinking", thinking: "Plan the draft carefully" },
+        { type: "text", text: "Draft ready", citations: null },
+      ]),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new TheseanModelProvider("test-key");
+
+    const result = await provider.complete({
+      system: "Be careful",
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Draft on Threads" }] },
+      ],
+      tools: [],
+      model: "contract-model",
+      maxTokens: 100,
+      thinking: { enabled: true, budgetTokens: 1024 },
+    });
+
+    expect(result).toMatchObject({
+      content: "Draft ready",
+      thinking: "Plan the draft carefully",
+      attempts: 1,
+    });
+    const request = JSON.parse(
+      String((fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.body),
+    ) as Record<string, unknown>;
+    expect(request.thinking).toEqual({
+      type: "enabled",
+      budget_tokens: 1024,
+    });
+    expect(request.max_tokens).toBeGreaterThanOrEqual(1024 + 512);
+  });
+
+  it("omits the thinking payload when explicitly disabled (SOC-8 AC-5)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(messageResponse());
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new TheseanModelProvider("test-key");
+
+    await provider.complete({
+      system: "Be careful",
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Draft on Threads" }] },
+      ],
+      tools: [],
+      model: "contract-model",
+      maxTokens: 100,
+      thinking: { enabled: false, budgetTokens: 2048 },
+    });
+
+    const request = JSON.parse(
+      String((fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.body),
+    ) as Record<string, unknown>;
+    expect(request.thinking).toBeUndefined();
+    expect(request.max_tokens).toBe(100);
+  });
+
+  it("retries once without thinking after HTTP 400 when thinking was enabled (SOC-8 AC-5)", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            type: "error",
+            error: { type: "invalid_request_error", message: "thinking unsupported" },
+          }),
+          { status: 400, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        messageResponse([{ type: "text", text: "Recovered without thinking" }]),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new TheseanModelProvider("test-key");
+
+    const result = await provider.complete({
+      system: "Be careful",
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Draft on Threads" }] },
+      ],
+      tools: [],
+      model: "contract-model",
+      maxTokens: 100,
+      thinking: { enabled: true, budgetTokens: 2048 },
+    });
+
+    expect(result).toMatchObject({
+      content: "Recovered without thinking",
+      thinking: null,
+      attempts: 1,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const first = JSON.parse(
+      String((fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.body),
+    ) as Record<string, unknown>;
+    const second = JSON.parse(
+      String((fetchMock.mock.calls[1]?.[1] as RequestInit | undefined)?.body),
+    ) as Record<string, unknown>;
+    expect(first.thinking).toEqual({
+      type: "enabled",
+      budget_tokens: 2048,
+    });
+    expect(second.thinking).toBeUndefined();
+  });
 });

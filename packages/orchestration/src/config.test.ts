@@ -47,6 +47,47 @@ describe("loadOrchestrationConfig", () => {
     });
   });
 
+  it("enables Thesean thinking only when the flag is the string true (SOC-8 AC-5)", () => {
+    expect(
+      loadOrchestrationConfig({
+        ...required,
+        THESEAN_THINKING_ENABLED: "true",
+      }).theseanThinkingEnabled,
+    ).toBe(true);
+    expect(
+      loadOrchestrationConfig({
+        ...required,
+        THESEAN_THINKING_ENABLED: "1",
+      }).theseanThinkingEnabled,
+    ).toBe(false);
+    expect(
+      loadOrchestrationConfig({
+        ...required,
+        THESEAN_THINKING_ENABLED: "TRUE",
+      }).theseanThinkingEnabled,
+    ).toBe(false);
+  });
+
+  it("loads a positive thinking budget override (SOC-8 AC-5)", () => {
+    const config = loadOrchestrationConfig({
+      ...required,
+      THESEAN_THINKING_ENABLED: "true",
+      THESEAN_THINKING_BUDGET_TOKENS: "4096",
+    });
+
+    expect(config.theseanThinkingEnabled).toBe(true);
+    expect(config.theseanThinkingBudgetTokens).toBe(4096);
+  });
+
+  it("rejects a non positive thinking budget", () => {
+    expect(() =>
+      loadOrchestrationConfig({
+        ...required,
+        THESEAN_THINKING_BUDGET_TOKENS: "0",
+      }),
+    ).toThrow("THESEAN_THINKING_BUDGET_TOKENS must be a positive integer");
+  });
+
   it.each(["0", "-1", "1.5", "abc"])(
     "rejects invalid positive integer value %s",
     (value) => {

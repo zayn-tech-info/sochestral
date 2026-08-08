@@ -65,12 +65,18 @@ function serviceMock(): OrchestrationService {
     createConversation: vi.fn().mockResolvedValue(turnResponse),
     createConversationStream: vi.fn().mockImplementation(async (_userId, _input, sink) => {
       sink.emit({ type: "turn_started" });
+      sink.emit({ type: "step_started", step: "preparing_draft" });
+      sink.emit({ type: "thinking_delta", delta: "Plan the draft" });
+      sink.emit({ type: "thinking_completed" });
+      sink.emit({ type: "step_completed", step: "preparing_draft" });
       sink.emit({ type: "turn_completed", result: turnResponse });
       return turnResponse;
     }),
     addMessage: vi.fn().mockResolvedValue(turnResponse),
     addMessageStream: vi.fn().mockImplementation(async (_userId, _id, _input, sink) => {
       sink.emit({ type: "turn_started" });
+      sink.emit({ type: "step_started", step: "preparing_draft" });
+      sink.emit({ type: "step_completed", step: "preparing_draft" });
       sink.emit({ type: "turn_completed", result: turnResponse });
       return turnResponse;
     }),
@@ -272,5 +278,91 @@ describe("orchestration API routes", () => {
       "private-secret",
     );
     consoleError.mockRestore();
+  });
+
+  it("streams NDJSON events for a create turn (SOC-8 AC-5)", async () => {
+    const response = await app.request("/orchestration/conversations/stream", {
+      method: "POST",
+      headers: {
+        Cookie: cookie,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        message: "Draft Launch day on Threads",
+        requestId: "20000000-0000-4000-8000-000000000801",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain(
+      "application/x-ndjson",
+    );
+    const body = await response.text();
+    const events = body
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { type: string; sequence: number; step?: string });
+    expect(events.map((event) => event.type)).toEqual([
+      "turn_started",
+      "step_started",
+      "thinking_delta",
+      "thinking_completed",
+      "step_completed",
+      "turn_completed",
+    ]);
+    expect(events.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(events[1]).toMatchObject({
+      type: "step_started",
+      step: "preparing_draft",
+    });
+    expect(service.createConversationStream).toHaveBeenCalledWith(
+      userId,
+      {
+        message: "Draft Launch day on Threads",
+        requestId: "20000000-0000-4000-8000-000000000801",
+      },
+      expect.objectContaining({ emit: expect.any(Function) }),
+    );
+  });
+
+  it("streams NDJSON step events for a follow up message (SOC-8 AC-5)", async () => {
+    const response = await app.request(
+      "/orchestration/conversations/conv_public/messages/stream",
+      {
+        method: "POST",
+        headers: {
+          Cookie: cookie,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: "Continue on Threads",
+          requestId: "20000000-0000-4000-8000-000000000802",
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain(
+      "application/x-ndjson",
+    );
+    const events = (await response.text())
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { type: string });
+    expect(events.map((event) => event.type)).toEqual([
+      "turn_started",
+      "step_started",
+      "step_completed",
+      "turn_completed",
+    ]);
+    expect(service.addMessageStream).toHaveBeenCalledWith(
+      userId,
+      "conv_public",
+      {
+        message: "Continue on Threads",
+        requestId: "20000000-0000-4000-8000-000000000802",
+      },
+      expect.objectContaining({ emit: expect.any(Function) }),
+    );
   });
 });
