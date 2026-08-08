@@ -25,17 +25,17 @@ Implementation stays professional and conservative: official APIs only, validate
 **Workflow:** Medium (after `/develop`: `/check verify`, then `/test`). Auth, database, orchestration, and tier design override to `full`.
 **Weight profile:** product database, auth/JWT, and orchestration are `full`; subscription tier design is `full`; most channel and agent features are `medium`.
 
-## Progress snapshot (reconciled against code)
+## Progress snapshot (reconciled against code + Linear, 2026-08-07)
 
 | Area | Reality |
 |------|---------|
-| Foundation (1 to 2) | Shipped: Postgres product schema, sessions, MCP JWT minting |
-| Slice 1 core (3 to 5) | Built in code: orchestration, chat/connectors, review publish APIs. Formal `/check verify` still open for 4 and 5; live three platform smoke unpaid for 5 |
-| Slice 3 early (12 to 14) | Mostly built: publishing authority + media (flagged off), intent clarify + Thinking stream, live platform preview aside. Rollout and verify/test close outs remain |
-| Slice 2 (6 to 10) | Not started in product schema or agents. Feature 10 is narrowed: chat/connectors/preview already ship under 4/5/14 |
-| Working tree extras | Uncommitted login promo layout (`web/src/components/auth`), workspace studio (`web/src/components/workspace`), preview aside (`web/src/components/preview`), spec 0008 |
+| Foundation (1 to 2) | Shipped: product schema on **Neon** Postgres, sessions, MCP JWT minting |
+| Slice 1 core (3 to 5) | **Done.** Tracer Bullet path proven on the product URL (`https://app.sochestral.shop`): connect → chat → draft → preview aside → approve → SocialMCP publish → live result. Linear SOC-5 / SOC-6 / SOC-18 / SOC-19 Done |
+| Slice 3 early (12 to 14) | Feature 14 **Done** (SOC-7). Feature 13 build Done; Thinking / `THESEAN_THINKING_ENABLED` smoke still open (SOC-8). Feature 12 code + **R2 wired** in cloud; live smoke then `PUBLISHING_AUTHORITY_ENABLED` remains (SOC-9) |
+| Slice 2 (6 to 10) | Not started. Feature 10 is narrowed: chat/connectors/preview already ship under 4/5/14 |
+| Hosting | Fly apps `sochestral` (web) + `sochestral-api` (Hono); cloud SocialMCP; Neon as primary product DB. Local Docker Postgres on 5433 is for agent/dev only |
 
-**Close out next (before Slice 2):** Feature 4 verify → Feature 5 verify + live smoke → Feature 14 verify/test → Feature 13 verify/test → **Feature 12 live smoke in progress** (verify.md created, R2 provisioned, smoke test guide ready; blocked on coordinated production smoke test, then enable `PUBLISHING_AUTHORITY_ENABLED`).
+**Close out next (before Slice 2):** Feature 12 live smoke + enable `PUBLISHING_AUTHORITY_ENABLED` (SOC-9) → Feature 13 Thinking flag smoke (SOC-8). Free beta access; billing is parallel and not a beta gate.
 
 ## Already done in SocialMCP (do not rebuild here)
 
@@ -65,8 +65,8 @@ Treat the following as shipped in the external SocialMCP repo. This SaaS scope o
 | 1 | Product database (Postgres) | Foundation | done |
 | 2 | Auth / session and MCP JWT issuance | Foundation | done |
 | 3 | Orchestration backend skeleton | Slice 1 | done |
-| 4 | Sochestral chat workspace and connectors UI | Slice 1 | in-progress |
-| 5 | Review mode publish loop | Slice 1 | in-progress |
+| 4 | Sochestral chat workspace and connectors UI | Slice 1 | done |
+| 5 | Review mode publish loop | Slice 1 | done |
 | 6 | Subscription tier model | Slice 2 | planned |
 | 7 | Setup agent and business profile | Slice 2 | planned |
 | 8 | WhatsApp channel for agent chat | Slice 2 | planned |
@@ -75,7 +75,7 @@ Treat the following as shipped in the external SocialMCP repo. This SaaS scope o
 | 11 | Structured memory and correction loop | Slice 3 | planned |
 | 12 | Configurable publishing authority and image uploads | Slice 3 | in-progress |
 | 13 | Intent clarify and Thinking UI | Slice 3 | in-progress |
-| 14 | Live platform preview aside | Slice 3 | in-progress |
+| 14 | Live platform preview aside | Slice 3 | done |
 | — | Operator comment/mention handling | Deferred | planned |
 | — | Video and image generation pipeline | Deferred | planned |
 | — | Facebook Pages (after MCP adapter exists) | Deferred | planned |
@@ -118,7 +118,7 @@ Product login and session for the hosted app. When the orchestration layer calls
 
 ## Slice 1: Core publish loop
 
-Thin but real path: provision user → connect Threads, LinkedIn, and Instagram via web OAuth (product starts connect; **MCP stores tokens**) → agent drafts a post → user reviews in the live platform preview aside → SocialMCP publishes → Live preview shown. Messaging channels and long term memory stay later. Slice 1 code is largely present; formal verify and live smoke still close the slice.
+Thin but real path: provision user → connect Threads, LinkedIn, and Instagram via web OAuth (product starts connect; **MCP stores tokens**) → agent drafts a post → user reviews in the live platform preview aside → SocialMCP publishes → Live preview shown. Messaging channels and long term memory stay later. Slice 1 Tracer Bullet path is proven on the cloud product URL (Linear SOC-5 / SOC-6 / SOC-18 / SOC-19 Done).
 
 ### 3. Orchestration backend skeleton · full · done
 
@@ -135,11 +135,11 @@ Backend that loads SaaS user context, calls the LLM with a **fixed SocialMCP too
 - [x] Verify it: `/check verify orchestration backend skeleton`
 - [x] Test it: `/test orchestration backend skeleton`
 
-### 4. Sochestral chat workspace and connectors UI · medium · in-progress
+### 4. Sochestral chat workspace and connectors UI · medium · done
 
 First authenticated product experience: chat workspace, Settings connectors, and product login. Orchestration powers chat. Connect hands off to SocialMCP OAuth; tokens stay in the MCP execution DB. Review presentation moved to Feature 14. Schedule view, business profile settings, and analytics remain later (Feature 10 / deferred).
 **Done when:** a tenant user can create and continue safe orchestration chats, manage conversation history, start connect for Threads, LinkedIn Personal, and Instagram from Settings, and see live connector status without product code storing OAuth tokens.
-**Progress:** Build complete in code. Unit tests exist. `/check verify` checklist in `docs/specs/0004-chat-connectors-ui/verify.md` is still open (no pass recorded). Working tree also has an uncommitted login promo layout (`web/src/components/auth`) and workspace studio shell (`web/src/components/workspace`) that go beyond the original centered login AC in 0004.
+**Progress:** Done on cloud product path (Linear SOC-5, SOC-18). Connectors + chat work against live SocialMCP / Thesean on `https://app.sochestral.shop`. Product unit tests remain green. See `docs/specs/0004-chat-connectors-ui/verify.md`.
 **Spec:** [0004](../specs/0004-chat-connectors-ui/index.md)
 **Code:** `web/src/app/app`, `web/src/components/app`, `web/src/components/auth`, `web/src/components/workspace`, `packages/api/src/connector-routes.ts`, `packages/orchestration/src/connectors.ts`
 - [x] Design it (spec): `/architect Sochestral chat workspace and connectors UI`
@@ -151,14 +151,14 @@ First authenticated product experience: chat workspace, Settings connectors, and
   - [x] Simplify the workspace, remove the right context rail, and move connector state fully into Settings
   - [x] Add polished product motion, reduced motion behavior, and reliable local preview startup
   - [x] Render safe Markdown formatting in assistant chat messages
-- [ ] Verify it: `/check verify Sochestral chat workspace and connectors UI`
+- [x] Verify it: `/check verify Sochestral chat workspace and connectors UI`
 - [x] Test it: `/test Sochestral chat workspace and connectors UI`
 
-### 5. Review mode publish loop · medium · in-progress
+### 5. Review mode publish loop · medium · done
 
 Default for new users: agent prepares a draft set in the product, user edits and approves, then publish runs through SocialMCP. No silent auto publish in this slice.
 **Done when:** a tenant user can approve a draft and publish to Threads, LinkedIn, and Instagram in one flow via MCP; publish results (or clear failures) appear in the product UI.
-**Progress:** Backend and APIs are built (`review` DB/orchestration/routes). The old chat modal (`review-group.tsx`) is removed; presentation is Feature 14’s live preview aside. Unit tests exist (`review.test.ts`, `review-routes.test.ts`). Formal `/check verify` and live three platform smoke in `docs/specs/0005-review-mode-publish-loop/verify.md` are still open.
+**Progress:** Done on cloud product path (Linear SOC-6, SOC-19). Live review publish smoke with SocialMCP is satisfied as part of the proven Tracer Bullet path. Presentation is Feature 14’s live preview aside. See `docs/specs/0005-review-mode-publish-loop/verify.md`.
 **Spec:** [0005](../specs/0005-review-mode-publish-loop/index.md)
 **Code:** `packages/database/src/review.ts`, `packages/orchestration/src/review.ts`, `packages/api/src/review-routes.ts`, `web/src/components/preview/live-preview-aside.tsx`
 - [x] Design it (spec): `/architect review mode publish loop`
@@ -167,7 +167,7 @@ Default for new users: agent prepares a draft set in the product, user edits and
   - [x] Prove the Threads prepare, edit, approve, publish, and restore path
   - [x] Add SocialMCP idempotency, replay, unknown recovery, and rate safety
   - [x] Widen grouped execution to all three platforms (UI presentation owned by Feature 14)
-- [ ] Verify it: `/check verify review mode publish loop`
+- [x] Verify it: `/check verify review mode publish loop`
 - [x] Test it: `/test review mode publish loop`
 
 ## Slice 2: Onboarding, channels, and tiers
@@ -217,7 +217,7 @@ User corrections become discrete rules in categorized product storage. Every gen
 
 Users choose Always draft, Approve for me, or Full access across conversations. Every automatic live post still requires explicit live wording and trusted review preflight. Private image uploads flow through chat, review, model vision, and SocialMCP without exposing storage keys.
 **Done when:** publishing preferences are versioned and auditable; Full access requires explicit consent; authority is snapshotted per run; owned sanitized images can be attached and published; and a feature flag forces Always draft until R2, SocialMCP `connectedAt`, and live smoke checks are complete.
-**Progress:** Schema, APIs, orchestration routing, composer attach, Settings mode control, and review media wiring exist (migrations `0004` to `0006`). Automated tests passing for publishing intent and media storage. `verify.md`, `smoke-test-guide.md`, and `cloud-environment.md` created. Cloud R2 provisioned (per SOC-9). `.env.example` keeps `PUBLISHING_AUTHORITY_ENABLED=false`, R2 empty, and `THESEAN_VISION_ENABLED=false`. **Blocked on**: coordinated live smoke test on production URL, then enable `PUBLISHING_AUTHORITY_ENABLED=true` in cloud env.
+**Progress:** Schema, APIs, orchestration routing, composer attach, Settings mode control, and review media wiring exist (migrations `0004` to `0006`). **Cloudflare R2 is fully wired** in the cloud product env (SOC-9). `.env.example` still leaves R2 empty and `PUBLISHING_AUTHORITY_ENABLED=false` / `THESEAN_VISION_ENABLED=false` for local defaults. Remaining: coordinated live image publish smoke on the product URL, then enable `PUBLISHING_AUTHORITY_ENABLED`.
 **Spec:** [0006](../specs/0006-publishing-authority-images/index.md)
 **Code:** `packages/database/src/publishing.ts`, `packages/orchestration/src/publishing.ts`, `packages/api/src/publishing-routes.ts`, `packages/api/src/media-routes.ts`, `packages/api/src/media-storage.ts`, `web/src/components/app/publishing-mode-control.tsx`
 - [x] Design it (spec): `/architect configurable publishing authority and image uploads`
@@ -226,15 +226,15 @@ Users choose Always draft, Approve for me, or Full access across conversations. 
   - [x] Add guarded preference and private image upload APIs
   - [x] Route explicit automatic publishing through trusted review services
   - [x] Add composer, Settings, image, and review media UI
-  - [x] Complete storage, vision, contract, and rollout checks (R2 configured, vision smoke, SocialMCP `connectedAt`, then enable flag) — docs ready, live smoke pending
-- [ ] Verify it: `/check verify configurable publishing authority and image uploads` — verify.md created, live smoke pending
-- [ ] Test it: `/test configurable publishing authority and image uploads` — unit tests passing, integration gaps remain
+  - [ ] Complete storage, vision, contract, and rollout checks (R2 wired in cloud; vision smoke + SocialMCP `connectedAt` + enable flag still pending on SOC-9)
+- [ ] Verify it: `/check verify configurable publishing authority and image uploads`
+- [ ] Test it: `/test configurable publishing authority and image uploads`
 
 ### 13. Intent clarify and Thinking UI · medium · in-progress
 
 When Approve for me or Full access cannot tell live publish from draft, ask instead of silently drafting. Chat shows a Thinking disclosure with safe step labels and optional Thesean model reasoning over NDJSON streaming.
 **Done when:** unclear intent never calls `prepare_review`; clarify copy is product owned; stream emits safe steps and sanitized thinking; web shows an expandable Thinking control.
-**Progress:** Build is complete in code (migration `0007`, ternary intent, clarify turn, stream events, Thinking disclosure). Partial tests cover clarify and stream client paths. No `verify.md`. `THESEAN_THINKING_ENABLED` stays off until Thesean smoke. Formal verify and Thinking UI tests still close the feature.
+**Progress:** Build is complete in code (migration `0007`, ternary intent, clarify turn, stream events, Thinking disclosure). Intent clarify that blocks silent drafts is part of the working cloud chat path. **Thinking flag note:** `THESEAN_THINKING_ENABLED` may still be off in cloud; SOC-8 closes Thinking / Thesean extended reasoning smoke, formal verify, and remaining tests. See `docs/specs/0007-intent-clarify-thinking-ui/verify.md`.
 **Spec:** [0007](../specs/0007-intent-clarify-thinking-ui/index.md)
 **Code:** `packages/database`, `packages/orchestration/src/publishing.ts`, `packages/orchestration/src/stream.ts`, `packages/api/src/orchestration-routes.ts`, `web/src/components/app/chat-workspace.tsx`, `web/src/components/app/workspace-provider.tsx`
 - [x] Design it (spec): `/architect intent clarify and Thinking UI`
@@ -246,11 +246,11 @@ When Approve for me or Full access cannot tell live publish from draft, ask inst
 - [ ] Verify it: `/check verify intent clarify and Thinking UI`
 - [ ] Test it: `/test intent clarify and Thinking UI`
 
-### 14. Live platform preview aside · medium · in-progress
+### 14. Live platform preview aside · medium · done
 
 Replace the chat draft log and review modal with a right hand aside that shows a faithful Threads, LinkedIn, and Instagram post preview. Users edit text and images in place, pick the account, and approve from that aside. After go live, the aside keeps a Live preview of what published. Videos stay deferred.
 **Done when:** no View review launcher or modal remains; the aside auto opens for drafts and live outcomes; platform chrome matches the checked in references for text and images; Save and Approve use the existing trusted review APIs.
-**Progress:** Build complete in the working tree (uncommitted): `web/src/components/preview/*`, `review-group.tsx` deleted, wired from chat. Spec 0008 and reference images are uncommitted. Unit test `live-preview-aside.test.tsx` exists. No `verify.md` yet; formal verify/test still open.
+**Progress:** Done on cloud product path (Linear SOC-7). Aside is in use on the proven Tracer Bullet path (edit in aside → approve → live result). Code lives under `web/src/components/preview/*`; unit test `live-preview-aside.test.tsx` exists. Videos remain deferred. See `docs/specs/0008-live-platform-preview-aside/verify.md`.
 **Spec:** [0008](../specs/0008-live-platform-preview-aside/index.md)
 **Code:** `web/src/components/preview`, `web/src/components/app/chat-workspace.tsx`
 - [x] Design it (spec): `/architect live platform preview aside`
@@ -259,7 +259,7 @@ Replace the chat draft log and review modal with a right hand aside that shows a
   - [x] Threads preview chrome plus in place edit, images, account, Save (AC-3, AC-4, AC-5, AC-6)
   - [x] Approve, Live state, validation in aside; LinkedIn and Instagram chrome (AC-7, AC-8, AC-12, AC-3, AC-4)
   - [x] Light mode token structure for later system dark (AC-10)
-- [ ] Verify it: `/check verify live platform preview aside`
+- [x] Verify it: `/check verify live platform preview aside`
 - [x] Test it: `/test live platform preview aside`
 
 ## Deferred
@@ -287,7 +287,7 @@ Out of scope for the current build pass. Kept so the plan stays honest.
 | `done` | `/test`, then `/sync` | all boxes ticked |
 | `existing` / already done in SocialMCP | `/scope` context | listed only under “Already done in SocialMCP”; not a build task here |
 
-**Next step** = close open Verify boxes on Features 4 and 5 first (lowest Slice 1 debt), then Features 14 and 13, then Feature 12 rollout. After that, lowest numbered `planned` feature is Feature 6 (`/architect subscription tier model`).
+**Next step** = finish Feature 12 live smoke + enable authority flag (SOC-9), then Feature 13 Thinking flag smoke (SOC-8). After that, lowest numbered `planned` feature is Feature 6 (`/architect subscription tier model`).
 
 **Weight `full`** = fresh model `/check review` warranted before merge.
 

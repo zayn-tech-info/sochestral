@@ -1,7 +1,7 @@
 # 0004. Sochestral chat workspace and connectors
 
 **Date**: 2026-07-26
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 
