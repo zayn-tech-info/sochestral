@@ -38,18 +38,12 @@ export function WorkspaceShell({
     pathname === "/app/workspace" ||
     pathname.startsWith("/app/chat/");
 
-  if (authLoading) {
-    return (
-      <main id="main-content" className="app-loading" role="status">
-        <Brand />
-        <span>Opening your workspace</span>
-      </main>
-    );
-  }
-
   return (
     <PanelProvider>
-      <div className="app-frame os-frame os-frame-v2">
+      <div
+        className="app-frame os-frame os-frame-v2"
+        aria-busy={authLoading || undefined}
+      >
         <a href="#main-content" className="skip-link">
           Skip to main content
         </a>
@@ -63,6 +57,7 @@ export function WorkspaceShell({
               className="os-icon-btn"
               onClick={() => setNavOpen(true)}
               aria-label="Open navigation"
+              disabled={authLoading}
             >
               <Menu className="size-5" aria-hidden="true" />
             </button>
@@ -75,36 +70,41 @@ export function WorkspaceShell({
           </div>
 
           <motion.main
-            key={pathname}
+            key={authLoading ? "auth-loading" : pathname}
             id="main-content"
-            initial={{ opacity: 0, y: 6 }}
+            initial={authLoading ? undefined : { opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             transition={productMotion.enter}
             className={cn(
               "os-main",
               isStudio && "os-main-studio",
               pathname.startsWith("/app/chat/") && "os-main-chat",
+              authLoading && "os-main-auth-loading",
             )}
           >
-            {title ? (
-              <header className="os-page-heading">
-                <div>
-                  <h1>{title}</h1>
-                  {description ? <p>{description}</p> : null}
-                </div>
-                {actions ? (
-                  <div className="os-page-actions">{actions}</div>
+            {authLoading ? null : (
+              <>
+                {title ? (
+                  <header className="os-page-heading">
+                    <div>
+                      <h1>{title}</h1>
+                      {description ? <p>{description}</p> : null}
+                    </div>
+                    {actions ? (
+                      <div className="os-page-actions">{actions}</div>
+                    ) : null}
+                  </header>
                 ) : null}
-              </header>
-            ) : null}
-            {children}
+                {children}
+              </>
+            )}
           </motion.main>
         </div>
 
-        <WorkspaceDrawers />
+        {!authLoading ? <WorkspaceDrawers /> : null}
 
         <MobileSheet
-          open={navOpen}
+          open={navOpen && !authLoading}
           title="Navigation"
           onClose={() => setNavOpen(false)}
         >

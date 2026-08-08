@@ -16,6 +16,22 @@ export const productMotion = {
     duration: 0.18,
     ease: [0.16, 1, 0.3, 1],
   },
+  press: {
+    type: "spring",
+    stiffness: 520,
+    damping: 28,
+    mass: 0.55,
+  },
+  menu: {
+    type: "spring",
+    stiffness: 420,
+    damping: 30,
+    mass: 0.72,
+  },
+  menuExit: {
+    duration: 0.14,
+    ease: [0.4, 0, 1, 1],
+  },
   sheet: {
     type: "spring",
     stiffness: 380,

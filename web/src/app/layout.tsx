@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Imprima, Inter, Sora } from "next/font/google";
 
 import "./globals.css";
@@ -23,6 +23,12 @@ export const metadata: Metadata = {
   title: "Sochestral | Your AI Social Media Studio",
   description:
     "Sochestral turns business knowledge into a consistent, strategic, authentic online presence through a careful conversational workspace.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

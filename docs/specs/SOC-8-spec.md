@@ -1,7 +1,7 @@
 # SOC-8. Feature 13 Thinking flag close out
 
 **Date**: 2026-08-08
-**Status**: In Progress
+**Status**: Proposed
 **Linear**: [SOC-8](https://linear.app/sochestral/issue/SOC-8/close-feature-13-thinking-ui-thesean-thinking-flag-smoke)
 **Related**: [0007 Intent clarify and Thinking UI](./0007-intent-clarify-thinking-ui/index.md) (feature design already built)
 

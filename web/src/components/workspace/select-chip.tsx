@@ -52,6 +52,7 @@ export function SelectChip({
   const [open, setOpen] = useState(false);
   const selected =
     options.find((option) => option.value === value) ?? options[0];
+  const opensUp = placement === "top";
 
   useEffect(() => {
     if (!open) return;
@@ -93,7 +94,7 @@ export function SelectChip({
       className={cn("os-select-chip", open && "os-select-chip-open", className)}
       title={title}
     >
-      <button
+      <motion.button
         type="button"
         className="os-select-chip-trigger"
         disabled={disabled}
@@ -103,6 +104,11 @@ export function SelectChip({
         aria-controls={listId}
         onClick={() => setOpen((current) => !current)}
         onKeyDown={onTriggerKeyDown}
+        whileHover={
+          reduceMotion || disabled ? undefined : { y: -1, scale: 1.015 }
+        }
+        whileTap={reduceMotion || disabled ? undefined : { scale: 0.96 }}
+        transition={productMotion.press}
       >
         {icon ? (
           <span className="os-select-chip-icon" aria-hidden="true">
@@ -110,14 +116,19 @@ export function SelectChip({
           </span>
         ) : null}
         <span className="os-select-chip-value">{selected?.label}</span>
-        <ChevronDown
-          className={cn(
-            "os-select-chip-caret size-3.5",
-            open && "os-select-chip-caret-open",
-          )}
+        <motion.span
+          className="os-select-chip-caret-wrap"
           aria-hidden="true"
-        />
-      </button>
+          animate={{ rotate: open ? 180 : 0 }}
+          transition={
+            reduceMotion
+              ? { duration: 0 }
+              : { type: "spring", stiffness: 420, damping: 28 }
+          }
+        >
+          <ChevronDown className="os-select-chip-caret size-3.5" />
+        </motion.span>
+      </motion.button>
 
       <AnimatePresence>
         {open ? (
@@ -128,30 +139,69 @@ export function SelectChip({
             className={cn(
               "os-select-menu",
               align === "end" && "os-select-menu-end",
-              placement === "top" && "os-select-menu-up",
+              opensUp && "os-select-menu-up",
             )}
+            style={{
+              transformOrigin: opensUp ? "50% 100%" : "50% 0%",
+            }}
             initial={
               reduceMotion
                 ? false
-                : { opacity: 0, y: placement === "top" ? 6 : -6, scale: 0.98 }
+                : {
+                    opacity: 0,
+                    y: opensUp ? 12 : -12,
+                    scale: 0.94,
+                    filter: "blur(4px)",
+                  }
             }
-            animate={{ opacity: 1, y: 0, scale: 1 }}
+            animate={{
+              opacity: 1,
+              y: 0,
+              scale: 1,
+              filter: "blur(0px)",
+            }}
             exit={
               reduceMotion
                 ? undefined
                 : {
                     opacity: 0,
-                    y: placement === "top" ? 4 : -4,
-                    scale: 0.98,
+                    y: opensUp ? 8 : -8,
+                    scale: 0.96,
+                    filter: "blur(2px)",
                   }
             }
-            transition={reduceMotion ? { duration: 0 } : productMotion.quick}
+            transition={
+              reduceMotion
+                ? { duration: 0 }
+                : {
+                    ...productMotion.menu,
+                    opacity: productMotion.menuExit,
+                    filter: productMotion.menuExit,
+                  }
+            }
           >
-            {options.map((option) => {
+            {options.map((option, index) => {
               const active = option.value === value;
               return (
-                <li key={option.value} role="presentation">
-                  <button
+                <motion.li
+                  key={option.value}
+                  role="presentation"
+                  initial={
+                    reduceMotion
+                      ? false
+                      : { opacity: 0, y: opensUp ? 6 : -6 }
+                  }
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={
+                    reduceMotion
+                      ? { duration: 0 }
+                      : {
+                          ...productMotion.quick,
+                          delay: 0.03 + index * 0.035,
+                        }
+                  }
+                >
+                  <motion.button
                     type="button"
                     role="option"
                     aria-selected={active}
@@ -160,6 +210,9 @@ export function SelectChip({
                       active && "os-select-option-active",
                     )}
                     onClick={() => choose(option.value)}
+                    whileHover={reduceMotion ? undefined : { x: 2 }}
+                    whileTap={reduceMotion ? undefined : { scale: 0.985 }}
+                    transition={productMotion.press}
                   >
                     <span className="os-select-option-copy">
                       <strong>{option.label}</strong>
@@ -170,8 +223,8 @@ export function SelectChip({
                     {active ? (
                       <Check className="size-3.5" aria-hidden="true" />
                     ) : null}
-                  </button>
-                </li>
+                  </motion.button>
+                </motion.li>
               );
             })}
           </motion.ul>
