@@ -60,6 +60,7 @@ describe("LivePreviewAside", () => {
 
     expect(screen.getByLabelText("Live platform preview")).toBeInTheDocument();
     expect(screen.getByLabelText("Threads post preview")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Close preview" })).toBeNull();
     const account = await screen.findByRole("button", {
       name: "Destination account",
     });
@@ -78,6 +79,24 @@ describe("LivePreviewAside", () => {
       ),
     );
     expect(onRefresh).toHaveBeenCalled();
+  });
+
+  it("calls onClose from the close control and Escape", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(
+      <LivePreviewAside
+        group={group}
+        onRefresh={vi.fn().mockResolvedValue(undefined)}
+        onClose={onClose}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Close preview" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 
   it("checks an unknown attempt without exposing a retry action", async () => {

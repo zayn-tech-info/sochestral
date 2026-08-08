@@ -10,6 +10,7 @@ import {
   LoaderCircle,
   RefreshCw,
   Trash2,
+  X,
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
@@ -81,10 +82,12 @@ function PlatformGlyph({ platform }: { platform: ConnectorPlatform }) {
 export function LivePreviewAside({
   group,
   onRefresh,
+  onClose,
   mediaPreviews = {},
 }: {
   group: ReviewGroupValue;
   onRefresh: () => Promise<void>;
+  onClose?: () => void;
   mediaPreviews?: Record<string, string>;
 }) {
   const reduceMotion = useReducedMotion();
@@ -126,6 +129,16 @@ export function LivePreviewAside({
       ),
     );
   }, [group]);
+
+  useEffect(() => {
+    if (!onClose) return;
+    const close = onClose;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") close();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
 
   useEffect(() => {
     let active = true;
@@ -372,252 +385,357 @@ export function LivePreviewAside({
     <motion.aside
       className="live-preview-aside"
       aria-label="Live platform preview"
-      initial={{ opacity: 0, x: reduceMotion ? 0 : 12 }}
+      initial={{ opacity: 0, x: reduceMotion ? 0 : 16 }}
       animate={{ opacity: 1, x: 0 }}
       transition={reduceMotion ? { duration: 0 } : productMotion.enter}
     >
       <header className="live-preview-header">
-        <div>
+        <div className="live-preview-heading">
           <p className="live-preview-kicker">Live preview</p>
           <h2>{live ? "Live on platform" : "How it will look"}</h2>
         </div>
-        {live ? (
-          <span className="live-preview-badge" role="status">
-            Live
-          </span>
-        ) : null}
+        <div className="live-preview-header-actions">
+          {live ? (
+            <span className="live-preview-badge" role="status">
+              Live
+            </span>
+          ) : null}
+          {onClose ? (
+            <motion.button
+              type="button"
+              className="live-preview-close"
+              onClick={onClose}
+              aria-label="Close preview"
+              whileHover={reduceMotion ? undefined : { scale: 1.04 }}
+              whileTap={reduceMotion ? undefined : { scale: 0.94 }}
+              transition={productMotion.press}
+            >
+              <X className="size-4" aria-hidden="true" />
+            </motion.button>
+          ) : null}
+        </div>
       </header>
 
-      <div className="preview-platform-strip" role="tablist" aria-label="Platforms">
+      <div
+        className="preview-platform-strip"
+        role="tablist"
+        aria-label="Platforms"
+      >
         {previewPlatforms.map((platform) => {
           const selected = platform === activePlatform;
           const inSet = group.drafts.find((item) => item.platform === platform);
           return (
-            <button
+            <motion.button
               key={platform}
               type="button"
               role="tab"
               aria-selected={selected}
               className={`preview-platform-tab${selected ? " preview-platform-tab-active" : ""}`}
               onClick={() => setActivePlatform(platform)}
+              whileHover={reduceMotion ? undefined : { y: -1 }}
+              whileTap={reduceMotion ? undefined : { scale: 0.97 }}
+              transition={productMotion.press}
             >
-              <PlatformGlyph platform={platform} />
-              <span>{platformNames[platform]}</span>
-              {inSet?.status === "published" ? (
-                <Check className="size-3.5" aria-label="Published" />
+              {selected && !reduceMotion ? (
+                <motion.span
+                  layoutId="preview-platform-pill"
+                  className="preview-platform-pill"
+                  transition={productMotion.press}
+                />
+              ) : selected ? (
+                <span className="preview-platform-pill" />
               ) : null}
-            </button>
+              <span className="preview-platform-tab-inner">
+                <PlatformGlyph platform={platform} />
+                <span>{platformNames[platform]}</span>
+                {inSet?.status === "published" ? (
+                  <Check className="size-3.5" aria-label="Published" />
+                ) : null}
+              </span>
+            </motion.button>
           );
         })}
       </div>
 
-      {previewOnly ? (
-        <p className="live-preview-hint" role="status">
-          Preview only for {platformNames[activePlatform]}. This review set does not include that platform yet, so you are seeing the same post styled for it.
-        </p>
-      ) : null}
+      <div className="live-preview-body">
+        {previewOnly ? (
+          <p className="live-preview-hint" role="status">
+            Preview only for {platformNames[activePlatform]}. This review set
+            does not include that platform yet, so you are seeing the same post
+            styled for it.
+          </p>
+        ) : null}
 
-      {connectorError ? (
-        <p className="review-service-error" role="alert">
-          Account choices are unavailable. Nothing can be published until they return.
-        </p>
-      ) : null}
+        {connectorError ? (
+          <p className="review-service-error" role="alert">
+            Account choices are unavailable. Nothing can be published until they
+            return.
+          </p>
+        ) : null}
 
-      {connectorMissing ? (
-        <p className="review-service-error" role="alert">
-          Connect {platformNames[activePlatform]} in Settings to use that destination account.
-        </p>
-      ) : null}
+        {connectorMissing ? (
+          <p className="review-service-error" role="alert">
+            Connect {platformNames[activePlatform]} in Settings to use that
+            destination account.
+          </p>
+        ) : null}
 
-      <div className="live-preview-stage">
-        <Preview
-          platform={activePlatform}
-          body={edit.body}
-          mediaItems={edit.mediaItems}
-          mediaPreviews={mergedPreviews}
-          account={selectedAccount}
-          locked={locked}
-          live={live}
-          onBodyChange={(value) => setDraft(draft.id, { body: value })}
-        />
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={activePlatform}
+            className="live-preview-stage"
+            initial={
+              reduceMotion ? false : { opacity: 0, y: 8, scale: 0.985 }
+            }
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={
+              reduceMotion ? undefined : { opacity: 0, y: -6, scale: 0.99 }
+            }
+            transition={reduceMotion ? { duration: 0 } : productMotion.enter}
+          >
+            <Preview
+              platform={activePlatform}
+              body={edit.body}
+              mediaItems={edit.mediaItems}
+              mediaPreviews={mergedPreviews}
+              account={selectedAccount}
+              locked={locked}
+              live={live}
+              onBodyChange={(value) => setDraft(draft.id, { body: value })}
+            />
+          </motion.div>
+        </AnimatePresence>
+
+        {!locked || !previewOnly || selectedAccount ? (
+          <section
+            className="live-preview-controls"
+            aria-label="Preview controls"
+          >
+            {!locked ? (
+              <div className="live-preview-media-tools">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="sr-only"
+                  onChange={(event) => {
+                    void addImages(Array.from(event.target.files ?? []));
+                  }}
+                />
+                <motion.button
+                  type="button"
+                  className="live-preview-tool-btn"
+                  disabled={uploading || edit.mediaItems.length >= 5}
+                  onClick={() => fileInputRef.current?.click()}
+                  whileHover={
+                    reduceMotion || uploading || edit.mediaItems.length >= 5
+                      ? undefined
+                      : { y: -1, scale: 1.015 }
+                  }
+                  whileTap={
+                    reduceMotion || uploading || edit.mediaItems.length >= 5
+                      ? undefined
+                      : { scale: 0.97 }
+                  }
+                  transition={productMotion.press}
+                >
+                  {uploading ? (
+                    <LoaderCircle
+                      className="size-4 animate-spin"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <ImagePlus className="size-4" aria-hidden="true" />
+                  )}
+                  Add image
+                </motion.button>
+                {edit.mediaItems.map((item, index) => (
+                  <div
+                    className="live-preview-media-row"
+                    key={`${draft.id}-m-${index}`}
+                  >
+                    <span>
+                      {item.assetId
+                        ? `Image ${index + 1}`
+                        : item.externalUrl || `Media ${index + 1}`}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label={`Move image ${index + 1} up`}
+                      disabled={index === 0}
+                      onClick={() => {
+                        const next = [...edit.mediaItems];
+                        [next[index - 1], next[index]] = [
+                          next[index],
+                          next[index - 1],
+                        ];
+                        setDraft(draft.id, { mediaItems: next });
+                      }}
+                    >
+                      <ArrowUp className="size-3.5" aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Move image ${index + 1} down`}
+                      disabled={index === edit.mediaItems.length - 1}
+                      onClick={() => {
+                        const next = [...edit.mediaItems];
+                        [next[index], next[index + 1]] = [
+                          next[index + 1],
+                          next[index],
+                        ];
+                        setDraft(draft.id, { mediaItems: next });
+                      }}
+                    >
+                      <ArrowDown className="size-3.5" aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Remove image ${index + 1}`}
+                      onClick={() =>
+                        setDraft(draft.id, {
+                          mediaItems: edit.mediaItems.filter(
+                            (_, itemIndex) => itemIndex !== index,
+                          ),
+                        })
+                      }
+                    >
+                      <Trash2 className="size-3.5" aria-hidden="true" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {!previewOnly ? (
+              <div className="review-field live-preview-account">
+                <span className="review-field-label">Destination account</span>
+                <SelectChip
+                  className="os-select-chip-field"
+                  label="Destination account"
+                  value={edit.selectedAccountId ?? ""}
+                  onChange={(value) =>
+                    setDraft(draft.id, { selectedAccountId: value || null })
+                  }
+                  disabled={locked || busy[draft.id] || connectors === null}
+                  options={[
+                    { value: "", label: "Choose an account" },
+                    ...accounts.map((account) => ({
+                      value: account.id,
+                      label: accountLabel(account),
+                    })),
+                  ]}
+                />
+              </div>
+            ) : selectedAccount ? (
+              <p className="live-preview-hint">
+                Showing as {accountLabel(selectedAccount)} on{" "}
+                {platformNames[activePlatform]}.
+              </p>
+            ) : null}
+          </section>
+        ) : null}
+
+        {!previewOnly && draft.validation.errors.length ? (
+          <ul className="review-errors" aria-label="Blocking errors">
+            {draft.validation.errors.map((error) => (
+              <li key={error}>
+                <CircleAlert aria-hidden="true" />
+                {error}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {!previewOnly && draft.validation.warnings.length ? (
+          <ul className="review-warnings" aria-label="Warnings">
+            {draft.validation.warnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        ) : null}
+        {!previewOnly && draft.latestAttempt?.error ? (
+          <p className="review-result-error" role="alert">
+            {draft.latestAttempt.error.message}
+          </p>
+        ) : null}
+
+        <AnimatePresence initial={false}>
+          {notice ? (
+            <motion.p
+              className="review-notice"
+              role="status"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              {notice}
+            </motion.p>
+          ) : null}
+        </AnimatePresence>
       </div>
 
-      {!locked ? (
-        <div className="live-preview-media-tools">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="sr-only"
-            onChange={(event) => {
-              void addImages(Array.from(event.target.files ?? []));
-            }}
-          />
-          <button
-            type="button"
-            className="live-preview-tool-btn"
-            disabled={uploading || edit.mediaItems.length >= 5}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            {uploading ? (
-              <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <ImagePlus className="size-4" aria-hidden="true" />
-            )}
-            Add image
-          </button>
-          {edit.mediaItems.map((item, index) => (
-            <div className="live-preview-media-row" key={`${draft.id}-m-${index}`}>
-              <span>
-                {item.assetId
-                  ? `Image ${index + 1}`
-                  : item.externalUrl || `Media ${index + 1}`}
-              </span>
-              <button
-                type="button"
-                aria-label={`Move image ${index + 1} up`}
-                disabled={index === 0}
-                onClick={() => {
-                  const next = [...edit.mediaItems];
-                  [next[index - 1], next[index]] = [next[index], next[index - 1]];
-                  setDraft(draft.id, { mediaItems: next });
-                }}
-              >
-                <ArrowUp className="size-3.5" aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                aria-label={`Move image ${index + 1} down`}
-                disabled={index === edit.mediaItems.length - 1}
-                onClick={() => {
-                  const next = [...edit.mediaItems];
-                  [next[index], next[index + 1]] = [next[index + 1], next[index]];
-                  setDraft(draft.id, { mediaItems: next });
-                }}
-              >
-                <ArrowDown className="size-3.5" aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                aria-label={`Remove image ${index + 1}`}
-                onClick={() =>
-                  setDraft(draft.id, {
-                    mediaItems: edit.mediaItems.filter(
-                      (_, itemIndex) => itemIndex !== index,
-                    ),
-                  })
-                }
-              >
-                <Trash2 className="size-3.5" aria-hidden="true" />
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {!previewOnly ? (
-        <div className="review-field live-preview-account">
-          <span className="review-field-label">Destination account</span>
-          <SelectChip
-            className="os-select-chip-field"
-            label="Destination account"
-            value={edit.selectedAccountId ?? ""}
-            onChange={(value) =>
-              setDraft(draft.id, { selectedAccountId: value || null })
-            }
-            disabled={locked || busy[draft.id] || connectors === null}
-            options={[
-              { value: "", label: "Choose an account" },
-              ...accounts.map((account) => ({
-                value: account.id,
-                label: accountLabel(account),
-              })),
-            ]}
-          />
-        </div>
-      ) : selectedAccount ? (
-        <p className="live-preview-hint">
-          Showing as {accountLabel(selectedAccount)} on {platformNames[activePlatform]}.
-        </p>
-      ) : null}
-
-      {!previewOnly && draft.validation.errors.length ? (
-        <ul className="review-errors" aria-label="Blocking errors">
-          {draft.validation.errors.map((error) => (
-            <li key={error}>
-              <CircleAlert aria-hidden="true" />
-              {error}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {!previewOnly && draft.validation.warnings.length ? (
-        <ul className="review-warnings" aria-label="Warnings">
-          {draft.validation.warnings.map((warning) => (
-            <li key={warning}>{warning}</li>
-          ))}
-        </ul>
-      ) : null}
-      {!previewOnly && draft.latestAttempt?.error ? (
-        <p className="review-result-error" role="alert">
-          {draft.latestAttempt.error.message}
-        </p>
-      ) : null}
-
-      <AnimatePresence initial={false}>
-        {notice ? (
-          <motion.p
-            className="review-notice"
-            role="status"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            {notice}
-          </motion.p>
-        ) : null}
-      </AnimatePresence>
-
       <footer className="live-preview-footer">
-        <p>
+        <p className="live-preview-footer-note">
           {previewOnly
             ? "Switch back to a platform in this review set to edit, save, or publish."
             : live
-              ? "This platform is live. Switch tabs to review other platforms in the set."
+              ? "This platform is live. Switch tabs to review the rest of the set."
               : dirty
-                ? "Save every change before approval."
-                : "This publishes the entire validated set."}
+                ? "Save your edits before you can approve this set."
+                : "Approving publishes the entire validated set."}
         </p>
         <div className="live-preview-footer-actions">
           {!previewOnly && draft.status === "unknown" ? (
-            <button
+            <motion.button
               type="button"
+              className="live-preview-footer-secondary"
               onClick={() => void check(draft)}
               disabled={busy[draft.id]}
+              whileHover={
+                reduceMotion || busy[draft.id]
+                  ? undefined
+                  : { y: -1 }
+              }
+              whileTap={
+                reduceMotion || busy[draft.id] ? undefined : { scale: 0.98 }
+              }
+              transition={productMotion.press}
             >
               {busy[draft.id] ? (
-                <LoaderCircle className="animate-spin" aria-hidden="true" />
+                <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
               ) : (
-                <RefreshCw aria-hidden="true" />
+                <RefreshCw className="size-4" aria-hidden="true" />
               )}
               Check status
-            </button>
+            </motion.button>
           ) : !previewOnly && !locked ? (
-            <button
+            <motion.button
               type="button"
+              className="live-preview-footer-secondary"
               onClick={() => void save(draft)}
               disabled={!isDirty || busy[draft.id]}
+              whileHover={
+                reduceMotion || !isDirty || busy[draft.id]
+                  ? undefined
+                  : { y: -1 }
+              }
+              whileTap={
+                reduceMotion || !isDirty || busy[draft.id]
+                  ? undefined
+                  : { scale: 0.98 }
+              }
+              transition={productMotion.press}
             >
               {busy[draft.id] ? (
-                <LoaderCircle className="animate-spin" aria-hidden="true" />
+                <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
               ) : (
-                <Check aria-hidden="true" />
+                <Check className="size-4" aria-hidden="true" />
               )}
               Save changes
-            </button>
+            </motion.button>
           ) : null}
-          <button
+          <motion.button
             type="button"
             className="live-preview-approve"
             onClick={() => void publish()}
@@ -629,14 +747,37 @@ export function LivePreviewAside({
               hasUnknown ||
               allPublished
             }
+            whileHover={
+              reduceMotion ||
+              groupBusy ||
+              dirty ||
+              blocking ||
+              connectorError ||
+              hasUnknown ||
+              allPublished
+                ? undefined
+                : { y: -1 }
+            }
+            whileTap={
+              reduceMotion ||
+              groupBusy ||
+              dirty ||
+              blocking ||
+              connectorError ||
+              hasUnknown ||
+              allPublished
+                ? undefined
+                : { scale: 0.98 }
+            }
+            transition={productMotion.press}
           >
             {groupBusy ? (
-              <LoaderCircle className="animate-spin" aria-hidden="true" />
+              <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
             ) : (
-              <Check aria-hidden="true" />
+              <Check className="size-4" aria-hidden="true" />
             )}
             {hasFailure ? "Try failed platforms again" : "Approve and publish"}
-          </button>
+          </motion.button>
         </div>
       </footer>
     </motion.aside>

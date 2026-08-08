@@ -1,11 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ApiError,
   apiRequest,
   type ConnectorSummary,
-  type PublishingPreference,
 } from "@/lib/product-api";
 import { ConnectorsSettings } from "./connectors-settings";
 
@@ -53,80 +52,90 @@ const connectors: ConnectorSummary[] = [
   },
 ];
 
-const preference: PublishingPreference = {
-  currentMode: "always_draft",
-  effectiveMode: "always_draft",
-  revision: 0,
-  consentVersion: null,
-  consentedAt: null,
-  consentCurrent: false,
-  policyVersion: "2026-08-01",
-  enabled: false,
-  authorityEventId: null,
-};
-
-function routeResponse(path: string) {
-  if (path === "/publishing/preferences") return Promise.resolve(preference);
-  return Promise.resolve({ connectors });
-}
-
 beforeEach(() => {
   window.history.replaceState({}, "", "/app/settings/connectors");
   vi.mocked(apiRequest).mockReset();
-  vi.mocked(apiRequest).mockImplementation((path) => routeResponse(path));
+  vi.mocked(apiRequest).mockResolvedValue({ connectors });
 });
 
 describe("ConnectorsSettings", () => {
-  it("shows every supported social and its public account state (AC 4)", async () => {
+  it("shows every platform on All with a Content type column (AC 4)", async () => {
+    const user = userEvent.setup();
     render(<ConnectorsSettings />);
 
-    expect(await screen.findByRole("heading", { name: "Threads" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "LinkedIn Personal" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Instagram" })).toBeInTheDocument();
-    expect(screen.getByText("@zayn")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Connect" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Connect another" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Reconnect" })).toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: /^All/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getAllByRole("heading", { name: "Threads" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("heading", { name: "LinkedIn" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("heading", { name: "Instagram" }).length).toBeGreaterThan(0);
+
+    const table = screen.getByRole("table");
+    expect(within(table).getByRole("columnheader", { name: "Connector" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Type" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Status" })).toBeInTheDocument();
+    expect(within(table).getAllByText("Content")).toHaveLength(3);
+    expect(within(table).getByRole("button", { name: "Connect" })).toBeInTheDocument();
+    expect(within(table).getByRole("button", { name: "Reconnect" })).toBeInTheDocument();
+    expect(within(table).getByRole("button", { name: "Connect another" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: /^Connected/ }));
+    const connectedPanel = screen.getByRole("tabpanel");
+    expect(within(connectedPanel).getByText("LinkedIn")).toBeInTheDocument();
+    expect(within(connectedPanel).getByText(/@zayn/)).toBeInTheDocument();
+    expect(within(connectedPanel).queryByText("Threads")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: /^Not connected/ }));
+    const openPanel = screen.getByRole("tabpanel");
+    expect(within(openPanel).getByText("Threads")).toBeInTheDocument();
+    expect(within(openPanel).getByText("Instagram")).toBeInTheDocument();
+    expect(within(openPanel).queryByText("LinkedIn")).not.toBeInTheDocument();
   });
 
   it("reports an unavailable service but still lists every platform (AC 4, AC 6)", async () => {
-    vi.mocked(apiRequest).mockImplementation((path) =>
-      path === "/publishing/preferences"
-        ? Promise.resolve(preference)
-        : Promise.reject(new Error("offline")),
-    );
+    const user = userEvent.setup();
+    vi.mocked(apiRequest).mockRejectedValue(new Error("offline"));
     render(<ConnectorsSettings />);
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Connector status is unavailable");
     expect(alert).toHaveTextContent("have not been marked as disconnected");
-    expect(await screen.findByRole("heading", { name: "Threads" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "LinkedIn Personal" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Instagram" })).toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { name: "Threads" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("heading", { name: "LinkedIn" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("heading", { name: "Instagram" }).length).toBeGreaterThan(0);
     expect(screen.queryByText("disconnected")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: /^Connected/ }));
+    expect(
+      within(screen.getByRole("tabpanel")).getByText(/No accounts connected yet/i),
+    ).toBeInTheDocument();
   });
 
   it("keeps last known connected accounts when a refresh fails (AC 6)", async () => {
+    const user = userEvent.setup();
     render(<ConnectorsSettings />);
-    await screen.findByRole("heading", { name: "Threads" });
-    expect(screen.getByText("@zayn")).toBeInTheDocument();
+    await screen.findByRole("table");
 
-    vi.mocked(apiRequest).mockImplementation((path) =>
-      path === "/publishing/preferences"
-        ? Promise.resolve(preference)
-        : Promise.reject(new Error("offline")),
-    );
+    await user.click(screen.getByRole("tab", { name: /^Connected/ }));
+    expect(
+      within(screen.getByRole("tabpanel")).getByText(/@zayn/),
+    ).toBeInTheDocument();
+
+    vi.mocked(apiRequest).mockRejectedValue(new Error("offline"));
     window.dispatchEvent(new Event("focus"));
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Connector status is unavailable");
-    expect(screen.getByText("@zayn")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Connect another" })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("tabpanel")).getByText(/@zayn/),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Connect another" }).length).toBeGreaterThan(0);
   });
 
   it("refreshes connector status when the window regains focus (AC 6)", async () => {
     render(<ConnectorsSettings />);
-    await screen.findByRole("heading", { name: "Threads" });
+    await screen.findByRole("table");
 
     window.dispatchEvent(new Event("focus"));
 
@@ -146,6 +155,10 @@ describe("ConnectorsSettings", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(
       "Threads is connected.",
     );
+    expect(screen.getByRole("tab", { name: /^Connected/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 
   it("does not echo an unsafe OAuth error code (AC 7)", async () => {
@@ -164,14 +177,13 @@ describe("ConnectorsSettings", () => {
   it("shows a stable safe error when SocialMCP cannot start OAuth (AC 5, AC 6)", async () => {
     const user = userEvent.setup();
     vi.mocked(apiRequest).mockImplementation((path) => {
-      if (path === "/publishing/preferences") return Promise.resolve(preference);
       if (path === "/connectors") return Promise.resolve({ connectors });
       return Promise.reject(new ApiError(502, "SOCIALMCP_UNAVAILABLE", {}));
     });
     render(<ConnectorsSettings />);
-    await screen.findByRole("heading", { name: "Threads" });
+    await screen.findByRole("table");
 
-    await user.click(screen.getByRole("button", { name: "Connect" }));
+    await user.click(screen.getAllByRole("button", { name: "Connect" })[0]!);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "The connector service is unavailable. Nothing changed.",

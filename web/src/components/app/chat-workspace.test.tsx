@@ -374,6 +374,7 @@ describe("ChatWorkspace", () => {
         ],
       }),
     };
+    const user = userEvent.setup();
     render(<ChatWorkspace conversationId="conv_1" />);
 
     expect(screen.queryByRole("button", { name: /View review/i })).toBeNull();
@@ -381,6 +382,15 @@ describe("ChatWorkspace", () => {
       await screen.findByLabelText("Live platform preview"),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Threads post preview")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Close preview" }));
+    expect(screen.queryByLabelText("Live platform preview")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Show preview" }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Show preview" }));
+    expect(screen.getByLabelText("Live platform preview")).toBeInTheDocument();
   });
 
   it("announces pending work and blocks another send (AC 2)", () => {

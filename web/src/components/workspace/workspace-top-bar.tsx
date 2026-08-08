@@ -10,28 +10,9 @@ import { useWorkspacePanels } from "@/components/workspace/slide-over-panel";
 export function WorkspaceTopBar() {
   const { user } = useWorkspace();
   const { setOpenPanel } = useWorkspacePanels();
-  const workspaceName =
-    user?.email?.split("@")[1]?.split(".")[0] ?? "Sochestral";
 
   return (
     <header className="os-topbar os-topbar-slim">
-      <div className="os-topbar-left">
-        <HoverDetails label="Workspace switcher coming soon" side="bottom">
-          <button
-            type="button"
-            className="os-workspace-switcher"
-            disabled
-            aria-label="Workspace switcher (coming soon)"
-          >
-            <span className="os-live-dot" aria-hidden="true" />
-            <span className="capitalize">{workspaceName}</span>
-          </button>
-        </HoverDetails>
-        <span className="os-sync-pill" role="status">
-          Live sync
-        </span>
-      </div>
-
       <div className="os-topbar-actions">
         <Link href="/app/workspace" className="os-quick-create">
           <Plus className="size-4" aria-hidden="true" />

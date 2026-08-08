@@ -14,6 +14,7 @@ import {
   ChevronRight,
   CircleAlert,
   LoaderCircle,
+  PanelRightOpen,
   Paperclip,
   RefreshCw,
   Trash2,
@@ -125,6 +126,7 @@ export function ChatWorkspace({
   const [liveThinking, setLiveThinking] = useState("");
   const [selectedMedia, setSelectedMedia] = useState<SelectedMedia[]>([]);
   const [optimisticMedia, setOptimisticMedia] = useState<SelectedMedia[]>([]);
+  const [previewDismissed, setPreviewDismissed] = useState(false);
   const {
     details,
     pending,
@@ -200,6 +202,7 @@ export function ChatWorkspace({
       ) ??
       pickActiveReviewGroup(detail.reviewGroups ?? [])
     : null;
+  const previewVisible = Boolean(activeReviewGroup && !previewDismissed);
 
   useEffect(() => {
     if (activeConversationId && !detail) {
@@ -213,6 +216,10 @@ export function ChatWorkspace({
       setOptimisticMedia([]);
     }
   }, [activeConversationId]);
+
+  useEffect(() => {
+    setPreviewDismissed(false);
+  }, [activeReviewGroup?.id]);
 
   useEffect(() => {
     if (!isLaunchRoute) return;
@@ -430,16 +437,27 @@ export function ChatWorkspace({
             event.target.value = "";
           }}
         />
-        <button
+        <motion.button
           type="button"
           className="composer-attach"
           onClick={() => fileInputRef.current?.click()}
           disabled={isPending || selectedMedia.length >= 5}
           aria-label="Attach images"
+          whileHover={
+            reduceMotion || isPending || selectedMedia.length >= 5
+              ? undefined
+              : { y: -1, scale: 1.02 }
+          }
+          whileTap={
+            reduceMotion || isPending || selectedMedia.length >= 5
+              ? undefined
+              : { scale: 0.95 }
+          }
+          transition={productMotion.press}
         >
           <Paperclip aria-hidden="true" />
           <span>{selectedMedia.length ? `${selectedMedia.length}/5` : "Attach"}</span>
-        </button>
+        </motion.button>
         <PublishingModeControl source="composer" compact />
       </div>
     </>
@@ -492,7 +510,7 @@ export function ChatWorkspace({
       }
     >
       <div
-        className={`chat-with-preview${activeReviewGroup ? " chat-with-preview-open" : ""}`}
+        className={`chat-with-preview${previewVisible ? " chat-with-preview-open" : ""}`}
       >
       <section
         className={`chat-surface os-chat-thread ${showThread ? "" : "chat-surface-empty"}`}
@@ -692,6 +710,16 @@ export function ChatWorkspace({
 
         {showThread ? (
           <div className="composer-zone">
+            {activeReviewGroup && previewDismissed ? (
+              <button
+                type="button"
+                className="live-preview-reopen"
+                onClick={() => setPreviewDismissed(false)}
+              >
+                <PanelRightOpen className="size-4" aria-hidden="true" />
+                Show preview
+              </button>
+            ) : null}
             <form onSubmit={onSubmit} className="composer">
               <label htmlFor="chat-message" className="sr-only">
                 Message Sochestral
@@ -720,11 +748,12 @@ export function ChatWorkspace({
         ) : null}
       </section>
 
-      {activeReviewGroup && activeConversationId ? (
+      {previewVisible && activeReviewGroup && activeConversationId ? (
         <LivePreviewAside
           group={activeReviewGroup}
           mediaPreviews={mediaPreviews}
           onRefresh={() => loadConversation(activeConversationId)}
+          onClose={() => setPreviewDismissed(true)}
         />
       ) : null}
       </div>
