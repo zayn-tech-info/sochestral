@@ -30,6 +30,8 @@ type SelectChipProps = {
   title?: string;
   className?: string;
   align?: "start" | "end";
+  /** Prefer "top" when the control sits at the bottom of the viewport (composer). */
+  placement?: "bottom" | "top";
 };
 
 export function SelectChip({
@@ -42,6 +44,7 @@ export function SelectChip({
   title,
   className,
   align = "start",
+  placement = "bottom",
 }: SelectChipProps) {
   const listId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -125,13 +128,22 @@ export function SelectChip({
             className={cn(
               "os-select-menu",
               align === "end" && "os-select-menu-end",
+              placement === "top" && "os-select-menu-up",
             )}
-            initial={reduceMotion ? false : { opacity: 0, y: -6, scale: 0.98 }}
+            initial={
+              reduceMotion
+                ? false
+                : { opacity: 0, y: placement === "top" ? 6 : -6, scale: 0.98 }
+            }
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={
               reduceMotion
                 ? undefined
-                : { opacity: 0, y: -4, scale: 0.98 }
+                : {
+                    opacity: 0,
+                    y: placement === "top" ? 4 : -4,
+                    scale: 0.98,
+                  }
             }
             transition={reduceMotion ? { duration: 0 } : productMotion.quick}
           >

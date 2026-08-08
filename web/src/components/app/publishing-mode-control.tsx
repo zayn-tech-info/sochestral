@@ -93,6 +93,7 @@ export function PublishingModeControl({
           onChange={(value) => select(value as PublishingMode)}
           disabled={!preference || busy || !preference.enabled}
           options={modeOptions}
+          placement={compact ? "top" : "bottom"}
         />
       </div>
       {!compact && preference ? (

@@ -7,9 +7,6 @@ const APP_HOSTS = new Set([
   "app.localhost",
 ]);
 
-/** Must match product API cookie name (`packages/auth` SESSION_COOKIE_NAME). */
-const SESSION_COOKIE = "sochestral_session";
-
 export function middleware(request: NextRequest) {
   const host = request.headers.get("host")?.split(":")[0]?.toLowerCase() ?? "";
   if (!APP_HOSTS.has(host)) {
@@ -19,11 +16,12 @@ export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Root of app host is the marketing page in this monorepo — never serve it here.
+  // Do not read `sochestral_session` here: that cookie is host-only on the product
+  // API (spec 0002 AC-3, no Domain), so it is never visible on this app host.
+  // Full auth stays enforced inside /app via GET /auth/me.
   if (pathname === "/" || pathname === "") {
     const url = request.nextUrl.clone();
-    const hasSession = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
-    // Cookie presence only: full auth is still enforced inside /app via /auth/me.
-    url.pathname = hasSession ? "/app" : "/login";
+    url.pathname = "/app";
     return NextResponse.redirect(url);
   }
 

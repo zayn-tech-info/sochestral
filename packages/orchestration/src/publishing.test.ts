@@ -6,7 +6,9 @@ import {
   LIVE_PUBLISH_INTENT_USER_MESSAGE_START,
   intentClarification,
   localDraftIntent,
+  localLiveIntent,
   resolveLivePublishIntent,
+  continuesLivePublishContext,
   vetoesExplicitLivePublishIntent,
   wrapUserMessageForIntentClassification,
 } from "./publishing.js";
@@ -49,6 +51,30 @@ describe("localDraftIntent", () => {
   });
 });
 
+describe("localLiveIntent", () => {
+  it.each([
+    "Post this on my Instagram",
+    "Publish this on Threads",
+    "Post it live",
+    "Yes post it live on Instagram",
+    "Yes post it live on Instagarm",
+    "Ship the Threads launch post now",
+  ])("maps clear live publish wording to live: %s", (message) => {
+    expect(localLiveIntent(message)).toBe(true);
+  });
+
+  it.each([
+    "Draft this post",
+    "Can you publish this?",
+    "Yeah",
+    "Just shot it there",
+    "Instagram",
+    "Publish",
+  ])("does not treat draft, questions, or bare replies as local live alone: %s", (message) => {
+    expect(localLiveIntent(message)).toBe(false);
+  });
+});
+
 describe("intentClarification", () => {
   it("names inherited platforms in the clarify question", () => {
     expect(intentClarification(["threads"])).toContain("Threads");
@@ -69,7 +95,7 @@ describe("resolveLivePublishIntent", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns live when veto passes and the forced tool reports live", async () => {
+  it("returns live from LLM when wording is affirmative but not a local live match", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const model: ModelProvider = {
       complete: vi.fn().mockResolvedValue(
@@ -87,12 +113,13 @@ describe("resolveLivePublishIntent", () => {
 
     await expect(
       resolveLivePublishIntent(model, {
-        message: "Ship the Threads launch post now",
+        message: "Put the launch update on Threads for me",
         modelName: "intent-model",
         mode: "full_access",
       }),
     ).resolves.toBe("live");
 
+    expect(model.complete).toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledWith(
       "[sochestral:publishing] intent resolved",
       expect.objectContaining({
@@ -143,6 +170,73 @@ describe("resolveLivePublishIntent", () => {
     ).resolves.toBe("unclear");
   });
 
+  it("returns live from local wording without calling the model", async () => {
+    const model: ModelProvider = { complete: vi.fn() };
+    await expect(
+      resolveLivePublishIntent(model, {
+        message: "Post this on my Instagram",
+        modelName: "intent-model",
+        mode: "full_access",
+      }),
+    ).resolves.toBe("live");
+    expect(model.complete).not.toHaveBeenCalled();
+  });
+
+  it("uses prior user messages so a short live reply keeps platform context", async () => {
+    const model: ModelProvider = { complete: vi.fn() };
+    await expect(
+      resolveLivePublishIntent(model, {
+        message: "Post it live",
+        priorMessages: ["Post this on my Instagram"],
+        modelName: "intent-model",
+        mode: "full_access",
+      }),
+    ).resolves.toBe("live");
+    expect(model.complete).not.toHaveBeenCalled();
+  });
+
+  it("treats bare Publish as live when the prior turn already named a platform", async () => {
+    const model: ModelProvider = { complete: vi.fn() };
+    await expect(
+      resolveLivePublishIntent(model, {
+        message: "Publish",
+        priorMessages: ["Post this on my Instagram"],
+        modelName: "intent-model",
+        mode: "full_access",
+      }),
+    ).resolves.toBe("live");
+    expect(model.complete).not.toHaveBeenCalled();
+  });
+
+  it("treats Instagarm typo replies as live with prior post context", async () => {
+    const model: ModelProvider = { complete: vi.fn() };
+    await expect(
+      resolveLivePublishIntent(model, {
+        message: "Yes post it live on Instagarm",
+        priorMessages: ["Post this on my Instagram"],
+        modelName: "intent-model",
+        mode: "full_access",
+      }),
+    ).resolves.toBe("live");
+    expect(model.complete).not.toHaveBeenCalled();
+  });
+
+  it("keeps live intent for use this after a prior Instagram post request", async () => {
+    expect(
+      continuesLivePublishContext("use this", ["Post this on my Instagram"]),
+    ).toBe(true);
+    const model: ModelProvider = { complete: vi.fn() };
+    await expect(
+      resolveLivePublishIntent(model, {
+        message: "use this",
+        priorMessages: ["Post this on my Instagram"],
+        modelName: "intent-model",
+        mode: "full_access",
+      }),
+    ).resolves.toBe("live");
+    expect(model.complete).not.toHaveBeenCalled();
+  });
+
   it("fails closed to unclear on blank messages, missing tool calls, and provider errors", async () => {
     const blankModel: ModelProvider = { complete: vi.fn() };
     await expect(
@@ -158,7 +252,7 @@ describe("resolveLivePublishIntent", () => {
     };
     await expect(
       resolveLivePublishIntent(missingTool, {
-        message: "Publish this on Threads",
+        message: "Go ahead with that",
         modelName: "intent-model",
       }),
     ).resolves.toBe("unclear");
@@ -168,7 +262,7 @@ describe("resolveLivePublishIntent", () => {
     };
     await expect(
       resolveLivePublishIntent(failing, {
-        message: "Publish this on Threads",
+        message: "Go ahead with that",
         modelName: "intent-model",
       }),
     ).resolves.toBe("unclear");

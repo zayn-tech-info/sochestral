@@ -13,6 +13,10 @@ primary_region = "lhr"
 [build]
   dockerfile = "Dockerfile.api"
 
+[deploy]
+  # Run once per deploy (not on every scaled machine cold start).
+  release_command = "pnpm --filter @sochestral/database migrate"
+
 [env]
   NODE_ENV = "production"
   PORT = "8080"
@@ -29,7 +33,7 @@ primary_region = "lhr"
   [[http_service.checks]]
     interval = "30s"
     timeout = "5s"
-    grace_period = "40s"
+    grace_period = "15s"
     method = "GET"
     path = "/health"
 

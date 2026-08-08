@@ -110,6 +110,95 @@ export function localDraftIntent(message: string): boolean {
   return false;
 }
 
+const PLATFORM_LIVE_PATTERN =
+  /\b(?:instagram|instagrma|instagarm|instagam|instgram|instalgram|insta|threads|linkedin)\b/i;
+
+/** Clear affirmative live publish wording that does not need an LLM round trip. */
+export function localLiveIntent(message: string): boolean {
+  const value = message.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!value || localDraftIntent(message)) return false;
+  if (
+    /\b(?:post|publish|ship|share)\b[\s\S]{0,80}\b(?:live|now|immediately)\b/.test(
+      value,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(?:post|publish|ship)\b[\s\S]{0,80}/.test(value) &&
+    PLATFORM_LIVE_PATTERN.test(value)
+  ) {
+    return true;
+  }
+  if (
+    /^(?:yes[,.]?\s+)?(?:post|publish)\s+(?:it|this|that)(?:\s+live)?(?:\s+on\s+\w+)?[.!]?$/.test(
+      value,
+    )
+  ) {
+    return true;
+  }
+  // Bare "Publish" / "Post it live" / "Go live" only count as live when the
+  // classification window already named a platform (checked via the same string).
+  if (
+    /^(?:yes[,.]?\s+)?(?:publish|post(?:\s+it)?(?:\s+live)?|go\s+live|ship\s+it)[.!]?$/.test(
+      value,
+    ) &&
+    PLATFORM_LIVE_PATTERN.test(value)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Short go-ahead that continues a prior clear post request. */
+export function shortLiveAffirmative(message: string): boolean {
+  const value = message.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!value || localDraftIntent(message)) return false;
+  return /^(?:yes[,.]?\s+)?(?:publish|post(?:\s+it)?(?:\s+live)?|go\s+live|live(?:\s+please)?|do\s+it|ship\s+it)[.!]?$/.test(
+    value,
+  );
+}
+
+/** Prior turns already asked to post/publish to a named platform. */
+export function priorHasLivePublishRequest(
+  priorMessages: string[] | undefined,
+): boolean {
+  const prior = (priorMessages ?? [])
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .slice(-6)
+    .join("\n");
+  if (!prior) return false;
+  if (localLiveIntent(prior)) return true;
+  return (
+    /\b(?:post|publish|ship)\b/i.test(prior) && PLATFORM_LIVE_PATTERN.test(prior)
+  );
+}
+
+/**
+ * After the user already asked to post on a platform, later turns keep that live
+ * intent unless they clearly switch to draft or cancel.
+ */
+export function continuesLivePublishContext(
+  message: string,
+  priorMessages?: string[],
+): boolean {
+  if (!message.trim() || localDraftIntent(message)) return false;
+  return priorHasLivePublishRequest(priorMessages);
+}
+
+function intentClassificationWindow(
+  message: string,
+  priorMessages: string[] | undefined,
+): string {
+  const prior = (priorMessages ?? [])
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .slice(-6);
+  if (prior.length === 0) return message.trim();
+  return `${prior.join("\n")}\n${message.trim()}`.trim();
+}
+
 export function wrapUserMessageForIntentClassification(message: string): string {
   return `${LIVE_PUBLISH_INTENT_USER_MESSAGE_START}\n${message}\n${LIVE_PUBLISH_INTENT_USER_MESSAGE_END}`;
 }
@@ -131,7 +220,13 @@ export function intentClarification(platforms: TargetPlatform[]): string {
   return `Do you want me to publish this live on ${head} and ${last}, or keep it as a draft for review?`;
 }
 
-type IntentLogReason = "local_draft" | "llm_live" | "llm_draft" | "llm_unclear" | "provider_error";
+type IntentLogReason =
+  | "local_draft"
+  | "local_live"
+  | "llm_live"
+  | "llm_draft"
+  | "llm_unclear"
+  | "provider_error";
 
 function logIntentResolution(input: {
   outcome: LiveIntentKind;
@@ -150,7 +245,13 @@ function parseIntentKind(value: unknown): LiveIntentKind | null {
 
 export async function resolveLivePublishIntent(
   model: ModelProvider,
-  input: { message: string; modelName: string; mode?: PublishingMode },
+  input: {
+    message: string;
+    modelName: string;
+    mode?: PublishingMode;
+    /** Recent prior user messages (oldest first). Used so short replies keep context. */
+    priorMessages?: string[];
+  },
 ): Promise<LiveIntentKind> {
   const message = input.message.trim();
   if (!message) {
@@ -169,8 +270,22 @@ export async function resolveLivePublishIntent(
     });
     return "draft";
   }
+  const window = intentClassificationWindow(message, input.priorMessages);
+  if (
+    localLiveIntent(message) ||
+    localLiveIntent(window) ||
+    (shortLiveAffirmative(message) && PLATFORM_LIVE_PATTERN.test(window)) ||
+    continuesLivePublishContext(message, input.priorMessages)
+  ) {
+    logIntentResolution({
+      outcome: "live",
+      reason: "local_live",
+      mode: input.mode,
+    });
+    return "live";
+  }
   try {
-    const classifiedMessage = wrapUserMessageForIntentClassification(message);
+    const classifiedMessage = wrapUserMessageForIntentClassification(window);
     const result = await model.complete({
       system: LIVE_PUBLISH_INTENT_SYSTEM,
       messages: [
