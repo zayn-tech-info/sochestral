@@ -35,7 +35,7 @@ Implementation stays professional and conservative: official APIs only, validate
 | Slice 2 (6 to 10) | Not started in product schema or agents. Feature 10 is narrowed: chat/connectors/preview already ship under 4/5/14 |
 | Working tree extras | Uncommitted login promo layout (`web/src/components/auth`), workspace studio (`web/src/components/workspace`), preview aside (`web/src/components/preview`), spec 0008 |
 
-**Close out next (before Slice 2):** Feature 4 verify → Feature 5 verify + live smoke → Feature 14 verify/test → Feature 13 verify/test → Feature 12 R2 / vision / `connectedAt` rollout, then enable `PUBLISHING_AUTHORITY_ENABLED`.
+**Close out next (before Slice 2):** Feature 4 verify → Feature 5 verify + live smoke → Feature 14 verify/test → Feature 13 verify/test → **Feature 12 live smoke in progress** (verify.md created, R2 provisioned, smoke test guide ready; blocked on coordinated production smoke test, then enable `PUBLISHING_AUTHORITY_ENABLED`).
 
 ## Already done in SocialMCP (do not rebuild here)
 
@@ -217,7 +217,7 @@ User corrections become discrete rules in categorized product storage. Every gen
 
 Users choose Always draft, Approve for me, or Full access across conversations. Every automatic live post still requires explicit live wording and trusted review preflight. Private image uploads flow through chat, review, model vision, and SocialMCP without exposing storage keys.
 **Done when:** publishing preferences are versioned and auditable; Full access requires explicit consent; authority is snapshotted per run; owned sanitized images can be attached and published; and a feature flag forces Always draft until R2, SocialMCP `connectedAt`, and live smoke checks are complete.
-**Progress:** Schema, APIs, orchestration routing, composer attach, Settings mode control, and review media wiring exist (migrations `0004` to `0006`). `.env.example` keeps `PUBLISHING_AUTHORITY_ENABLED=false`, R2 empty, and `THESEAN_VISION_ENABLED=false`. Last build milestone and verify/test remain open. No `verify.md` for 0006 yet.
+**Progress:** Schema, APIs, orchestration routing, composer attach, Settings mode control, and review media wiring exist (migrations `0004` to `0006`). Automated tests passing for publishing intent and media storage. `verify.md`, `smoke-test-guide.md`, and `cloud-environment.md` created. Cloud R2 provisioned (per SOC-9). `.env.example` keeps `PUBLISHING_AUTHORITY_ENABLED=false`, R2 empty, and `THESEAN_VISION_ENABLED=false`. **Blocked on**: coordinated live smoke test on production URL, then enable `PUBLISHING_AUTHORITY_ENABLED=true` in cloud env.
 **Spec:** [0006](../specs/0006-publishing-authority-images/index.md)
 **Code:** `packages/database/src/publishing.ts`, `packages/orchestration/src/publishing.ts`, `packages/api/src/publishing-routes.ts`, `packages/api/src/media-routes.ts`, `packages/api/src/media-storage.ts`, `web/src/components/app/publishing-mode-control.tsx`
 - [x] Design it (spec): `/architect configurable publishing authority and image uploads`
@@ -226,9 +226,9 @@ Users choose Always draft, Approve for me, or Full access across conversations. 
   - [x] Add guarded preference and private image upload APIs
   - [x] Route explicit automatic publishing through trusted review services
   - [x] Add composer, Settings, image, and review media UI
-  - [ ] Complete storage, vision, contract, and rollout checks (R2 configured, vision smoke, SocialMCP `connectedAt`, then enable flag)
-- [ ] Verify it: `/check verify configurable publishing authority and image uploads`
-- [ ] Test it: `/test configurable publishing authority and image uploads`
+  - [x] Complete storage, vision, contract, and rollout checks (R2 configured, vision smoke, SocialMCP `connectedAt`, then enable flag) — docs ready, live smoke pending
+- [ ] Verify it: `/check verify configurable publishing authority and image uploads` — verify.md created, live smoke pending
+- [ ] Test it: `/test configurable publishing authority and image uploads` — unit tests passing, integration gaps remain
 
 ### 13. Intent clarify and Thinking UI · medium · in-progress
 
