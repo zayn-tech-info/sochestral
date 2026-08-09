@@ -69,7 +69,7 @@ Treat the following as shipped in the external SocialMCP repo. This SaaS scope o
 | 5 | Review mode publish loop | Slice 1 | done |
 | 6 | Subscription tier model | Slice 2 | planned |
 | 7 | Setup agent and business profile | Slice 2 | planned |
-| 8 | WhatsApp channel for agent chat | Slice 2 | planned |
+| 8 | WhatsApp channel for agent chat | Slice 2 | in-progress |
 | 9 | Telegram channel for agent chat | Slice 2 | planned |
 | 10 | Remaining web product surfaces | Slice 2 | planned |
 | 11 | Structured memory and correction loop | Slice 3 | planned |
@@ -186,11 +186,16 @@ Separate setup agent turns plain language onboarding into structured profile dat
 **Done when:** a new user can complete onboarding and the persisted structured profile drives content generation; sample post correction flow captures tone; profile categories are queryable, not a single opaque document.
 - [ ] Design it (spec): `/architect setup agent and business profile`
 
-### 8. WhatsApp channel for agent chat · full
+### 8. WhatsApp channel for agent chat · full · in-progress
 
 WhatsApp as the primary messaging add-on. Inbound messages trigger the operator agent; outbound sends drafts, approvals, and status. OAuth connect still uses a browser link sent in chat (product starts connect; MCP stores tokens).
 **Done when:** a linked WhatsApp identity maps to one SaaS `userId`; the user can request a draft, approve a post, and receive publish confirmation without opening the web UI.
-- [ ] Design it (spec): `/architect WhatsApp channel for agent chat`
+- [x] Design it (spec): `/architect WhatsApp channel for agent chat` → [SOC-15-spec.md](../specs/SOC-15-spec.md)
+- [x] Build it: `/develop WhatsApp channel for agent chat`
+  - [x] Schema, webhooks, link/unlink, orchestration bridge, approve/status, connect links, Settings entry
+  - code in `packages/database/src/channels.ts`, `packages/api/src/whatsapp-*.ts`, `web/src/components/app/channels-settings.tsx`
+- [ ] Verify it: `/check verify WhatsApp channel for agent chat`
+- [x] Test it: `/test` (channel helpers, webhook/link routes, Settings UI)
 
 ### 9. Telegram channel for agent chat · medium
 

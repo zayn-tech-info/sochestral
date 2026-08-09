@@ -86,7 +86,14 @@ const items = [
     href: "/app/settings/connectors",
     label: "Connected Accounts",
     icon: Link2,
-    match: (p: string) => p.startsWith("/app/settings"),
+    match: (p: string) => p.startsWith("/app/settings/connectors"),
+    kind: "link" as const,
+  },
+  {
+    href: "/app/settings/channels/whatsapp",
+    label: "Channels",
+    icon: MessageSquare,
+    match: (p: string) => p.startsWith("/app/settings/channels"),
     kind: "link" as const,
   },
 ] as const;

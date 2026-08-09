@@ -41,3 +41,15 @@ export function createRunId(): string {
 export function createToolCallId(): string {
   return `toolcall_${nanoid(ID_LENGTH)}`;
 }
+
+export function createChannelIdentityId(): string {
+  return `chlink_${nanoid(ID_LENGTH)}`;
+}
+
+export function createChannelLinkChallengeId(): string {
+  return `chlchal_${nanoid(ID_LENGTH)}`;
+}
+
+export function createChannelPendingActionId(): string {
+  return `chpend_${nanoid(ID_LENGTH)}`;
+}
