@@ -1,8 +1,10 @@
 export type OrchestrationStreamStep =
+  | "understanding"
   | "checking_intent"
   | "clarifying_intent"
   | "preparing_draft"
   | "validating"
+  | "scheduling"
   | "publishing";
 
 export type OrchestrationStreamEventInput =
@@ -11,8 +13,20 @@ export type OrchestrationStreamEventInput =
       type: "step_started" | "step_completed";
       step: OrchestrationStreamStep;
     }
-  | { type: "thinking_delta"; delta: string }
-  | { type: "thinking_completed" }
+  | {
+      type: "intent_questions";
+      questions: Array<{
+        id: string;
+        prompt: string;
+        reason?: string;
+        options: Array<{
+          id: string;
+          label: string;
+          recommended?: boolean;
+          custom?: boolean;
+        }>;
+      }>;
+    }
   | { type: "assistant_delta"; step: number; delta: string }
   | {
       type: "tool_started" | "tool_completed";
@@ -47,9 +61,11 @@ export function createSequenceSink(
 }
 
 export const STEP_LABELS: Record<OrchestrationStreamStep, string> = {
+  understanding: "Reading your message",
   checking_intent: "Checking intent",
   clarifying_intent: "Clarifying intent",
   preparing_draft: "Preparing a draft",
   validating: "Validating",
+  scheduling: "Scheduling",
   publishing: "Publishing",
 };

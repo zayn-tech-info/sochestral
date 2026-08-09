@@ -2,13 +2,13 @@
 
 import {
   useEffect,
-  useId,
   useRef,
   useState,
   type FormEvent,
   type KeyboardEvent,
 } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   ArrowUp,
   ChevronRight,
@@ -21,12 +21,21 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
-import { apiRequest, STREAM_STEP_LABELS, type StreamEvent, type StreamStep } from "@/lib/product-api";
+import {
+  apiRequest,
+  ApiError,
+  STREAM_STEP_LABELS,
+  type IntentAnswer,
+  type IntentQuestion,
+  type StreamEvent,
+  type StreamStep,
+} from "@/lib/product-api";
 import {
   LivePreviewAside,
   pickActiveReviewGroup,
 } from "@/components/preview";
 import { AppShell } from "./app-shell";
+import { IntentQuestionsCarousel } from "./intent-questions-carousel";
 import { MessageMarkdown } from "./message-markdown";
 import { productMotion } from "./product-motion-provider";
 import { PublishingModeControl } from "./publishing-mode-control";
@@ -47,64 +56,28 @@ type SelectedMedia = {
   progress: number;
 };
 
-function ThinkingDisclosure({
+type PendingIntentClarify = {
+  message: string;
+  mediaAssetIds: string[];
+  questions: IntentQuestion[];
+};
+
+function ActionLabel({
   label,
-  thinking,
   live = false,
 }: {
   label: string;
-  thinking: string | null;
   live?: boolean;
 }) {
-  const hasThinking = Boolean(thinking?.trim());
-  const [open, setOpen] = useState(live && hasThinking);
-  const panelId = useId();
-  const reduceMotion = useReducedMotion();
-
-  useEffect(() => {
-    if (live && hasThinking) setOpen(true);
-  }, [live, hasThinking]);
-
-  const body = hasThinking
-    ? thinking!.trim()
-    : live
-      ? ""
-      : "Reasoning unavailable for this model.";
-  const showBody = open && (hasThinking || !live);
-
   return (
-    <div className={`thinking-inline${open ? " thinking-inline-open" : ""}${live ? " thinking-inline-live" : ""}`}>
-      <button
-        type="button"
-        className="thinking-toggle"
-        aria-expanded={open}
-        aria-controls={panelId}
-        aria-label={`Thinking, ${label}`}
-        onClick={() => setOpen((current) => !current)}
-      >
-        <ChevronRight className="thinking-chevron size-3.5" aria-hidden="true" />
-        <span className="thinking-label">{label}</span>
+    <div className={`action-label${live ? " action-label-live" : ""}`}>
+      <span className="action-label-row" aria-label={label}>
+        <ChevronRight className="action-label-chevron size-3.5" aria-hidden="true" />
+        <span className="action-label-text">{label}</span>
         {live ? (
-          <LoaderCircle className="thinking-spinner size-3.5 animate-spin" aria-hidden="true" />
+          <LoaderCircle className="action-label-spinner size-3.5 animate-spin" aria-hidden="true" />
         ) : null}
-      </button>
-      <motion.div
-        id={panelId}
-        initial={false}
-        animate={{
-          height: showBody ? "auto" : 0,
-          opacity: showBody ? 1 : 0,
-        }}
-        transition={reduceMotion ? { duration: 0 } : productMotion.quick}
-        className="thinking-disclosure"
-        aria-hidden={!showBody}
-      >
-        {showBody ? (
-          <p className={`thinking-body${hasThinking ? "" : " thinking-body-empty"}`}>
-            {body}
-          </p>
-        ) : null}
-      </motion.div>
+      </span>
     </div>
   );
 }
@@ -119,14 +92,18 @@ export function ChatWorkspace({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const transcriptEndRef = useRef<HTMLSpanElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const suppressEmptyNewRedirectRef = useRef(false);
   const [message, setMessage] = useState("");
   const [optimisticMessage, setOptimisticMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [liveStep, setLiveStep] = useState<StreamStep | null>(null);
-  const [liveThinking, setLiveThinking] = useState("");
+  const [pendingIntent, setPendingIntent] = useState<PendingIntentClarify | null>(
+    null,
+  );
   const [selectedMedia, setSelectedMedia] = useState<SelectedMedia[]>([]);
   const [optimisticMedia, setOptimisticMedia] = useState<SelectedMedia[]>([]);
   const [previewDismissed, setPreviewDismissed] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const {
     details,
     pending,
@@ -135,7 +112,6 @@ export function ChatWorkspace({
     pendingLaunch,
     launchOptimistic,
     liveStep: workspaceLiveStep,
-    liveThinking: workspaceLiveThinking,
     takePendingLaunch,
     clearLaunchOptimistic,
     loadConversation,
@@ -148,7 +124,6 @@ export function ChatWorkspace({
   const detail = activeConversationId ? details[activeConversationId] : null;
   const isPending = Boolean(pending[key]) || submitting;
   const activeLiveStep = liveStep ?? workspaceLiveStep;
-  const activeLiveThinking = liveThinking || workspaceLiveThinking;
   const mediaBlocked = selectedMedia.some((item) => item.status !== "ready");
   const displayOptimisticMessage =
     optimisticMessage ?? (isLaunchRoute ? launchOptimistic?.message ?? null : null);
@@ -171,21 +146,17 @@ export function ChatWorkspace({
       activity,
     ]),
   );
-  const thinkingByAssistantId = new Map(
-    (detail?.turnActivities ?? []).map((activity) => {
-      const run = detail?.runs.find((item) => item.id === activity.runId);
-      return [activity.assistantMessageId, run?.thinkingText ?? null] as const;
-    }),
-  );
   const stepByAssistantId = new Map(
     (detail?.turnActivities ?? []).map((activity) => {
       const run = detail?.runs.find((item) => item.id === activity.runId);
       const label =
-        run?.explicitLiveIntent
-          ? STREAM_STEP_LABELS.publishing
-          : activity.toolSummaries.some((tool) => tool.toolName === "prepare_review")
-            ? STREAM_STEP_LABELS.preparing_draft
-            : "Thinking";
+        activity.toolSummaries.some((tool) => tool.toolName === "schedule_post")
+          ? STREAM_STEP_LABELS.scheduling
+          : run?.explicitLiveIntent
+            ? STREAM_STEP_LABELS.publishing
+            : activity.toolSummaries.some((tool) => tool.toolName === "prepare_review")
+              ? STREAM_STEP_LABELS.preparing_draft
+              : STREAM_STEP_LABELS.checking_intent;
       return [activity.assistantMessageId, label] as const;
     }),
   );
@@ -222,9 +193,13 @@ export function ChatWorkspace({
   }, [activeReviewGroup?.id]);
 
   useEffect(() => {
-    if (!isLaunchRoute) return;
+    if (!isLaunchRoute) {
+      suppressEmptyNewRedirectRef.current = false;
+      return;
+    }
     const launch = takePendingLaunch();
     if (launch) {
+      suppressEmptyNewRedirectRef.current = true;
       setOptimisticMessage(launch.message);
       setOptimisticMedia(
         launch.optimisticMedia.map((item) => ({
@@ -239,6 +214,7 @@ export function ChatWorkspace({
       void submit(launch.message, undefined, launch.mediaAssetIds);
       return;
     }
+    if (suppressEmptyNewRedirectRef.current) return;
     if (
       !pendingLaunch &&
       !launchOptimistic &&
@@ -276,39 +252,71 @@ export function ChatWorkspace({
     text: string,
     retry = retries[key] ?? undefined,
     launchMediaAssetIds?: string[],
+    intentAnswers?: IntentAnswer[],
   ) {
     const clean = text.trim();
-    if (!clean || isPending || (!retry && !launchMediaAssetIds && mediaBlocked)) {
+    if (!clean || isPending || (!retry && !launchMediaAssetIds && !intentAnswers && mediaBlocked)) {
       return;
     }
     setMessage("");
     setOptimisticMessage(clean);
-    if (!launchMediaAssetIds) {
+    if (!launchMediaAssetIds && !intentAnswers) {
       setOptimisticMedia(selectedMedia);
     }
     setSubmitting(true);
-    setLiveStep(null);
-    setLiveThinking("");
+    setLiveStep("understanding");
+    if (!intentAnswers) {
+      setPendingIntent(null);
+    }
+    const pendingMessage = clean;
+    const mediaAssetIds =
+      launchMediaAssetIds ??
+      (intentAnswers
+        ? (pendingIntent?.mediaAssetIds ?? [])
+        : selectedMedia.flatMap((item) => (item.assetId ? [item.assetId] : [])));
     const onStreamEvent = (event: StreamEvent) => {
       if (event.type === "step_started" && event.step) {
         setLiveStep(event.step);
       }
-      if (event.type === "thinking_delta" && event.delta) {
-        setLiveThinking((current) => `${current}${event.delta}`);
+      if (event.type === "intent_questions" && event.questions?.length) {
+        setPendingIntent({
+          message: pendingMessage,
+          mediaAssetIds,
+          questions: event.questions,
+        });
+      }
+      if (
+        event.type === "turn_completed" &&
+        event.result?.intentQuestions?.length
+      ) {
+        setPendingIntent({
+          message: pendingMessage,
+          mediaAssetIds,
+          questions: event.result.intentQuestions,
+        });
       }
     };
     try {
-      const mediaAssetIds =
-        launchMediaAssetIds ??
-        selectedMedia.flatMap((item) => (item.assetId ? [item.assetId] : []));
-      const createdId = await sendMessage(
-        activeConversationId,
-        clean,
-        retry ?? undefined,
-        mediaAssetIds,
-        onStreamEvent,
-      );
-      if (createdId) {
+      if (!activeConversationId) {
+        suppressEmptyNewRedirectRef.current = true;
+      }
+      const createdId = intentAnswers?.length
+        ? await sendMessage(
+            activeConversationId,
+            clean,
+            retry ?? undefined,
+            mediaAssetIds,
+            onStreamEvent,
+            intentAnswers,
+          )
+        : await sendMessage(
+            activeConversationId,
+            clean,
+            retry ?? undefined,
+            mediaAssetIds,
+            onStreamEvent,
+          );
+      if (createdId && !intentAnswers) {
         selectedMedia.forEach((item) => URL.revokeObjectURL(item.previewUrl));
         setSelectedMedia([]);
       }
@@ -325,11 +333,18 @@ export function ChatWorkspace({
     } finally {
       setSubmitting(false);
       setLiveStep(null);
-      setLiveThinking("");
     }
   }
 
+  async function completeIntentAnswers(answers: IntentAnswer[]) {
+    if (!pendingIntent) return;
+    const { message: pendingMessage, mediaAssetIds } = pendingIntent;
+    setPendingIntent(null);
+    await submit(pendingMessage, undefined, mediaAssetIds, answers);
+  }
+
   async function uploadFiles(files: File[]) {
+    if (isPending) return;
     const accepted = files.slice(0, Math.max(0, 5 - selectedMedia.length));
     if (accepted.length === 0) return;
     const pendingItems = accepted.map((file) => ({
@@ -418,7 +433,7 @@ export function ChatWorkspace({
                   void removeMedia(item).then(() => uploadFiles([item.file]));
                 }}>Retry</button>
               ) : null}
-              <button type="button" onClick={() => void removeMedia(item)} aria-label={`Remove ${item.file.name}`}>
+              <button type="button" onClick={() => void removeMedia(item)} aria-label={`Remove ${item.file.name}`} disabled={isPending}>
                 <Trash2 aria-hidden="true" />
               </button>
             </li>
@@ -458,7 +473,7 @@ export function ChatWorkspace({
           <Paperclip aria-hidden="true" />
           <span>{selectedMedia.length ? `${selectedMedia.length}/5` : "Attach"}</span>
         </motion.button>
-        <PublishingModeControl source="composer" compact />
+        <PublishingModeControl source="composer" compact disabled={isPending} />
       </div>
     </>
   );
@@ -476,10 +491,20 @@ export function ChatWorkspace({
   }
 
   async function confirmDelete() {
-    if (!activeConversationId || isPending) return;
-    await deleteConversation(activeConversationId);
-    dialogRef.current?.close();
-    router.push("/app/workspace");
+    if (!activeConversationId) return;
+    setDeleteError(null);
+    try {
+      await deleteConversation(activeConversationId);
+      dialogRef.current?.close();
+      router.push("/app/workspace");
+    } catch (error) {
+      dialogRef.current?.close();
+      setDeleteError(
+        error instanceof ApiError && error.code === "RUN_IN_PROGRESS"
+          ? "A publish is still finishing for this conversation. Wait a moment, then delete again."
+          : "This conversation could not be deleted right now.",
+      );
+    }
   }
 
   const showThread = Boolean(
@@ -501,7 +526,6 @@ export function ChatWorkspace({
             type="button"
             className="delete-chat"
             onClick={() => dialogRef.current?.showModal()}
-            disabled={isPending}
             aria-label="Delete this conversation"
           >
             <Trash2 className="size-4" aria-hidden="true" />
@@ -524,7 +548,11 @@ export function ChatWorkspace({
               <p>
                 Ask for a content idea, a channel check, or feedback on a post.
               </p>
-              <form onSubmit={onSubmit} className="composer composer-empty os-composer-inline">
+              <form
+                onSubmit={onSubmit}
+                className="composer composer-empty os-composer-inline"
+                aria-busy={isPending}
+              >
                 <label htmlFor="chat-message" className="sr-only">
                   Message Sochestral
                 </label>
@@ -535,7 +563,11 @@ export function ChatWorkspace({
                   onKeyDown={onComposerKeyDown}
                   maxLength={8000}
                   rows={2}
-                  placeholder="Ask Sochestral about your social content"
+                  placeholder={
+                    isPending
+                      ? "Sochestral is working…"
+                      : "Ask Sochestral about your social content"
+                  }
                   disabled={isPending}
                 />
                 {composerTools}
@@ -550,7 +582,11 @@ export function ChatWorkspace({
               <ul className="starter-grid">
                 {starterPrompts.map((prompt) => (
                   <li key={prompt}>
-                    <button type="button" onClick={() => void submit(prompt)}>
+                    <button
+                      type="button"
+                      onClick={() => void submit(prompt)}
+                      disabled={isPending}
+                    >
                       {prompt}
                     </button>
                   </li>
@@ -593,17 +629,29 @@ export function ChatWorkspace({
                       {item.role === "assistant" ? (
                         <>
                           <MessageMarkdown content={item.content} />
-                          {activity || thinkingByAssistantId.get(item.id) ? (
+                          {activity?.toolSummaries.some(
+                            (tool) =>
+                              tool.toolName === "schedule_post" &&
+                              (tool.summary as { ok?: boolean } | undefined)?.ok ===
+                                true,
+                          ) ? (
+                            <p className="schedule-success-links">
+                              Scheduled.{" "}
+                              <Link href="/app/calendar">Open calendar</Link>
+                              {" · "}
+                              <Link href="/app/scheduled">Scheduled posts</Link>
+                            </p>
+                          ) : null}
+                          {activity ? (
                             <motion.section
                               initial={{ opacity: 0, y: 4 }}
                               animate={{ opacity: 1, y: 0 }}
                               transition={productMotion.enter}
                               className="activity-stack"
-                              aria-label="Thinking"
+                              aria-label="Action"
                             >
-                              <ThinkingDisclosure
-                                label={stepByAssistantId.get(item.id) ?? "Thinking"}
-                                thinking={thinkingByAssistantId.get(item.id) ?? null}
+                              <ActionLabel
+                                label={stepByAssistantId.get(item.id) ?? STREAM_STEP_LABELS.checking_intent}
                               />
                             </motion.section>
                           ) : null}
@@ -660,13 +708,12 @@ export function ChatWorkspace({
                     aria-label="Sochestral is working"
                   >
                     <span className="message-author">Sochestral</span>
-                    <ThinkingDisclosure
+                    <ActionLabel
                       label={
                         activeLiveStep
                           ? STREAM_STEP_LABELS[activeLiveStep]
-                          : "Thinking"
+                          : STREAM_STEP_LABELS.understanding
                       }
-                      thinking={activeLiveThinking || null}
                       live
                     />
                   </motion.li>
@@ -675,7 +722,7 @@ export function ChatWorkspace({
             </>
           )}
           <AnimatePresence initial={false}>
-            {errors[key] ? (
+            {(errors[key] || deleteError) && !isPending ? (
               <motion.div
                 key={`error-${key}`}
                 initial={{ opacity: 0, y: 6 }}
@@ -686,8 +733,8 @@ export function ChatWorkspace({
                 role="alert"
               >
                 <CircleAlert className="size-5" aria-hidden="true" />
-                <span>{errors[key]}</span>
-                {retries[key] ? (
+                <span>{deleteError ?? errors[key]}</span>
+                {retries[key] && !deleteError ? (
                   <button
                     type="button"
                     onClick={() =>
@@ -720,7 +767,20 @@ export function ChatWorkspace({
                 Show preview
               </button>
             ) : null}
-            <form onSubmit={onSubmit} className="composer">
+            {pendingIntent ? (
+              <IntentQuestionsCarousel
+                questions={pendingIntent.questions}
+                disabled={isPending}
+                onComplete={(answers) => {
+                  void completeIntentAnswers(answers);
+                }}
+              />
+            ) : null}
+            <form
+              onSubmit={onSubmit}
+              className="composer"
+              aria-busy={isPending}
+            >
               <label htmlFor="chat-message" className="sr-only">
                 Message Sochestral
               </label>
@@ -731,7 +791,11 @@ export function ChatWorkspace({
                 onKeyDown={onComposerKeyDown}
                 maxLength={8000}
                 rows={1}
-                placeholder="Ask Sochestral about your social content"
+                placeholder={
+                  isPending
+                    ? "Sochestral is working…"
+                    : "Ask Sochestral about your social content"
+                }
                 disabled={isPending}
               />
               {composerTools}
@@ -743,7 +807,11 @@ export function ChatWorkspace({
                 <ArrowUp className="size-5" aria-hidden="true" />
               </button>
             </form>
-            <p>Enter to send, Shift Enter for a new line</p>
+            <p>
+              {isPending
+                ? "Wait for Sochestral to finish this turn"
+                : "Enter to send, Shift Enter for a new line"}
+            </p>
           </div>
         ) : null}
       </section>
@@ -752,7 +820,9 @@ export function ChatWorkspace({
         <LivePreviewAside
           group={activeReviewGroup}
           mediaPreviews={mediaPreviews}
-          onRefresh={() => loadConversation(activeConversationId)}
+          onRefresh={async () => {
+            await loadConversation(activeConversationId);
+          }}
           onClose={() => setPreviewDismissed(true)}
         />
       ) : null}

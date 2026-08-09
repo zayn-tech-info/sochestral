@@ -15,8 +15,10 @@ import {
   createConnectorService,
   createOrchestrationService,
   createReviewService,
+  createCalendarService,
   PublishingPreferenceService,
   StreamableHttpSocialMcpGateway,
+  type CalendarService,
   type ConnectorService,
   type OrchestrationService,
   type ReviewService,
@@ -26,6 +28,8 @@ import { registerOrchestrationRoutes } from "./orchestration-routes.js";
 import { registerReviewRoutes } from "./review-routes.js";
 import { registerPublishingRoutes } from "./publishing-routes.js";
 import { registerMediaRoutes } from "./media-routes.js";
+import { registerProfileRoutes } from "./profile-routes.js";
+import { registerCalendarRoutes } from "./calendar-routes.js";
 import { MediaService } from "./media-storage.js";
 
 export type Env = {
@@ -47,11 +51,13 @@ export function createApp(
   orchestrationService?: OrchestrationService,
   connectorService?: ConnectorService,
   reviewService?: ReviewService,
+  calendarService?: CalendarService,
 ) {
   const app = new Hono<Env>();
   let resolvedOrchestration = orchestrationService;
   let resolvedConnectors = connectorService;
   let resolvedReview = reviewService;
+  let resolvedCalendar = calendarService;
   let mediaService: MediaService | undefined;
 
   function getMediaService(): MediaService {
@@ -191,6 +197,11 @@ export function createApp(
   const publishingPreferences = new PublishingPreferenceService(db);
   registerPublishingRoutes(app, db, () => publishingPreferences);
   registerMediaRoutes(app, db, getMediaService);
+  registerProfileRoutes(app, db);
+  registerCalendarRoutes(app, db, () => {
+    resolvedCalendar ??= createCalendarService(resolvedConnectors);
+    return resolvedCalendar;
+  });
 
   return app;
 }

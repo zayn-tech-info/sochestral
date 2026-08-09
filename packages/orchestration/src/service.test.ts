@@ -5,13 +5,17 @@ import {
   createPendingMediaAssets,
   createConversationTurn,
   createDb,
+  createProfileEntry,
+  listProfileEntries,
   drafts,
   orchestrationMessages,
   orchestrationRuns,
   orchestrationToolCalls,
   markMediaAssetReady,
+  patchBusinessProfile,
   provisionUser,
   requireTestDatabaseUrl,
+  tryCompleteSetupIfReady,
   updatePublishingPreference,
   type Database,
 } from "@sochestral/database";
@@ -27,8 +31,16 @@ const config: OrchestrationConfig = {
   theseanApiKey: "unused",
   theseanModel: "contract-model",
   theseanIntentModel: "intent-model",
+  theseanVisionModel: "vision-model",
+  theseanSetupModel: "setup-model",
+  theseanVisionEnabled: true,
   theseanThinkingEnabled: false,
   theseanThinkingBudgetTokens: 2048,
+  theseanTimeoutMs: 1000,
+  setupAgentEnabled: false,
+  deepseekApiKey: null,
+  deepseekBaseUrl: "https://api.deepseek.com",
+  deepseekModel: "deepseek-v4-flash",
   socialMcpUrl: "https://social.example/mcp",
   contextTokenLimit: 6000,
   outputTokenLimit: 1500,
@@ -158,17 +170,121 @@ describe("DefaultOrchestrationService", () => {
     expect(JSON.stringify(result)).not.toContain("private-id");
   });
 
-  it("stores a clarification without calling external services (AC-2)", async () => {
+  it("schedules through SocialMCP schedule_post with publishAt", async () => {
+    vi.mocked(model.complete)
+      .mockResolvedValueOnce(
+        modelCompletion({
+          toolCalls: [
+            toolCall("call_schedule", "schedule_post", {
+              platforms: ["threads"],
+              text: "Launch day",
+              publishAt: "2026-08-15T15:00:00.000Z",
+            }),
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        modelCompletion({
+          content:
+            "Scheduled for Friday. Open Calendar or Scheduled Posts to review.",
+        }),
+      );
+    vi.mocked(mcp.callTool).mockResolvedValue({
+      attempts: 1,
+      value: {
+        ok: true,
+        id: "sched_abc",
+        publishAt: "2026-08-15T15:00:00.000Z",
+        platforms: ["threads"],
+        accessToken: "secret-token",
+      },
+    });
+
     const result = await service.createConversation(userId, {
-      message: "Post this everywhere",
+      message:
+        "Schedule Launch day on Threads for 2026-08-15T15:00:00.000Z",
+      requestId: "00000000-0000-4000-8000-0000000000a1",
+    });
+
+    expect(mcp.callTool).toHaveBeenCalledWith({
+      userId,
+      name: "schedule_post",
+      arguments: {
+        platforms: ["threads"],
+        text: "Launch day",
+        scheduledAt: "2026-08-15T15:00:00.000Z",
+        confirm: true,
+      },
+    });
+    expect(result.run).toMatchObject({
+      status: "completed",
+      explicitLiveIntent: false,
+    });
+    expect(result.toolSummaries[0]).toMatchObject({
+      toolName: "schedule_post",
+      summary: {
+        ok: true,
+        scheduled: true,
+        scheduleId: "sched_abc",
+        publishAt: "2026-08-15T15:00:00.000Z",
+        calendarPath: "/app/calendar",
+        scheduledPath: "/app/scheduled",
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("secret-token");
+  });
+
+  it("asks in chat when schedule_post is missing publishAt instead of failing the turn", async () => {
+    vi.mocked(model.complete)
+      .mockResolvedValueOnce(
+        modelCompletion({
+          toolCalls: [
+            toolCall("call_schedule_bad", "schedule_post", {
+              platforms: ["threads"],
+              text: "Launch day",
+            }),
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        modelCompletion({
+          content:
+            "I can schedule that next. What date and time should it go out?",
+        }),
+      );
+
+    const result = await service.createConversation(userId, {
+      message: "Help me schedule the content on Threads",
+      requestId: "00000000-0000-4000-8000-0000000000a2",
+    });
+
+    expect(result.run?.status).toBe("completed");
+    expect(result.assistantMessage.content).toContain("date and time");
+    expect(mcp.callTool).not.toHaveBeenCalled();
+    expect(JSON.stringify(vi.mocked(model.complete).mock.calls[1]?.[0])).toContain(
+      "publishAt",
+    );
+  });
+
+  it("lets the model handle missing platforms instead of a canned clarify", async () => {
+    vi.mocked(model.complete).mockResolvedValue(
+      modelCompletion({
+        content:
+          "Happy to schedule that plan. Which platforms should each day use: Threads, Instagram, or LinkedIn?",
+      }),
+    );
+
+    const result = await service.createConversation(userId, {
+      message: "Based on what you listed above, can you help me schedule the content?",
       requestId: "00000000-0000-4000-8000-000000000002",
     });
 
-    expect(result.run).toBeNull();
-    expect(result.assistantMessage.content).toContain(
-      "Please name Threads, LinkedIn, Instagram",
+    expect(result.run).toMatchObject({ status: "completed" });
+    expect(result.assistantMessage.content).toContain("Happy to schedule");
+    expect(result.assistantMessage.content).not.toContain(
+      "Which supported platform should I use?",
     );
-    expect(model.complete).not.toHaveBeenCalled();
+    expect(model.complete).toHaveBeenCalled();
     expect(mcp.callTool).not.toHaveBeenCalled();
   });
 
@@ -209,6 +325,45 @@ describe("DefaultOrchestrationService", () => {
       runId: result.run?.id,
     });
     expect(result.turnActivity?.reviewGroups).toHaveLength(1);
+  });
+
+  it("persists save_profile_entry do_not rules for settings", async () => {
+    vi.mocked(model.complete)
+      .mockResolvedValueOnce(
+        modelCompletion({
+          toolCalls: [
+            toolCall("call_rule", "save_profile_entry", {
+              category: "do_not",
+              body: "Never mention Woodcraft in social posts",
+              title: "Competitors",
+            }),
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        modelCompletion({
+          content: "Saved that do-not rule to your profile.",
+        }),
+      );
+
+    const result = await service.createConversation(userId, {
+      message: "Yeah save it to your don't rules",
+      requestId: "00000000-0000-4000-8000-0000000000d1",
+    });
+
+    expect(mcp.callTool).not.toHaveBeenCalled();
+    expect(result.toolSummaries[0]?.toolName).toBe("save_profile_entry");
+    const entries = await listProfileEntries(database.db, {
+      userId,
+      category: "do_not",
+    });
+    expect(entries.items).toHaveLength(1);
+    expect(entries.items[0]).toMatchObject({
+      category: "do_not",
+      body: "Never mention Woodcraft in social posts",
+      source: "operator_confirm",
+      status: "active",
+    });
   });
 
   it("uses a snapshotted Full access command to invoke only the trusted review service", async () => {
@@ -342,14 +497,27 @@ describe("DefaultOrchestrationService", () => {
     }));
 
     try {
-      const result = await service.createConversation(userId, {
-        message: "Just shot it there on Threads",
-        requestId: "00000000-0000-4000-8000-000000000197",
-      });
+      const events: Array<{ type: string; questions?: unknown }> = [];
+      const result = await service.createConversationStream(
+        userId,
+        {
+          message: "Just shot it there on Threads",
+          requestId: "00000000-0000-4000-8000-000000000197",
+        },
+        {
+          emit(event) {
+            events.push(event);
+          },
+        },
+      );
 
       expect(result.run).toBeNull();
-      expect(result.assistantMessage.content).toContain("publish this live");
-      expect(result.assistantMessage.content).toContain("Threads");
+      expect(result.assistantMessage.content).toContain("quick confirm");
+      expect(result.intentQuestions?.length).toBeGreaterThan(0);
+      expect(result.intentQuestions?.[0]?.options.at(-1)).toMatchObject({
+        id: "custom",
+        custom: true,
+      });
       expect(result.reviewGroups).toHaveLength(0);
       expect(result.toolSummaries).toEqual([]);
       expect(review.publishGroup).not.toHaveBeenCalled();
@@ -361,10 +529,82 @@ describe("DefaultOrchestrationService", () => {
         thinking: { enabled: false },
       });
       expect(
+        events.some((event) => event.type === "intent_questions"),
+      ).toBe(true);
+      expect(
         vi.mocked(model.complete).mock.calls.some((call) =>
           JSON.stringify(call[0]?.tools ?? []).includes("prepare_review"),
         ),
       ).toBe(false);
+    } finally {
+      if (previousEnabled === undefined) delete process.env.PUBLISHING_AUTHORITY_ENABLED;
+      else process.env.PUBLISHING_AUTHORITY_ENABLED = previousEnabled;
+    }
+  });
+
+  it("emits intent questions only after the model marks intent unclear", async () => {
+    const previousEnabled = process.env.PUBLISHING_AUTHORITY_ENABLED;
+    process.env.PUBLISHING_AUTHORITY_ENABLED = "true";
+    await updatePublishingPreference(database.db, {
+      userId,
+      expectedRevision: 0,
+      mode: "full_access",
+      source: "settings",
+      currentConsentVersion: "2026-08-01",
+      acknowledged: true,
+      consentVersion: "2026-08-01",
+    });
+    service = new DefaultOrchestrationService(
+      database.db,
+      config,
+      model,
+      mcp,
+      new PublishingPreferenceService(database.db),
+    );
+    vi.mocked(model.complete).mockResolvedValueOnce(
+      modelCompletion({
+        toolCalls: [
+          toolCall("intent_1", "resolve_live_publish_intent", {
+            intent: "unclear",
+          }),
+        ],
+      }),
+    );
+
+    try {
+      const events: Array<{ type: string }> = [];
+      const result = await service.createConversationStream(
+        userId,
+        {
+          message: "Go ahead with that somehow",
+          requestId: "00000000-0000-4000-8000-000000000198",
+        },
+        {
+          emit(event) {
+            events.push(event);
+          },
+        },
+      );
+
+      expect(result.run).toBeNull();
+      expect(result.intentQuestions?.[0]?.id).toBe("goal");
+      expect(events.map((event) => event.type)).toEqual(
+        expect.arrayContaining([
+          "turn_started",
+          "step_started",
+          "intent_questions",
+          "turn_completed",
+        ]),
+      );
+      expect(
+        events.some(
+          (event) =>
+            event.type === "step_started" &&
+            (event as { step?: string }).step === "checking_intent",
+        ),
+      ).toBe(true);
+      expect(mcp.callTool).not.toHaveBeenCalled();
+      expect(model.complete).toHaveBeenCalledTimes(1);
     } finally {
       if (previousEnabled === undefined) delete process.env.PUBLISHING_AUTHORITY_ENABLED;
       else process.env.PUBLISHING_AUTHORITY_ENABLED = previousEnabled;
@@ -564,7 +804,7 @@ describe("DefaultOrchestrationService", () => {
     }
   });
 
-  it("skips intent classification on platform-clarify turns", async () => {
+  it("runs the model when the platform is missing instead of a canned clarify", async () => {
     const previousEnabled = process.env.PUBLISHING_AUTHORITY_ENABLED;
     process.env.PUBLISHING_AUTHORITY_ENABLED = "true";
     await updatePublishingPreference(database.db, {
@@ -576,16 +816,35 @@ describe("DefaultOrchestrationService", () => {
       acknowledged: true,
       consentVersion: "2026-08-01",
     });
+    vi.mocked(model.complete)
+      .mockResolvedValueOnce(
+        modelCompletion({
+          toolCalls: [
+            {
+              id: "intent_1",
+              name: "resolve_live_publish_intent",
+              input: { intent: "draft" },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        modelCompletion({
+          content: "I can draft that next. Which platform should I use?",
+        }),
+      );
 
     try {
       const result = await service.createConversation(userId, {
-        message: "Publish this",
+        message: "Help me get this content ready to go out",
         requestId: "00000000-0000-4000-8000-000000000096",
       });
 
-      expect(result.run).toBeNull();
-      expect(result.assistantMessage.content).toContain("Which supported platform");
-      expect(vi.mocked(model.complete)).not.toHaveBeenCalled();
+      expect(result.assistantMessage.content).not.toContain(
+        "Which supported platform",
+      );
+      expect(result.assistantMessage.content).toContain("Which platform");
+      expect(vi.mocked(model.complete)).toHaveBeenCalled();
     } finally {
       if (previousEnabled === undefined) delete process.env.PUBLISHING_AUTHORITY_ENABLED;
       else process.env.PUBLISHING_AUTHORITY_ENABLED = previousEnabled;
@@ -593,8 +852,137 @@ describe("DefaultOrchestrationService", () => {
   });
 
   it("retries a rejected vision request with safe text metadata and keeps the asset attached", async () => {
-    const previousVision = process.env.THESEAN_VISION_ENABLED;
-    process.env.THESEAN_VISION_ENABLED = "true";
+    const [asset] = await createPendingMediaAssets(database.db, {
+      userId,
+      descriptors: [{ mimeType: "image/png", byteSize: 100 }],
+      pendingExpiresAt: new Date(Date.now() + 60_000),
+      hourlyLimit: 50,
+      storageLimitBytes: 1024,
+    });
+    await markMediaAssetReady(database.db, {
+      userId,
+      assetId: asset!.id,
+      mimeType: "image/png",
+      byteSize: 80,
+      width: 2,
+      height: 2,
+    });
+    const media = {
+      previewUrl: vi.fn().mockResolvedValue("https://media.invalid/preview"),
+      modelImage: vi.fn().mockResolvedValue({
+        mediaType: "image/png" as const,
+        data: "aW1hZ2U=",
+      }),
+      deleteConversationAssets: vi.fn().mockResolvedValue(undefined),
+    };
+    const visionModel = {
+      complete: vi.fn(),
+    } as unknown as ModelProvider;
+    service = new DefaultOrchestrationService(
+      database.db,
+      config,
+      model,
+      mcp,
+      new PublishingPreferenceService(database.db),
+      undefined,
+      media,
+      visionModel,
+    );
+    vi.mocked(visionModel.complete).mockRejectedValueOnce(
+      new Error("vision input unsupported"),
+    );
+    vi.mocked(model.complete).mockResolvedValueOnce(
+      modelCompletion({ content: "I can keep the image attached without describing it." }),
+    );
+
+    const result = await service.createConversation(userId, {
+      message: "Draft a Threads post with this image",
+      requestId: "00000000-0000-4000-8000-000000000098",
+      mediaAssetIds: [asset!.id],
+    });
+
+    expect(visionModel.complete).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(visionModel.complete).mock.calls[0]![0].model).toBe(
+      "vision-model",
+    );
+    expect(model.complete).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(model.complete).mock.calls[0]![0].model).toBe(
+      "contract-model",
+    );
+    const firstMessages = vi.mocked(visionModel.complete).mock.calls[0]![0].messages;
+    const secondMessages = vi.mocked(model.complete).mock.calls[0]![0].messages;
+    expect(firstMessages.some((message) => message.content.some((block) => block.type === "image"))).toBe(true);
+    expect(secondMessages.some((message) => message.content.some((block) => block.type === "image"))).toBe(false);
+    expect(JSON.stringify(secondMessages)).toContain("Do not invent visual details");
+    expect(result.userMessage.attachments).toHaveLength(1);
+  });
+
+  it("routes image turns to the vision provider and text-only turns to Sonnet", async () => {
+    const [asset] = await createPendingMediaAssets(database.db, {
+      userId,
+      descriptors: [{ mimeType: "image/png", byteSize: 100 }],
+      pendingExpiresAt: new Date(Date.now() + 60_000),
+      hourlyLimit: 50,
+      storageLimitBytes: 1024,
+    });
+    await markMediaAssetReady(database.db, {
+      userId,
+      assetId: asset!.id,
+      mimeType: "image/png",
+      byteSize: 80,
+      width: 2,
+      height: 2,
+    });
+    const media = {
+      previewUrl: vi.fn().mockResolvedValue("https://media.invalid/preview"),
+      modelImage: vi.fn().mockResolvedValue({
+        mediaType: "image/png" as const,
+        data: "aW1hZ2U=",
+      }),
+      deleteConversationAssets: vi.fn().mockResolvedValue(undefined),
+    };
+    const visionModel = {
+      complete: vi.fn().mockResolvedValue(modelCompletion({ content: "Saw the image." })),
+    } as unknown as ModelProvider;
+    vi.mocked(model.complete).mockResolvedValue(
+      modelCompletion({ content: "Text only reply." }),
+    );
+    service = new DefaultOrchestrationService(
+      database.db,
+      config,
+      model,
+      mcp,
+      new PublishingPreferenceService(database.db),
+      undefined,
+      media,
+      visionModel,
+    );
+
+    const withImage = await service.createConversation(userId, {
+      message: "What is in this image?",
+      requestId: "00000000-0000-4000-8000-000000000198",
+      mediaAssetIds: [asset!.id],
+    });
+    expect(withImage.assistantMessage.content).toBe("Saw the image.");
+    expect(visionModel.complete).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(visionModel.complete).mock.calls[0]![0].model).toBe(
+      "vision-model",
+    );
+    expect(media.modelImage).toHaveBeenCalledWith(userId, asset!.id);
+    expect(model.complete).not.toHaveBeenCalled();
+
+    const fresh = await service.createConversation(userId, {
+      message: "Draft a Threads update about shipping",
+      requestId: "00000000-0000-4000-8000-000000000200",
+    });
+    expect(fresh.assistantMessage.content).toBe("Text only reply.");
+    expect(vi.mocked(model.complete).mock.calls[0]![0].model).toBe(
+      "contract-model",
+    );
+    expect(visionModel.complete).toHaveBeenCalledTimes(1);
+  });
+
+  it("stubs images when the vision kill switch is off", async () => {
     const [asset] = await createPendingMediaAssets(database.db, {
       userId,
       descriptors: [{ mimeType: "image/png", byteSize: 100 }],
@@ -620,34 +1008,220 @@ describe("DefaultOrchestrationService", () => {
     };
     service = new DefaultOrchestrationService(
       database.db,
-      config,
+      { ...config, theseanVisionEnabled: false },
       model,
       mcp,
       new PublishingPreferenceService(database.db),
       undefined,
       media,
     );
-    vi.mocked(model.complete)
-      .mockRejectedValueOnce(new Error("vision input unsupported"))
-      .mockResolvedValueOnce(modelCompletion({ content: "I can keep the image attached without describing it." }));
+    vi.mocked(model.complete).mockResolvedValue(
+      modelCompletion({ content: "Draft without pixels." }),
+    );
+
+    await service.createConversation(userId, {
+      message: "Draft a Threads post with this image",
+      requestId: "00000000-0000-4000-8000-000000000201",
+      mediaAssetIds: [asset!.id],
+    });
+
+    expect(media.modelImage).not.toHaveBeenCalled();
+    const messages = vi.mocked(model.complete).mock.calls[0]![0].messages;
+    expect(messages.some((message) => message.content.some((block) => block.type === "image"))).toBe(false);
+    expect(JSON.stringify(messages)).toContain("Visual analysis is unavailable");
+    expect(vi.mocked(model.complete).mock.calls[0]![0].model).toBe("contract-model");
+  });
+
+  it("keeps large image bytes out of the context budget estimate", async () => {
+    const [asset] = await createPendingMediaAssets(database.db, {
+      userId,
+      descriptors: [{ mimeType: "image/png", byteSize: 100 }],
+      pendingExpiresAt: new Date(Date.now() + 60_000),
+      hourlyLimit: 50,
+      storageLimitBytes: 1024,
+    });
+    await markMediaAssetReady(database.db, {
+      userId,
+      assetId: asset!.id,
+      mimeType: "image/png",
+      byteSize: 80,
+      width: 2,
+      height: 2,
+    });
+    const hugeBase64 = "A".repeat(200_000);
+    const media = {
+      previewUrl: vi.fn().mockResolvedValue("https://media.invalid/preview"),
+      modelImage: vi.fn().mockResolvedValue({
+        mediaType: "image/png" as const,
+        data: hugeBase64,
+      }),
+      deleteConversationAssets: vi.fn().mockResolvedValue(undefined),
+    };
+    const visionModel = {
+      complete: vi.fn().mockResolvedValue(modelCompletion({ content: "Saw it." })),
+    } as unknown as ModelProvider;
+    service = new DefaultOrchestrationService(
+      database.db,
+      config,
+      model,
+      mcp,
+      new PublishingPreferenceService(database.db),
+      undefined,
+      media,
+      visionModel,
+    );
+
+    const result = await service.createConversation(userId, {
+      message: "What is in this image?",
+      requestId: "00000000-0000-4000-8000-000000000203",
+      mediaAssetIds: [asset!.id],
+    });
+
+    expect(result.assistantMessage.content).toBe("Saw it.");
+    expect(visionModel.complete).toHaveBeenCalled();
+    expect(
+      vi.mocked(visionModel.complete).mock.calls[0]![0].messages.some((message) =>
+        message.content.some((block) => block.type === "image"),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps a multi-image triggering turn even when vision estimates exceed the history budget", async () => {
+    const created = await createPendingMediaAssets(database.db, {
+      userId,
+      descriptors: [
+        { mimeType: "image/png", byteSize: 100 },
+        { mimeType: "image/png", byteSize: 100 },
+        { mimeType: "image/png", byteSize: 100 },
+        { mimeType: "image/png", byteSize: 100 },
+        { mimeType: "image/png", byteSize: 100 },
+      ],
+      pendingExpiresAt: new Date(Date.now() + 60_000),
+      hourlyLimit: 50,
+      storageLimitBytes: 10_240,
+    });
+    for (const asset of created) {
+      await markMediaAssetReady(database.db, {
+        userId,
+        assetId: asset.id,
+        mimeType: "image/png",
+        byteSize: 80,
+        width: 2,
+        height: 2,
+      });
+    }
+    const media = {
+      previewUrl: vi.fn().mockResolvedValue("https://media.invalid/preview"),
+      modelImage: vi.fn().mockResolvedValue({
+        mediaType: "image/png" as const,
+        data: "aW1hZ2U=",
+      }),
+      deleteConversationAssets: vi.fn().mockResolvedValue(undefined),
+    };
+    const visionModel = {
+      complete: vi.fn().mockResolvedValue(modelCompletion({ content: "Saw all five." })),
+    } as unknown as ModelProvider;
+    service = new DefaultOrchestrationService(
+      database.db,
+      { ...config, contextTokenLimit: 3000, outputTokenLimit: 1500 },
+      model,
+      mcp,
+      new PublishingPreferenceService(database.db),
+      undefined,
+      media,
+      visionModel,
+    );
+
+    const result = await service.createConversation(userId, {
+      message: "Describe these images",
+      requestId: "00000000-0000-4000-8000-000000000204",
+      mediaAssetIds: created.map((asset) => asset.id),
+    });
+
+    expect(result.assistantMessage.content).toBe("Saw all five.");
+    const imageCount = vi
+      .mocked(visionModel.complete)
+      .mock.calls[0]![0]
+      .messages.flatMap((message) =>
+        message.content.filter((block) => block.type === "image"),
+      ).length;
+    expect(imageCount).toBe(5);
+  });
+
+  it("skips direct live prepare when uploaded images have no usable caption", async () => {
+    const previousEnabled = process.env.PUBLISHING_AUTHORITY_ENABLED;
+    process.env.PUBLISHING_AUTHORITY_ENABLED = "true";
+    await updatePublishingPreference(database.db, {
+      userId,
+      expectedRevision: 0,
+      mode: "full_access",
+      source: "settings",
+      currentConsentVersion: "2026-08-01",
+      acknowledged: true,
+      consentVersion: "2026-08-01",
+    });
+    const [asset] = await createPendingMediaAssets(database.db, {
+      userId,
+      descriptors: [{ mimeType: "image/png", byteSize: 100 }],
+      pendingExpiresAt: new Date(Date.now() + 60_000),
+      hourlyLimit: 50,
+      storageLimitBytes: 1024,
+    });
+    await markMediaAssetReady(database.db, {
+      userId,
+      assetId: asset!.id,
+      mimeType: "image/png",
+      byteSize: 80,
+      width: 2,
+      height: 2,
+    });
+    const media = {
+      previewUrl: vi.fn().mockResolvedValue("https://media.invalid/preview"),
+      modelImage: vi.fn().mockResolvedValue({
+        mediaType: "image/png" as const,
+        data: "aW1hZ2U=",
+      }),
+      deleteConversationAssets: vi.fn().mockResolvedValue(undefined),
+    };
+    const review = {
+      updateDraft: vi.fn(),
+      publishGroup: vi.fn(),
+      checkAttempt: vi.fn(),
+    } as unknown as ReviewService;
+    const visionModel = {
+      complete: vi.fn().mockResolvedValue(
+        modelCompletion({ content: "Generated a caption from the image." }),
+      ),
+    } as unknown as ModelProvider;
+    service = new DefaultOrchestrationService(
+      database.db,
+      config,
+      model,
+      mcp,
+      new PublishingPreferenceService(database.db),
+      review,
+      media,
+      visionModel,
+    );
 
     try {
       const result = await service.createConversation(userId, {
-        message: "Draft a Threads post with this image",
-        requestId: "00000000-0000-4000-8000-000000000098",
+        message: "Post this on Threads",
+        requestId: "00000000-0000-4000-8000-000000000202",
         mediaAssetIds: [asset!.id],
       });
 
-      expect(model.complete).toHaveBeenCalledTimes(2);
-      const firstMessages = vi.mocked(model.complete).mock.calls[0]![0].messages;
-      const secondMessages = vi.mocked(model.complete).mock.calls[1]![0].messages;
-      expect(firstMessages.some((message) => message.content.some((block) => block.type === "image"))).toBe(true);
-      expect(secondMessages.some((message) => message.content.some((block) => block.type === "image"))).toBe(false);
-      expect(JSON.stringify(secondMessages)).toContain("Do not invent visual details");
-      expect(result.userMessage.attachments).toHaveLength(1);
+      expect(review.publishGroup).not.toHaveBeenCalled();
+      expect(visionModel.complete).toHaveBeenCalled();
+      expect(vi.mocked(visionModel.complete).mock.calls[0]![0].model).toBe(
+        "vision-model",
+      );
+      expect(result.assistantMessage.content).toBe(
+        "Generated a caption from the image.",
+      );
     } finally {
-      if (previousVision === undefined) delete process.env.THESEAN_VISION_ENABLED;
-      else process.env.THESEAN_VISION_ENABLED = previousVision;
+      if (previousEnabled === undefined) delete process.env.PUBLISHING_AUTHORITY_ENABLED;
+      else process.env.PUBLISHING_AUTHORITY_ENABLED = previousEnabled;
     }
   });
 
@@ -727,7 +1301,7 @@ describe("DefaultOrchestrationService", () => {
     expect(mcp.callTool).not.toHaveBeenCalled();
   });
 
-  it("inherits the platform and image for a contextual review follow up", async () => {
+  it("uses only the current message image for a contextual review follow up", async () => {
     const [asset] = await createPendingMediaAssets(database.db, {
       userId,
       descriptors: [{ mimeType: "image/jpeg", byteSize: 100 }],
@@ -775,6 +1349,7 @@ describe("DefaultOrchestrationService", () => {
     const confirmed = await service.addMessage(userId, first.conversation.id, {
       message: "Image only",
       requestId: "00000000-0000-4000-8000-000000000015",
+      mediaAssetIds: [asset!.id],
     });
 
     expect(confirmed.run?.targetPlatforms).toEqual(["threads"]);
@@ -848,7 +1423,7 @@ describe("DefaultOrchestrationService", () => {
     expect(JSON.stringify(stored)).not.toContain("top.secret-token");
   });
 
-  it("stops at the configured tool step cap (AC-3, AC-10)", async () => {
+  it("stops at the configured tool step cap with a chat reply (AC-3, AC-10)", async () => {
     service = new DefaultOrchestrationService(
       database.db,
       { ...config, maxToolSteps: 2 },
@@ -875,22 +1450,25 @@ describe("DefaultOrchestrationService", () => {
             }),
           ],
         }),
+      )
+      .mockResolvedValueOnce(
+        modelCompletion({
+          content:
+            "I need a tighter plan before I keep calling tools. Confirm the first post time and I will continue.",
+        }),
       );
     vi.mocked(mcp.callTool).mockResolvedValue({
       attempts: 1,
       value: { ok: true, valid: true },
     });
 
-    await expect(
-      service.createConversation(userId, {
-        message: "Validate Launch on Threads",
-        requestId: "00000000-0000-4000-8000-000000000005",
-      }),
-    ).rejects.toMatchObject({
-      code: "INVALID_TOOL_ARGUMENTS",
-      status: 422,
+    const result = await service.createConversation(userId, {
+      message: "Validate Launch on Threads",
+      requestId: "00000000-0000-4000-8000-000000000005",
     });
-    expect(model.complete).toHaveBeenCalledTimes(2);
+    expect(result.run?.status).toBe("completed");
+    expect(result.assistantMessage.content).toContain("tighter plan");
+    expect(model.complete).toHaveBeenCalledTimes(3);
     expect(mcp.callTool).toHaveBeenCalledTimes(1);
   });
 
@@ -913,34 +1491,19 @@ describe("DefaultOrchestrationService", () => {
       ),
     );
 
-    let rejection: OrchestrationError | undefined;
-    try {
-      await service.createConversation(userId, {
-        message: "Post Launch on Threads",
-        requestId: "00000000-0000-4000-8000-000000000006",
-      });
-    } catch (error) {
-      rejection = error as OrchestrationError;
-    }
-
-    expect(rejection).toMatchObject({
-      code: "SOCIALMCP_UNAVAILABLE",
-      status: 502,
+    const result = await service.createConversation(userId, {
+      message: "Post Launch on Threads",
+      requestId: "00000000-0000-4000-8000-000000000006",
     });
-    expect(JSON.stringify(rejection!.details)).not.toContain("private-secret");
-    const [run] = await database.db
-      .select()
-      .from(orchestrationRuns)
-      .where(
-        eq(
-          orchestrationRuns.id,
-          String(rejection!.details?.runId),
-        ),
-      );
-    expect(run).toMatchObject({
+
+    expect(result.run).toMatchObject({
       status: "failed",
       safeError: "SOCIALMCP_UNAVAILABLE",
     });
+    expect(result.assistantMessage.content).toContain(
+      "social account service",
+    );
+    expect(JSON.stringify(result)).not.toContain("private-secret");
   });
 
   it("rejects oversized input before model or MCP execution (AC-10)", async () => {
@@ -1003,10 +1566,13 @@ describe("DefaultOrchestrationService", () => {
   });
 
   it("paginates conversation lists and message history without overlap (AC-1, AC-9)", async () => {
+    vi.mocked(model.complete).mockResolvedValue(
+      modelCompletion({ content: "Noted." }),
+    );
     const conversationIds: string[] = [];
     for (let index = 0; index < 3; index += 1) {
       const created = await service.createConversation(userId, {
-        message: `Post this everywhere ${index}`,
+        message: `Hello for pagination ${index}`,
         requestId: `00000000-0000-4000-8000-00000000003${index}`,
       });
       conversationIds.push(created.conversation.id);
@@ -1029,11 +1595,11 @@ describe("DefaultOrchestrationService", () => {
 
     const targetId = conversationIds[0]!;
     await service.addMessage(userId, targetId, {
-      message: "Post this everywhere again",
+      message: "Follow up for pagination again",
       requestId: "00000000-0000-4000-8000-000000000040",
     });
     await service.addMessage(userId, targetId, {
-      message: "Post this everywhere once more",
+      message: "Follow up for pagination once more",
       requestId: "00000000-0000-4000-8000-000000000041",
     });
     const firstHistory = await service.getConversation(userId, targetId, {
@@ -1089,7 +1655,7 @@ describe("DefaultOrchestrationService", () => {
   });
 
   it("streams step events without thinking when the flag is off (SOC-8 AC-3, AC-5)", async () => {
-    const events: Array<{ type: string; step?: string; delta?: string }> = [];
+    const events: Array<{ type: string; step?: string | number; delta?: string }> = [];
     vi.mocked(model.complete)
       .mockImplementationOnce(async (input) => {
         expect(input.thinking).toEqual({
@@ -1145,8 +1711,8 @@ describe("DefaultOrchestrationService", () => {
     ).toBe(true);
   });
 
-  it("streams thinking deltas and persists sanitized thinking when enabled (SOC-8 AC-2, AC-5)", async () => {
-    const events: Array<{ type: string; step?: string; delta?: string }> = [];
+  it("does not stream thinking events even when the thinking flag is set", async () => {
+    const events: Array<{ type: string; step?: string | number; delta?: string }> = [];
     service = new DefaultOrchestrationService(
       database.db,
       {
@@ -1160,10 +1726,9 @@ describe("DefaultOrchestrationService", () => {
     vi.mocked(model.complete)
       .mockImplementationOnce(async (input) => {
         expect(input.thinking).toEqual({
-          enabled: true,
+          enabled: false,
           budgetTokens: 1024,
         });
-        input.stream?.onThinkingDelta?.("Consider Threads tone");
         return modelCompletion({
           thinking: "Consider Threads tone",
           toolCalls: [
@@ -1175,13 +1740,11 @@ describe("DefaultOrchestrationService", () => {
           ],
         });
       })
-      .mockImplementationOnce(async (input) => {
-        input.stream?.onThinkingDelta?.("Finish the draft reply");
-        return modelCompletion({
-          thinking: "Finish the draft reply",
+      .mockImplementationOnce(async () =>
+        modelCompletion({
           content: "Your Threads draft is ready to review.",
-        });
-      });
+        }),
+      );
 
     const result = await service.createConversationStream(
       userId,
@@ -1196,19 +1759,272 @@ describe("DefaultOrchestrationService", () => {
       },
     );
 
-    expect(result.run?.thinkingText).toContain("Consider Threads tone");
-    expect(result.run?.thinkingText).toContain("Finish the draft reply");
-    expect(
-      events.filter((event) => event.type === "thinking_delta").map((event) => event.delta),
-    ).toEqual(["Consider Threads tone", "Finish the draft reply"]);
-    expect(
-      events.filter((event) => event.type === "thinking_completed"),
-    ).toHaveLength(2);
+    expect(result.run?.thinkingText ?? null).toBeNull();
+    expect(events.some((event) => event.type === "thinking_delta")).toBe(false);
+    expect(events.some((event) => event.type === "thinking_completed")).toBe(
+      false,
+    );
     expect(
       events.some(
         (event) =>
           event.type === "step_started" && event.step === "preparing_draft",
       ),
     ).toBe(true);
+  });
+});
+
+describe("DefaultOrchestrationService setup agent", () => {
+  let database: Database;
+  let userId: string;
+  let model: ModelProvider;
+  let mcp: SocialMcpGateway;
+  let service: DefaultOrchestrationService;
+
+  const setupConfig: OrchestrationConfig = {
+    ...config,
+    setupAgentEnabled: true,
+  };
+
+  beforeAll(() => {
+    database = createDb(requireTestDatabaseUrl());
+  });
+
+  afterAll(async () => {
+    if (database) await database.client.end({ timeout: 5 });
+  });
+
+  beforeEach(async () => {
+    await database.client`delete from users`;
+    userId = (await provisionUser(database.db, "setup-orch@example.com")).id;
+    model = { complete: vi.fn() };
+    mcp = { callTool: vi.fn(), listTools: vi.fn() };
+    service = new DefaultOrchestrationService(
+      database.db,
+      setupConfig,
+      model,
+      mcp,
+    );
+  });
+
+  it("routes incomplete profiles to the setup model (AC-2)", async () => {
+    vi.mocked(model.complete).mockResolvedValueOnce(
+      modelCompletion({
+        content: "What is your business name?",
+      }),
+    );
+
+    const result = await service.createConversation(userId, {
+      message: "Hello",
+      requestId: "00000000-0000-4000-8000-00000000f701",
+    });
+
+    expect(result.conversation.title).toBe("Business setup");
+    expect(result.run?.model).toBe("setup-model");
+    expect(model.complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "setup-model",
+        tools: expect.arrayContaining([
+          expect.objectContaining({ name: "update_business_identity" }),
+        ]),
+      }),
+    );
+    expect(mcp.callTool).not.toHaveBeenCalled();
+  });
+
+  it("injects the compiled profile note after setup is complete (AC-6)", async () => {
+    await patchBusinessProfile(database.db, userId, {
+      businessName: "Orch Tools",
+      businessDescription: "Hand tools for makers",
+      competitorsSkipped: true,
+      setupStatus: "in_progress",
+    });
+    await createProfileEntry(database.db, {
+      userId,
+      category: "tone",
+      body: "Warm and short",
+      source: "setup",
+    });
+    await tryCompleteSetupIfReady(database.db, userId);
+
+    vi.mocked(model.complete).mockResolvedValueOnce(
+      modelCompletion({ content: "Draft for Orch Tools." }),
+    );
+
+    await service.createConversation(userId, {
+      message: "Draft a short LinkedIn hello",
+      requestId: "00000000-0000-4000-8000-00000000f702",
+    });
+
+    expect(model.complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "contract-model",
+        system: expect.stringContaining("Business profile note (authoritative)"),
+      }),
+    );
+    const system = vi.mocked(model.complete).mock.calls[0]?.[0]?.system as string;
+    expect(system).toContain("Orch Tools");
+  });
+
+  it("asks for confirm before mid chat profile pivots (AC-7)", async () => {
+    await patchBusinessProfile(database.db, userId, {
+      businessName: "Pivot Co",
+      businessDescription: "Hardware",
+      competitorsSkipped: true,
+      setupStatus: "in_progress",
+    });
+    await createProfileEntry(database.db, {
+      userId,
+      category: "tone",
+      body: "Direct",
+      source: "setup",
+    });
+    await tryCompleteSetupIfReady(database.db, userId);
+
+    const result = await service.createConversation(userId, {
+      message:
+        "We are pivoting the business to sell only software now, not hardware.",
+      requestId: "00000000-0000-4000-8000-00000000f703",
+    });
+
+    expect(model.complete).not.toHaveBeenCalled();
+    expect(result.intentQuestions?.[0]?.id).toBe("profile_update");
+    expect(result.assistantMessage.content).toMatch(/confirm/i);
+  });
+
+  it("writes operator_confirm entries after profile_update yes (AC-7)", async () => {
+    await patchBusinessProfile(database.db, userId, {
+      businessName: "Pivot Co",
+      businessDescription: "Hardware",
+      competitorsSkipped: true,
+      setupStatus: "in_progress",
+    });
+    await createProfileEntry(database.db, {
+      userId,
+      category: "tone",
+      body: "Direct",
+      source: "setup",
+    });
+    await tryCompleteSetupIfReady(database.db, userId);
+
+    const opened = await service.createConversation(userId, {
+      message:
+        "We are pivoting the business to sell only software now, not hardware.",
+      requestId: "00000000-0000-4000-8000-00000000f704",
+    });
+
+    vi.mocked(model.complete).mockResolvedValueOnce(
+      modelCompletion({ content: "Profile updated." }),
+    );
+
+    const confirmed = await service.addMessage(
+      userId,
+      opened.conversation.id,
+      {
+        message: "Yes, update the profile.",
+        requestId: "00000000-0000-4000-8000-00000000f705",
+        intentAnswers: [
+          {
+            questionId: "profile_update",
+            optionId: "yes",
+            customText: "Business now sells only software.",
+          },
+        ],
+      },
+    );
+
+    expect(confirmed.run?.status).toBe("completed");
+    const entries = await listProfileEntries(database.db, {
+      userId,
+      category: "brand_fact",
+      limit: 20,
+    });
+    const operatorConfirm = entries.items.filter(
+      (item) => item.source === "operator_confirm",
+    );
+    expect(operatorConfirm).toHaveLength(1);
+    expect(operatorConfirm[0]?.body).toContain("software");
+  });
+});
+
+describe("DefaultOrchestrationService conversation titles", () => {
+  let database: Database;
+  let userId: string;
+  let model: ModelProvider;
+  let mcp: SocialMcpGateway;
+  let service: DefaultOrchestrationService;
+
+  beforeAll(() => {
+    database = createDb(requireTestDatabaseUrl());
+  });
+
+  afterAll(async () => {
+    if (database) await database.client.end({ timeout: 5 });
+  });
+
+  beforeEach(async () => {
+    await database.client`delete from users`;
+    userId = (await provisionUser(database.db, "titles@example.com")).id;
+    model = { complete: vi.fn() };
+    mcp = { callTool: vi.fn(), listTools: vi.fn() };
+    service = new DefaultOrchestrationService(
+      database.db,
+      config,
+      model,
+      mcp,
+    );
+  });
+
+  it("names greeting opens as New chat instead of Hi", async () => {
+    vi.mocked(model.complete).mockResolvedValueOnce(
+      modelCompletion({ content: "How can I help?" }),
+    );
+
+    const result = await service.createConversation(userId, {
+      message: "Hi",
+      requestId: "00000000-0000-4000-8000-00000000a001",
+    });
+
+    expect(result.conversation.title).toBe("New chat");
+    expect(model.complete).toHaveBeenCalledTimes(1);
+  });
+
+  it("renames once after a follow-up clarifies the goal", async () => {
+    vi.mocked(model.complete)
+      .mockResolvedValueOnce(modelCompletion({ content: "Hello — tell me more." }))
+      .mockResolvedValueOnce(
+        modelCompletion({ content: "Here is a Threads draft." }),
+      )
+      .mockResolvedValueOnce(modelCompletion({ content: "Threads launch draft" }));
+
+    const first = await service.createConversation(userId, {
+      message: "Hi",
+      requestId: "00000000-0000-4000-8000-00000000a002",
+    });
+    expect(first.conversation.title).toBe("New chat");
+
+    const second = await service.addMessage(userId, first.conversation.id, {
+      message: "Draft a Threads post about our product launch",
+      requestId: "00000000-0000-4000-8000-00000000a003",
+    });
+
+    expect(second.conversation.title).toBe("Threads launch draft");
+    expect(model.complete).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(model.complete).mock.calls[2]?.[0]).toEqual(
+      expect.objectContaining({
+        system: expect.stringContaining("conversation title"),
+        tools: [],
+        maxTokens: 32,
+      }),
+    );
+
+    vi.mocked(model.complete).mockResolvedValueOnce(
+      modelCompletion({ content: "Updated draft." }),
+    );
+    const third = await service.addMessage(userId, first.conversation.id, {
+      message: "Make it shorter",
+      requestId: "00000000-0000-4000-8000-00000000a004",
+    });
+    expect(third.conversation.title).toBe("Threads launch draft");
+    expect(model.complete).toHaveBeenCalledTimes(4);
   });
 });

@@ -7,6 +7,7 @@ export const ALLOWED_TOOL_NAMES = [
   "list_connected_accounts",
   "validate_post",
   "publish_now",
+  "schedule_post",
 ] as const;
 
 export type AllowedToolName = (typeof ALLOWED_TOOL_NAMES)[number];
@@ -51,13 +52,29 @@ export const prepareReviewInputSchema = z
   })
   .strict();
 
+export const saveProfileEntryInputSchema = z
+  .object({
+    category: z.enum([
+      "do_not",
+      "tone",
+      "brand_fact",
+      "cadence",
+      "audience",
+      "skill",
+      "competitor",
+    ]),
+    body: z.string().trim().min(1).max(4000),
+    title: z.string().trim().max(200).optional(),
+  })
+  .strict();
+
 export const unifiedPostInputSchema = z
   .object({
     platforms: z.array(platformSchema).min(1),
     title: z.string().trim().min(1).max(160).optional(),
     text: z.string().optional(),
     link: z.url().optional(),
-    mediaAssetIds: z.array(z.string().trim().min(1)).optional(),
+    mediaAssetIds: z.array(z.string().trim().min(1)).max(5).optional(),
     contentType: contentTypeSchema.optional(),
     dryRun: z.boolean().optional(),
     confirm: z.boolean().optional(),
@@ -70,12 +87,38 @@ export const unifiedPostInputSchema = z
   })
   .strict();
 
+export const schedulePostInputSchema = z
+  .object({
+    platforms: z.array(platformSchema).min(1),
+    title: z.string().trim().min(1).max(160).optional(),
+    text: z.string().optional(),
+    link: z.url().optional(),
+    mediaAssetIds: z.array(z.string().trim().min(1)).max(5).optional(),
+    contentType: contentTypeSchema.optional(),
+    confirm: z.boolean().optional(),
+    idempotencyKey: z.string().trim().min(16).max(160).optional(),
+    connectedAccountId: z.string().trim().min(1).optional(),
+    connectedAccountIds: z
+      .record(z.string(), z.string().trim().min(1))
+      .optional(),
+    options: z.record(z.string(), z.unknown()).optional(),
+    publishAt: z
+      .string()
+      .trim()
+      .min(1)
+      .refine((value) => Number.isFinite(Date.parse(value)), {
+        message: "publishAt must be a valid ISO datetime",
+      }),
+  })
+  .strict();
+
 export type AllowedToolInput =
   | z.infer<typeof listConnectedAccountsInputSchema>
-  | z.infer<typeof unifiedPostInputSchema>;
+  | z.infer<typeof unifiedPostInputSchema>
+  | z.infer<typeof schedulePostInputSchema>;
 
 const definitions: Array<{
-  name: AllowedToolName | "prepare_review";
+  name: AllowedToolName | "prepare_review" | "save_profile_entry";
   description: string;
   schema: z.ZodType;
 }> = [
@@ -84,6 +127,12 @@ const definitions: Array<{
     description:
       "Prepare editable review drafts for the explicitly requested platforms. This stores product review state only and never publishes.",
     schema: prepareReviewInputSchema,
+  },
+  {
+    name: "save_profile_entry",
+    description:
+      "Persist an authoritative business profile rule the user asked to keep (do_not, tone, brand_fact, etc.). Only call when the user clearly wants it saved to their profile. Never claim a rule is saved unless this tool succeeds.",
+    schema: saveProfileEntryInputSchema,
   },
   {
     name: "list_connected_accounts",
@@ -103,6 +152,12 @@ const definitions: Array<{
       "Preview a publish only. The application always forces dryRun true and never permits live publish.",
     schema: unifiedPostInputSchema,
   },
+  {
+    name: "schedule_post",
+    description:
+      "Schedule a post for a future publishAt (UTC ISO, must be after now) through SocialMCP. Use when schedule intent is clear and publishAt is known from the user or an accepted plan. Write the caption in text and call this tool directly; do not use prepare_review for schedule asks. Never claim a schedule succeeded unless this tool returns ok. Max five mediaAssetIds. At most two schedule_post calls per turn.",
+    schema: schedulePostInputSchema,
+  },
 ];
 
 export const MODEL_TOOLS: ModelTool[] = definitions.map(
@@ -121,8 +176,11 @@ function samePlatforms(
   actual: TargetPlatform[],
   resolved: TargetPlatform[],
 ): boolean {
+  // No resolved platforms means the user did not name one; the model may choose.
+  if (resolved.length === 0) return actual.length > 0;
+  // Tool calls may target any non-empty subset of the platforms the user named.
   return (
-    actual.length === resolved.length &&
+    actual.length > 0 &&
     actual.every((platform) => resolved.includes(platform))
   );
 }
@@ -132,7 +190,7 @@ export function validateToolInput(
   raw: unknown,
   resolvedPlatforms: TargetPlatform[],
 ): {
-  name: AllowedToolName | "prepare_review";
+  name: AllowedToolName | "prepare_review" | "save_profile_entry";
   input: Record<string, unknown>;
 } {
   if (name === "prepare_review") {
@@ -152,6 +210,18 @@ export function validateToolInput(
         "INVALID_TOOL_ARGUMENTS",
         422,
         "The model produced invalid review arguments.",
+      );
+    }
+  }
+  if (name === "save_profile_entry") {
+    try {
+      const parsed = saveProfileEntryInputSchema.parse(raw);
+      return { name, input: parsed };
+    } catch {
+      throw new OrchestrationError(
+        "INVALID_TOOL_ARGUMENTS",
+        422,
+        "The model produced invalid profile entry arguments.",
       );
     }
   }
@@ -176,7 +246,10 @@ export function validateToolInput(
       return { name, input };
     }
 
-    const parsed = unifiedPostInputSchema.parse(raw);
+    const parsed =
+      name === "schedule_post"
+        ? schedulePostInputSchema.parse(raw)
+        : unifiedPostInputSchema.parse(raw);
     if (!samePlatforms(parsed.platforms, resolvedPlatforms)) {
       throw new Error("Tool platforms do not match the explicit user request");
     }
@@ -186,8 +259,27 @@ export function validateToolInput(
       delete input.confirm;
       delete input.idempotencyKey;
     }
+    if (name === "schedule_post") {
+      // SocialMCP expects scheduledAt + confirm; the model speaks publishAt.
+      const publishAt = input.publishAt;
+      if (typeof publishAt === "string") {
+        input.scheduledAt = publishAt;
+      }
+      delete input.publishAt;
+      delete input.dryRun;
+      input.confirm = true;
+      const at = Date.parse(String(input.scheduledAt));
+      if (!Number.isFinite(at) || at <= Date.now()) {
+        throw new OrchestrationError(
+          "INVALID_TOOL_ARGUMENTS",
+          422,
+          "publishAt must be a future UTC ISO datetime. Do not use dates in the past; derive times from the accepted plan relative to today.",
+        );
+      }
+    }
     return { name, input };
-  } catch {
+  } catch (error) {
+    if (error instanceof OrchestrationError) throw error;
     throw new OrchestrationError(
       "INVALID_TOOL_ARGUMENTS",
       422,
@@ -244,6 +336,50 @@ export function safeToolSummary(
       textPlanByPlatform: normalized?.textPlanByPlatform ?? {},
       mediaItemCount:
         normalized?.mediaAssetCount ?? normalized?.mediaUrlCount ?? 0,
+    };
+  }
+
+  if (name === "schedule_post") {
+    const scheduledRows = Array.isArray(value.scheduled)
+      ? value.scheduled.filter(
+          (entry): entry is Record<string, unknown> =>
+            typeof entry === "object" && entry !== null && !Array.isArray(entry),
+        )
+      : [];
+    const firstRow = scheduledRows[0];
+    const publishAt =
+      typeof value.publishAt === "string"
+        ? value.publishAt
+        : typeof firstRow?.publishAt === "string"
+          ? firstRow.publishAt
+          : null;
+    const scheduleId =
+      typeof value.id === "string"
+        ? value.id
+        : typeof value.scheduledPostId === "string"
+          ? value.scheduledPostId
+          : typeof firstRow?.id === "string"
+            ? firstRow.id
+            : null;
+    const platforms = Array.isArray(value.platforms)
+      ? value.platforms
+      : scheduledRows
+          .map((row) => row.platform)
+          .filter((platform) => typeof platform === "string");
+    return {
+      ok: value.ok === true,
+      scheduled:
+        value.ok === true ||
+        value.scheduled === true ||
+        scheduledRows.length > 0,
+      publishAt,
+      scheduleId,
+      platforms,
+      scheduleCount: scheduledRows.length > 0 ? scheduledRows.length : null,
+      code: typeof value.code === "string" ? value.code : null,
+      message: typeof value.message === "string" ? value.message : null,
+      calendarPath: "/app/calendar",
+      scheduledPath: "/app/scheduled",
     };
   }
 

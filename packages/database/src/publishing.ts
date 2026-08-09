@@ -442,12 +442,16 @@ export async function attachReadyMediaToMessage(
         eq(mediaAssets.userId, input.userId),
         eq(mediaAssets.state, "ready"),
         inArray(mediaAssets.id, input.assetIds),
-        sql`(${mediaAssets.conversationId} is null or ${mediaAssets.conversationId} = ${input.conversationId})`,
       ),
     );
   if (assets.length !== input.assetIds.length) {
     throw new PublishingDatabaseError("MEDIA_NOT_READY");
   }
+
+  // Retries / new chats may reuse the same ready uploads after a failed turn.
+  await tx
+    .delete(orchestrationMessageMedia)
+    .where(inArray(orchestrationMessageMedia.assetId, input.assetIds));
   await tx
     .update(mediaAssets)
     .set({ conversationId: input.conversationId, updatedAt: new Date() })

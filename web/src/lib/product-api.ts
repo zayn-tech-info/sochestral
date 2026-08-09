@@ -105,15 +105,17 @@ export type Run = {
   safeError: string | null;
   publishingMode?: PublishingMode;
   explicitLiveIntent?: boolean;
-  liveIntentKind?: "live" | "draft" | "unclear" | null;
+  liveIntentKind?: "live" | "draft" | "schedule" | "unclear" | null;
   thinkingText?: string | null;
 };
 
 export type StreamStep =
+  | "understanding"
   | "checking_intent"
   | "clarifying_intent"
   | "preparing_draft"
   | "validating"
+  | "scheduling"
   | "publishing";
 
 export type StreamEvent = {
@@ -125,13 +127,36 @@ export type StreamEvent = {
   status?: string;
   error?: string;
   result?: TurnResponse;
+  questions?: IntentQuestion[];
+};
+
+export type IntentQuestionOption = {
+  id: string;
+  label: string;
+  recommended?: boolean;
+  custom?: boolean;
+};
+
+export type IntentQuestion = {
+  id: string;
+  prompt: string;
+  reason?: string;
+  options: IntentQuestionOption[];
+};
+
+export type IntentAnswer = {
+  questionId: string;
+  optionId: string;
+  customText?: string;
 };
 
 export const STREAM_STEP_LABELS: Record<StreamStep, string> = {
+  understanding: "Reading your message",
   checking_intent: "Checking intent",
   clarifying_intent: "Clarifying intent",
   preparing_draft: "Preparing a draft",
   validating: "Validating",
+  scheduling: "Scheduling",
   publishing: "Publishing",
 };
 
@@ -276,6 +301,7 @@ export type TurnResponse = {
   toolSummaries: ToolSummary[];
   reviewGroups: ReviewGroup[];
   turnActivity: TurnActivity | null;
+  intentQuestions?: IntentQuestion[] | null;
 };
 
 export type ConnectorPlatform =
@@ -294,3 +320,196 @@ export type ConnectorSummary = {
     connectedAt?: string | null;
   }>;
 };
+
+export type ProfileEntry = {
+  id: string;
+  category: string;
+  title: string | null;
+  body: string;
+  status: string;
+  source: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BusinessProfileResponse = {
+  id: string | null;
+  businessName: string | null;
+  businessDescription: string | null;
+  websiteUrl: string | null;
+  targetAudience: string | null;
+  industry: string | null;
+  setupStatus: "not_started" | "in_progress" | "complete";
+  setupStep: string | null;
+  competitorsSkipped: boolean;
+  compiledNote: string;
+  minimumComplete: boolean;
+  sections: Record<string, ProfileEntry[]>;
+  updatedAt: string;
+};
+
+export function getBusinessProfile() {
+  return apiRequest<BusinessProfileResponse>("/profile");
+}
+
+export function patchBusinessProfile(
+  body: Partial<{
+    businessName: string | null;
+    businessDescription: string | null;
+    websiteUrl: string | null;
+    targetAudience: string | null;
+    industry: string | null;
+    competitorsSkipped: boolean;
+    redoSetup: boolean;
+    confirmReset: boolean;
+  }>,
+) {
+  return apiRequest<BusinessProfileResponse>("/profile", {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export function createProfileEntry(body: {
+  category: string;
+  title?: string | null;
+  body: string;
+}) {
+  return apiRequest<ProfileEntry>("/profile/entries", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function patchProfileEntry(
+  id: string,
+  body: Partial<{ title: string | null; body: string; status: string }>,
+) {
+  return apiRequest<ProfileEntry>(`/profile/entries/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteProfileEntry(id: string) {
+  return apiRequest<void>(`/profile/entries/${id}`, { method: "DELETE" });
+}
+
+export type CalendarStatusBucket =
+  | "Scheduled"
+  | "Done"
+  | "Failed"
+  | "Canceled";
+
+export type CalendarAccount = {
+  id: string;
+  platform: ConnectorPlatform;
+  label: string;
+  username: string | null;
+  avatarHint: string | null;
+};
+
+export type CalendarSlot = {
+  scheduleId: string;
+  platform: ConnectorPlatform;
+  accountId: string;
+  accountLabel: string;
+  scheduledAt: string;
+  statusBucket: CalendarStatusBucket;
+  captionPreview: string;
+  thumbUrl: string | null;
+};
+
+export type ScheduleDetail = CalendarSlot & {
+  caption: string;
+  media: string[];
+  conversationId: string | null;
+  draftId: string | null;
+  canReschedule: boolean;
+  canCancel: boolean;
+};
+
+export function getCalendarAccounts() {
+  return apiRequest<{ accounts: CalendarAccount[] }>("/calendar/accounts");
+}
+
+export function getCalendarSlots(query: {
+  from: string;
+  to: string;
+  timeZone: string;
+  accountId?: string;
+  platform?: string;
+}) {
+  const params = new URLSearchParams({
+    from: query.from,
+    to: query.to,
+    timeZone: query.timeZone,
+  });
+  if (query.accountId) params.set("accountId", query.accountId);
+  if (query.platform) params.set("platform", query.platform);
+  return apiRequest<{ slots: CalendarSlot[]; timeZone: string }>(
+    `/calendar/slots?${params.toString()}`,
+  );
+}
+
+export function getCalendarSlot(scheduleId: string) {
+  return apiRequest<ScheduleDetail>(
+    `/calendar/slots/${encodeURIComponent(scheduleId)}`,
+  );
+}
+
+export function rescheduleCalendarSlot(
+  scheduleId: string,
+  scheduledAt: string,
+) {
+  return apiRequest<ScheduleDetail>(
+    `/calendar/slots/${encodeURIComponent(scheduleId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ scheduledAt }),
+    },
+  );
+}
+
+export function cancelCalendarSlot(scheduleId: string) {
+  return apiRequest<{ ok: true; scheduleId: string }>(
+    `/calendar/slots/${encodeURIComponent(scheduleId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export type ScheduledPostsSort = "scheduledAt:asc" | "scheduledAt:desc";
+
+export type ScheduledPostsResponse = {
+  posts: CalendarSlot[];
+  timeZone: string;
+  from: string;
+  to: string;
+  sort: ScheduledPostsSort;
+  hasOlder: boolean;
+  hasNewer: boolean;
+};
+
+export function getScheduledPosts(query: {
+  from: string;
+  to: string;
+  timeZone: string;
+  accountId?: string;
+  platform?: string;
+  status?: CalendarStatusBucket;
+  sort?: ScheduledPostsSort;
+}) {
+  const params = new URLSearchParams({
+    from: query.from,
+    to: query.to,
+    timeZone: query.timeZone,
+  });
+  if (query.accountId) params.set("accountId", query.accountId);
+  if (query.platform) params.set("platform", query.platform);
+  if (query.status) params.set("status", query.status);
+  if (query.sort) params.set("sort", query.sort);
+  return apiRequest<ScheduledPostsResponse>(
+    `/scheduled/posts?${params.toString()}`,
+  );
+}

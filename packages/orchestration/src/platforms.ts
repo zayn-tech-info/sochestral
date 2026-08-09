@@ -1,14 +1,5 @@
 import type { TargetPlatform } from "@sochestral/database";
 
-const ACTION_PATTERN =
-  /\b(post|publish|share|schedule|draft|validate|preview|send)\b/i;
-/** Short follow-ups that continue a prior post request without renaming the platform. */
-const FOLLOW_UP_ACTION_PATTERN =
-  /^(?:yes[,.]?\s+)?(?:publish|post(?:\s+it)?(?:\s+live)?|go\s+live|live(?:\s+please)?|do\s+it|ship\s+it|use\s+this|this\s+one|here(?:\s+it\s+is)?|attached|this(?:\s+image|\s+photo|\s+video)?)[.!]?$/i;
-const UNSUPPORTED_PATTERN =
-  /\b(facebook|tiktok|twitter|reddit|discord|youtube|pinterest|snapchat)\b/i;
-const AMBIGUOUS_PATTERN = /\b(everywhere|all platforms|all accounts)\b/i;
-
 const PLATFORM_PATTERNS: Array<{
   platform: TargetPlatform;
   pattern: RegExp;
@@ -26,13 +17,15 @@ const PLATFORM_PATTERNS: Array<{
   },
 ];
 
-export type PlatformResolution =
-  | { kind: "resolved"; platforms: TargetPlatform[] }
-  | { kind: "clarify"; message: string };
+export type PlatformResolution = {
+  kind: "resolved";
+  platforms: TargetPlatform[];
+};
 
-export const PLATFORM_CLARIFICATION =
-  "Which supported platform should I use? Please name Threads, LinkedIn, Instagram, or a combination of them.";
-
+/**
+ * Soft-detect named platforms for tool validation and inheritance.
+ * Never short-circuits the model with a canned clarify reply.
+ */
 export function extractPlatforms(message: string): TargetPlatform[] {
   return [
     ...new Set(
@@ -57,6 +50,9 @@ export function resolvePlatforms(
   options?: { inheritedPlatforms?: TargetPlatform[] },
 ): PlatformResolution {
   const platforms = extractPlatforms(message);
+  if (platforms.length > 0) {
+    return { kind: "resolved", platforms };
+  }
   const inherited = [
     ...new Set(
       (options?.inheritedPlatforms ?? []).filter((platform) =>
@@ -64,21 +60,5 @@ export function resolvePlatforms(
       ),
     ),
   ];
-  const requestsAction = ACTION_PATTERN.test(message);
-
-  if (UNSUPPORTED_PATTERN.test(message) || AMBIGUOUS_PATTERN.test(message)) {
-    return { kind: "clarify", message: PLATFORM_CLARIFICATION };
-  }
-
-  const needsPlatform =
-    requestsAction || FOLLOW_UP_ACTION_PATTERN.test(message.trim());
-
-  if (needsPlatform && platforms.length === 0) {
-    if (inherited.length > 0) {
-      return { kind: "resolved", platforms: inherited };
-    }
-    return { kind: "clarify", message: PLATFORM_CLARIFICATION };
-  }
-
-  return { kind: "resolved", platforms };
+  return { kind: "resolved", platforms: inherited };
 }

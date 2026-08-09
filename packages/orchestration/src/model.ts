@@ -46,6 +46,8 @@ export type ModelCompletion = {
   inputTokens: number;
   outputTokens: number;
   attempts: number;
+  /** Anthropic/OpenAI stop reason when available (e.g. max_tokens). */
+  stopReason?: string | null;
 };
 
 export type ModelToolChoice =
@@ -118,14 +120,6 @@ function toAnthropicMessage(message: ModelMessage): MessageParam {
   };
 }
 
-function toAnthropicTool(tool: ModelTool): Tool {
-  return {
-    name: tool.name,
-    description: tool.description,
-    input_schema: tool.inputSchema as Tool.InputSchema,
-  };
-}
-
 function thinkingEnabledFromEnv(): boolean {
   return process.env.THESEAN_THINKING_ENABLED === "true";
 }
@@ -135,12 +129,37 @@ function thinkingBudgetFromEnv(): number {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : 2048;
 }
 
+function describeModelError(error: unknown): {
+  status?: number;
+  message: string;
+  timedOut: boolean;
+} {
+  const status =
+    typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    typeof (error as { status?: unknown }).status === "number"
+      ? (error as { status: number }).status
+      : undefined;
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" &&
+          error !== null &&
+          "message" in error &&
+          typeof (error as { message?: unknown }).message === "string"
+        ? (error as { message: string }).message
+        : String(error);
+  const timedOut = /timeout|timed out|aborted/i.test(message);
+  return { status, message, timedOut };
+}
+
 export class TheseanModelProvider implements ModelProvider {
   private readonly client: Anthropic;
 
   constructor(
     apiKey: string,
-    private readonly timeoutMs = 15_000,
+    private readonly timeoutMs = 60_000,
   ) {
     this.client = new Anthropic({
       apiKey,
@@ -167,79 +186,7 @@ export class TheseanModelProvider implements ModelProvider {
 
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       try {
-        const controller = new AbortController();
-        let deadline: ReturnType<typeof setTimeout> | undefined;
-        const toolChoice = input.toolChoice ?? { type: "auto" as const };
-        const baseParams: Anthropic.MessageCreateParams = {
-          model: input.model,
-          system: input.system,
-          messages: input.messages.map(toAnthropicMessage),
-          tools: input.tools.map(toAnthropicTool),
-          tool_choice:
-            toolChoice.type === "tool"
-              ? { type: "tool", name: toolChoice.name }
-              : { type: "auto" },
-          max_tokens: enableThinking
-            ? Math.max(input.maxTokens, budgetTokens + 512)
-            : input.maxTokens,
-          ...(enableThinking
-            ? {
-                thinking: {
-                  type: "enabled" as const,
-                  budget_tokens: budgetTokens,
-                },
-              }
-            : {}),
-        };
-
-        const timedOut = new Promise<never>((_, reject) => {
-          deadline = setTimeout(() => {
-            controller.abort();
-            reject(new Error("Model request timed out"));
-          }, this.timeoutMs);
-        });
-
-        try {
-          if (input.stream) {
-            const stream = this.client.messages.stream(baseParams, {
-              signal: controller.signal,
-            });
-            const message = await Promise.race([
-              (async () => {
-                for await (const event of stream) {
-                  if (event.type !== "content_block_delta") continue;
-                  if (
-                    event.delta.type === "text_delta" &&
-                    "text" in event.delta
-                  ) {
-                    input.stream?.onTextDelta?.(event.delta.text);
-                  }
-                  if (
-                    event.delta.type === "thinking_delta" &&
-                    "thinking" in event.delta
-                  ) {
-                    input.stream?.onThinkingDelta?.(
-                      redactText(String(event.delta.thinking)),
-                    );
-                  }
-                }
-                return stream.finalMessage();
-              })(),
-              timedOut,
-            ]);
-            return this.fromMessage(message, attempt);
-          }
-
-          const message = (await Promise.race([
-            this.client.messages.create(baseParams, {
-              signal: controller.signal,
-            }),
-            timedOut,
-          ])) as Message;
-          return this.fromMessage(message, attempt);
-        } finally {
-          if (deadline) clearTimeout(deadline);
-        }
+        return await this.completeOnce(input, enableThinking, budgetTokens, attempt);
       } catch (error) {
         const thinkingRejected =
           enableThinking &&
@@ -254,17 +201,158 @@ export class TheseanModelProvider implements ModelProvider {
             stream: input.stream,
           });
         }
+        // Stream timeouts: retry once without streaming.
+        const detail = describeModelError(error);
+        if (input.stream && detail.timedOut && attempt === 1) {
+          console.warn("[sochestral:model] stream timed out; retrying without stream", {
+            model: input.model,
+            timeoutMs: this.timeoutMs,
+          });
+          try {
+            return await this.completeOnce(
+              { ...input, stream: undefined },
+              enableThinking,
+              budgetTokens,
+              attempt + 1,
+            );
+          } catch (retryError) {
+            console.warn("[sochestral:model] request failed", {
+              model: input.model,
+              attempt: attempt + 1,
+              timeoutMs: this.timeoutMs,
+              ...describeModelError(retryError),
+            });
+            throw new OrchestrationError(
+              "MODEL_UNAVAILABLE",
+              503,
+              "The model timed out before finishing. Try a shorter ask, or set THESEAN_TIMEOUT_MS higher.",
+            );
+          }
+        }
         if (attempt === 2 || !isTransientError(error)) {
+          console.warn("[sochestral:model] request failed", {
+            model: input.model,
+            attempt,
+            timeoutMs: this.timeoutMs,
+            ...detail,
+          });
           throw new OrchestrationError(
             "MODEL_UNAVAILABLE",
             503,
-            "The model is temporarily unavailable.",
+            detail.timedOut
+              ? "The model timed out before finishing. Try a shorter ask, or set THESEAN_TIMEOUT_MS higher."
+              : "The model is temporarily unavailable.",
           );
         }
         await new Promise((resolve) => setTimeout(resolve, retryAfterMs(error)));
       }
     }
     throw new OrchestrationError("MODEL_UNAVAILABLE", 503);
+  }
+
+  private async completeOnce(
+    input: {
+      system: string;
+      messages: ModelMessage[];
+      tools: ModelTool[];
+      model: string;
+      maxTokens: number;
+      toolChoice?: ModelToolChoice;
+      stream?: ModelStreamHandlers;
+    },
+    enableThinking: boolean,
+    budgetTokens: number,
+    attempt: number,
+  ): Promise<ModelCompletion> {
+    const controller = new AbortController();
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const toolChoice = input.toolChoice ?? { type: "auto" as const };
+    const tools =
+      input.tools.length > 0
+        ? input.tools.map((tool) => {
+            const schema = { ...tool.inputSchema };
+            delete schema.$schema;
+            return {
+              name: tool.name,
+              description: tool.description,
+              input_schema: schema as Tool.InputSchema,
+            };
+          })
+        : undefined;
+    const baseParams: Anthropic.MessageCreateParams = {
+      model: input.model,
+      system: input.system,
+      messages: input.messages.map(toAnthropicMessage),
+      max_tokens: enableThinking
+        ? Math.max(input.maxTokens, budgetTokens + 512)
+        : input.maxTokens,
+      ...(enableThinking
+        ? {
+            thinking: {
+              type: "enabled" as const,
+              budget_tokens: budgetTokens,
+            },
+          }
+        : {}),
+      ...(tools
+        ? {
+            tools,
+            tool_choice:
+              toolChoice.type === "tool"
+                ? { type: "tool" as const, name: toolChoice.name }
+                : { type: "auto" as const },
+          }
+        : {}),
+    };
+
+    const timedOut = new Promise<never>((_, reject) => {
+      deadline = setTimeout(() => {
+        controller.abort();
+        reject(new Error("Model request timed out"));
+      }, this.timeoutMs);
+    });
+
+    try {
+      if (input.stream) {
+        const stream = this.client.messages.stream(baseParams, {
+          signal: controller.signal,
+        });
+        const message = await Promise.race([
+          (async () => {
+            for await (const event of stream) {
+              if (event.type !== "content_block_delta") continue;
+              if (
+                event.delta.type === "text_delta" &&
+                "text" in event.delta
+              ) {
+                input.stream?.onTextDelta?.(event.delta.text);
+              }
+              if (
+                event.delta.type === "thinking_delta" &&
+                "thinking" in event.delta
+              ) {
+                input.stream?.onThinkingDelta?.(
+                  redactText(String(event.delta.thinking)),
+                );
+              }
+            }
+            return stream.finalMessage();
+          })(),
+          timedOut,
+        ]);
+        return this.fromMessage(message, attempt);
+      }
+
+      const message = (await Promise.race([
+        this.client.messages.create(baseParams, {
+          signal: controller.signal,
+        }),
+        timedOut,
+      ])) as Message;
+      return this.fromMessage(message, attempt);
+    } finally {
+      if (deadline) clearTimeout(deadline);
+    }
   }
 
   private fromMessage(message: Message, attempts: number): ModelCompletion {
@@ -291,6 +379,7 @@ export class TheseanModelProvider implements ModelProvider {
       inputTokens: message.usage.input_tokens,
       outputTokens: message.usage.output_tokens,
       attempts,
+      stopReason: message.stop_reason ?? null,
     };
   }
 }

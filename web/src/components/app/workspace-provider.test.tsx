@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ApiError,
   apiRequest,
@@ -83,6 +83,11 @@ function Harness() {
         ))}
       </ul>
       <span>{workspace.errors.new}</span>
+      <span>{workspace.errors.conv_1}</span>
+      <span data-testid="pending-conv">
+        {workspace.pending.conv_1 ? "pending" : "idle"}
+      </span>
+      <span data-testid="live-step">{workspace.liveStep ?? "none"}</span>
       {loadedMessages.map((item) => (
         <span key={item.id}>{item.content}</span>
       ))}
@@ -91,6 +96,12 @@ function Harness() {
       </span>
       <button type="button" onClick={() => void workspace.sendMessage(null, "Hello", retry)}>
         {retry ? "Retry message" : "Send message"}
+      </button>
+      <button
+        type="button"
+        onClick={() => void workspace.sendMessage("conv_1", "Follow up", retry)}
+      >
+        Send follow up
       </button>
       <button type="button" onClick={() => void workspace.loadConversation("conv_1")}>
         Load conversation
@@ -120,6 +131,10 @@ beforeEach(() => {
   vi.spyOn(crypto, "randomUUID").mockReturnValue(
     "10000000-0000-4000-8000-000000000001",
   );
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("WorkspaceProvider", () => {
@@ -259,5 +274,51 @@ describe("WorkspaceProvider", () => {
       expect(screen.getByText("Ready")).toBeInTheDocument();
       expect(screen.getByTestId("turn-activities-count")).toHaveTextContent("0");
     });
+  });
+
+  it("keeps working UI and waits out RUN_IN_PROGRESS instead of a conflict error", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let detailCalls = 0;
+    vi.mocked(apiRequest).mockImplementation(async (path) => {
+      if (path === "/auth/me") return { id: "user_1", email: "person@example.com" };
+      if (path === "/orchestration/conversations?limit=25") {
+        return { conversations: [conversation], nextCursor: null };
+      }
+      if (String(path).startsWith("/orchestration/conversations/conv_1")) {
+        detailCalls += 1;
+        if (detailCalls === 1) {
+          return {
+            ...conversationDetail([turn.userMessage], null),
+            runs: [{ id: "run_busy", status: "running", safeError: null }],
+          };
+        }
+        return conversationDetail(
+          [turn.userMessage, turn.assistantMessage],
+          null,
+        );
+      }
+      return { conversations: [], nextCursor: null };
+    });
+    vi.mocked(apiStreamTurn).mockRejectedValue(
+      new ApiError(409, "RUN_IN_PROGRESS", { error: "RUN_IN_PROGRESS" }),
+    );
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderProvider();
+    await screen.findByText("person@example.com");
+
+    await user.click(screen.getByRole("button", { name: "Send follow up" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pending-conv")).toHaveTextContent("pending");
+      expect(screen.getByTestId("live-step")).toHaveTextContent("understanding");
+    });
+    await vi.advanceTimersByTimeAsync(2100);
+    await waitFor(() => {
+      expect(screen.getByText("Ready")).toBeInTheDocument();
+      expect(screen.getByTestId("pending-conv")).toHaveTextContent("idle");
+    });
+    expect(screen.queryByText(/already working/i)).toBeNull();
+    expect(detailCalls).toBeGreaterThanOrEqual(2);
+    vi.useRealTimers();
   });
 });

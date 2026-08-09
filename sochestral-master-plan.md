@@ -17,7 +17,7 @@ Living feature checkboxes: `docs/scope/scope.md`.
 
 ## 2. Current Build Status
 
-Reconciled to Linear on 2026-08-07.
+Reconciled to Linear on 2026-08-09.
 
 | Item | Status | Notes |
 |------|--------|-------|
@@ -25,22 +25,25 @@ Reconciled to Linear on 2026-08-07.
 | Feature 4 chat + connectors | **Done** | SOC-5, SOC-18 |
 | Feature 5 review publish loop | **Done** | SOC-6, SOC-19 |
 | Feature 14 live platform preview aside | **Done** | SOC-7 |
-| Feature 12 publishing authority + images | **In Progress** | R2 wired in cloud; live smoke then enable `PUBLISHING_AUTHORITY_ENABLED` (SOC-9) |
-| Feature 13 intent clarify + Thinking UI | **In Progress** | Clarify path in use; `THESEAN_THINKING_ENABLED` / Thinking smoke (SOC-8) |
-| Docs / AGENTS / scope sync to Neon + cloud | **In Progress** | SOC-20 |
-| Slice 2 (tiers, setup agent, channels, calendar) | **Not started** | Blocked on clean Slice 1/12 close out |
+| Feature 12 publishing authority + images | **Done** | SOC-9 live smoke + authority flag |
+| Feature 13 intent clarify + action labels | **Done** | Thesean Thinking smoke canceled (SOC-8); think-stream UI removed |
+| Feature 7 setup agent + business profile | **Done** | SOC-12 / SOC-13; spec 0009 |
+| Feature 6 subscription tiers | **Deferred** | SOC-10 / SOC-11 Backlog until core features exist to gate |
+| Docs / AGENTS / scope sync to Neon + cloud | **Done** | SOC-20 |
+| Slice 2 next | **Feature 10 web surfaces** | SOC-14 Ready; schedule calendar first. Channels (SOC-15+) wait |
 | Monetization (Paystack + Paddle) | **Parallel** | Not a free beta gate |
 
 **Product URL:** `https://app.sochestral.shop`  
 **API:** `https://api.sochestral.shop`  
 **Primary DB:** Neon (via `DATABASE_URL` on `sochestral-api`)
 
-## 3. Close out order
+## 3. Build order (current)
 
-1. SOC-20: sync docs / AGENTS / scope (this file + `docs/scope/scope.md` + `AGENTS.md`)
-2. SOC-9: Feature 12 live smoke + enable authority flag
-3. SOC-8: Feature 13 Thinking flag smoke
-4. Then Slice 2 design starts at Feature 6 (tier model / free beta entitlements)
+1. Feature 10: remaining web surfaces (schedule calendar; profile settings already partial via Feature 7)
+2. Brand kit / Brand Assets settings (SOC-40) when Settings deepen is next
+3. Feature 11+: memory, autonomous planner, image gen as sequenced
+4. Feature 8/9 channels: after the main web operator loop feels complete
+5. Feature 6 tiers: resume before paid launch only
 
 ## 4. Explicit non goals for early phases
 
@@ -48,6 +51,7 @@ Reconciled to Linear on 2026-08-07.
 - No full autonomy before review mode has proven content quality
 - No new platforms before SocialMCP has a stable adapter
 - No casual consumer positioning
+- No Thesean extended Thinking UI (unavailable on current model route; abandoned)
 # Sochestral — Master Plan
 
 **Purpose of this document:** This is the full, locked vision and architecture for sochestral, covering everything from the original product vision through every technical and business decision made during planning. Cursor should review this against the current repo state (existing code, Linear issues, and the Tracer Bullet close-out project) before proposing any new work. Nothing here should be treated as "build this now" — it is the target state. Cursor's first job is to map what already exists against this plan, flag what's already done, what's in progress, what's blocked, and what conflicts, before any new issues are created.
@@ -142,7 +146,7 @@ Sochestral does not use one model for everything. The split is:
 | Task | Model | Reasoning |
 |---|---|---|
 | Core agent — chat, drafting, judgment calls, the single voice the user talks to (Thesean) | Claude Sonnet 5 | Already proven, strong reasoning, high switching cost to move away from it |
-| One-time deep onboarding / business profile creation | `ship-like/opus` or `ship-like/gpt-5.6-sol` (via the Thesean gateway) | High-stakes, infrequent, worth paying for depth |
+| One-time deep onboarding / business profile creation | `ship-like/claude-opus-5` (fallback `ship-like/gpt-5.6-sol` via the Thesean gateway) | High-stakes, infrequent, worth paying for depth |
 | Mid-conversation business-profile edits (e.g. user says "we're pivoting to also sell X") | Same route as above, triggered on demand, not just at onboarding | Business profile is a living document, not just an onboarding artifact |
 | Bulk analytics (ad performance numbers, engagement pattern detection) | DeepSeek V4 Flash | High-volume, pattern-matching work — doesn't need frontier reasoning |
 | Trend / competitor scraping and research | DeepSeek V4 Flash | Same reasoning — volume matters more than depth here |
@@ -150,9 +154,9 @@ Sochestral does not use one model for everything. The split is:
 | Generating images for posts | GPT Image 2 | OpenAI's dedicated image generation model, distinct from their text models |
 | Correction/learning memory | Not a model call at all — a structured data layer | This should never be an LLM decision made fresh each time; store as rules and inject as context |
 
-**Important context on Thesean:** Thesean is a real third-party inference-optimization gateway (not just an internal name for "our orchestration layer") that routes across 200+ models. Its `ship-like/` prefix applies inference-time optimization to get Opus/GPT-5.6-Sol-level quality at roughly 50% lower cost, backed by a quality SLA. All references to `ship-like/opus` or `ship-like/gpt-5.6-sol` in this document refer to calling those models through the Thesean gateway, not directly.
+**Important context on Thesean:** Thesean is a real third-party inference-optimization gateway (not just an internal name for "our orchestration layer") that routes across 200+ models. Its `ship-like/` prefix applies inference-time optimization to get Opus/GPT-5.6-Sol-level quality at roughly 50% lower cost, backed by a quality SLA. All references to `ship-like/claude-opus-5` or `ship-like/gpt-5.6-sol` in this document refer to calling those models through the Thesean gateway, not directly.
 
-**Open item:** vision model choice for image-reading is not fully locked — needs a real benchmark against Gemini Flash and Claude Sonnet vision on actual product images before treating GPT-5.6 Luna as final.
+**Open item:** product default for image-reading is GPT-5.6 Luna via Thesean (`ship-like/gpt-5.6-luna`, OpenAI-compatible route; `THESEAN_VISION_ENABLED` opt-out kill switch). Still pending live smoke and a real benchmark against Gemini Flash and Claude Sonnet vision before treating that choice as final.
 
 ### 3.2 Model Routing Architecture (Hybrid)
 
@@ -207,7 +211,7 @@ Roughly $50–100/month — Fly.io hosting, managed Postgres, R2 (near-zero unti
 | Pro | 60 images | $2.37–$8.45 |
 | Agency | 100 images | $3.57–$15.45 |
 
-Cost breakdown per user includes: Sonnet 5 chat/drafting, DeepSeek Flash bulk tasks, `ship-like/opus` profile-update calls, GPT-5.6 Luna image reading, GPT Image 2 generation (the dominant cost line by far), and R2 storage/egress (negligible at this scale). Self-improvement research (Section 3.7) adds a small additional variable cost per user, discussed there.
+Cost breakdown per user includes: Sonnet 5 chat/drafting, DeepSeek Flash bulk tasks, `ship-like/claude-opus-5` profile-update calls, GPT-5.6 Luna image reading, GPT Image 2 generation (the dominant cost line by far), and R2 storage/egress (negligible at this scale). Self-improvement research (Section 3.7) adds a small additional variable cost per user, discussed there.
 
 **Image generation is the single biggest cost-scaling factor per user** — far more than chat or research. This is why image caps are hard, tier-based limits rather than unlimited/flat-rate (see 3.6.1).
 

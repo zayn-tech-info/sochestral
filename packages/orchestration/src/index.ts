@@ -15,6 +15,8 @@ export {
 } from "./contract.js";
 export {
   loadOrchestrationConfig,
+  isTheseanVisionEnabled,
+  isSetupAgentEnabled,
   type OrchestrationConfig,
 } from "./config.js";
 export { OrchestrationError } from "./errors.js";
@@ -29,13 +31,18 @@ export {
   type ModelToolChoice,
 } from "./model.js";
 export {
+  TheseanOpenAIModelProvider,
+  toOpenAIChatMessages,
+} from "./openai-model.js";
+export {
   StreamableHttpSocialMcpGateway,
   type McpToolResult,
   type SocialMcpGateway,
 } from "./mcp.js";
 export {
-  PLATFORM_CLARIFICATION,
   resolvePlatforms,
+  extractPlatforms,
+  platformsFromRecentMessages,
   type PlatformResolution,
 } from "./platforms.js";
 export { redactRecord, redactText, redactValue } from "./redaction.js";
@@ -43,10 +50,30 @@ export {
   ALLOWED_TOOL_NAMES,
   MODEL_TOOLS,
   prepareReviewInputSchema,
+  schedulePostInputSchema,
   safeToolSummary,
   validateToolInput,
   type AllowedToolName,
 } from "./tools.js";
+export {
+  applyCompetitorAnswers,
+  buildCompetitorQuestions,
+  buildProfileUpdateConfirmQuestions,
+  createDeepSeekResearchClient,
+  executeSetupTool,
+  isSetupGateActive,
+  resolveCompetitorCustomSelection,
+  SETUP_MODEL_TOOLS,
+  SETUP_SYSTEM_MESSAGE,
+  SETUP_TOOL_NAMES,
+  type DeepSeekResearchClient,
+  type SetupToolName,
+} from "./setup-agent.js";
+export {
+  deriveInitialConversationTitle,
+  isProvisionalConversationTitle,
+  sanitizeGeneratedTitle,
+} from "./conversation-title.js";
 export {
   CONNECTOR_PLATFORMS,
   ConnectorError,
@@ -61,6 +88,22 @@ export {
   type ConnectorSummary,
   type PublicConnectorAccount,
 } from "./connectors.js";
+export {
+  CalendarError,
+  DefaultCalendarService,
+  StreamableHttpCalendarGateway,
+  createCalendarService,
+  isSafeMediaUrl,
+  mapStatusBucket,
+  STATUS_BUCKETS,
+  type CalendarAccount,
+  type CalendarGateway,
+  type CalendarService,
+  type CalendarSlot,
+  type CalendarStatusBucket,
+  type ScheduleDetail,
+  type ScheduledPostsSort,
+} from "./calendar.js";
 export {
   createReviewService,
   DefaultReviewService,
@@ -81,7 +124,11 @@ export {
   LIVE_PUBLISH_INTENT_USER_MESSAGE_END,
   LIVE_PUBLISH_INTENT_USER_MESSAGE_START,
   intentClarification,
+  isSchedulePlanAcceptance,
   localDraftIntent,
+  localLiveIntent,
+  localScheduleIntent,
+  priorHasScheduleContext,
   resolveExplicitLivePublishIntent,
   resolveLivePublishIntent,
   vetoesExplicitLivePublishIntent,
@@ -92,6 +139,13 @@ export {
   type PublicPublishingPreference,
   type PublishingAuthoritySnapshot,
 } from "./publishing.js";
+export {
+  buildIntentQuestions,
+  resolveIntentFromAnswers,
+  type IntentAnswer,
+  type IntentQuestion,
+  type IntentQuestionOption,
+} from "./intent-questions.js";
 export {
   createSequenceSink,
   STEP_LABELS,

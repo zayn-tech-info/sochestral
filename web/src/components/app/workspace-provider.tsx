@@ -17,6 +17,7 @@ import {
   apiStreamTurn,
   type Conversation,
   type ConversationDetail,
+  type IntentAnswer,
   type ProductUser,
   type StreamEvent,
   type StreamStep,
@@ -54,18 +55,18 @@ type WorkspaceValue = {
   pendingLaunch: PendingLaunch | null;
   launchOptimistic: PendingLaunch | null;
   liveStep: StreamStep | null;
-  liveThinking: string;
   startNewChat: (launch: PendingLaunch) => void;
   takePendingLaunch: () => PendingLaunch | null;
   clearLaunchOptimistic: () => void;
   refreshConversations: (append?: boolean) => Promise<void>;
-  loadConversation: (id: string, older?: boolean) => Promise<void>;
+  loadConversation: (id: string, older?: boolean) => Promise<ConversationDetail | null>;
   sendMessage: (
     conversationId: string | null,
     message: string,
     retry?: RetryItem,
     mediaAssetIds?: string[],
     onStreamEvent?: (event: StreamEvent) => void,
+    intentAnswers?: IntentAnswer[],
   ) => Promise<string | null>;
   deleteConversation: (id: string) => Promise<void>;
 };
@@ -98,7 +99,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [launchOptimistic, setLaunchOptimistic] =
     useState<PendingLaunch | null>(null);
   const [liveStep, setLiveStep] = useState<StreamStep | null>(null);
-  const [liveThinking, setLiveThinking] = useState("");
   const pendingLaunchRef = useRef<PendingLaunch | null>(null);
   const launchStartedRef = useRef(false);
   const cursorRef = useRef<string | null>(null);
@@ -180,7 +180,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [pathname, refreshConversations, router]);
 
   const loadConversation = useCallback(
-    async (id: string, older = false) => {
+    async (id: string, older = false): Promise<ConversationDetail | null> => {
       setErrors((current) => ({ ...current, [id]: null }));
       try {
         const cursor = older ? detailsRef.current[id]?.nextCursor : null;
@@ -190,39 +190,44 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         const result = await apiRequest<ConversationDetail>(
           `/orchestration/conversations/${id}${query}`,
         );
+        const incomingActivities = result.turnActivities ?? [];
+        const normalized: ConversationDetail = {
+          ...result,
+          reviewGroups: result.reviewGroups ?? [],
+          turnActivities: incomingActivities,
+        };
+        let loaded = normalized;
         setDetails((current) => {
-          const incomingActivities = result.turnActivities ?? [];
-          const normalized: ConversationDetail = {
-            ...result,
-            reviewGroups: result.reviewGroups ?? [],
-            turnActivities: incomingActivities,
-          };
           let next: Record<string, ConversationDetail>;
           if (!older || !current[id]) {
             next = { ...current, [id]: normalized };
+            loaded = normalized;
           } else {
             const existingActivities = current[id].turnActivities ?? [];
+            const merged: ConversationDetail = {
+              ...normalized,
+              messages: [...normalized.messages, ...current[id].messages],
+              turnActivities: [
+                ...incomingActivities,
+                ...existingActivities.filter(
+                  (activity) =>
+                    !incomingActivities.some(
+                      (incoming) =>
+                        incoming.assistantMessageId === activity.assistantMessageId,
+                    ),
+                ),
+              ],
+            };
             next = {
               ...current,
-              [id]: {
-                ...normalized,
-                messages: [...normalized.messages, ...current[id].messages],
-                turnActivities: [
-                  ...incomingActivities,
-                  ...existingActivities.filter(
-                    (activity) =>
-                      !incomingActivities.some(
-                        (incoming) =>
-                          incoming.assistantMessageId === activity.assistantMessageId,
-                      ),
-                  ),
-                ],
-              },
+              [id]: merged,
             };
+            loaded = merged;
           }
           detailsRef.current = next;
           return next;
         });
+        return loaded;
       } catch (error) {
         setErrors((current) => ({
           ...current,
@@ -231,9 +236,52 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               ? "This conversation could not be found."
               : "This conversation is unavailable right now.",
         }));
+        return null;
       }
     },
     [],
+  );
+
+  const waitForIdleConversation = useCallback(
+    async (conversationId: string, pendingKeys: string[]) => {
+      const markPending = (value: boolean) => {
+        setPending((current) => {
+          const next = { ...current };
+          for (const key of pendingKeys) {
+            next[key] = value;
+          }
+          return next;
+        });
+      };
+      markPending(true);
+      setLiveStep((current) => current ?? "understanding");
+      for (const key of pendingKeys) {
+        setErrors((current) => ({ ...current, [key]: null }));
+        setRetries((current) => ({ ...current, [key]: null }));
+      }
+
+      for (let attempt = 0; attempt < 90; attempt += 1) {
+        const detail = await loadConversation(conversationId);
+        const stillRunning = detail?.runs.some((run) => run.status === "running");
+        if (!stillRunning) {
+          markPending(false);
+          setLiveStep(null);
+          void refreshConversations().catch(() => undefined);
+          return true;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+
+      markPending(false);
+      setLiveStep(null);
+      setErrors((current) => ({
+        ...current,
+        [conversationId]:
+          "This is taking longer than expected. Refresh the conversation, or try again in a moment.",
+      }));
+      return false;
+    },
+    [loadConversation, refreshConversations],
   );
 
   const sendMessage = useCallback(
@@ -243,6 +291,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       retry?: RetryItem,
       mediaAssetIds: string[] = [],
       onStreamEvent?: (event: StreamEvent) => void,
+      intentAnswers: IntentAnswer[] = [],
     ) => {
       const key = conversationId ?? "new";
       const requestId =
@@ -252,8 +301,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setPending((current) => ({ ...current, [key]: true }));
       setErrors((current) => ({ ...current, [key]: null }));
       setRetries((current) => ({ ...current, [key]: null }));
-      setLiveStep(null);
-      setLiveThinking("");
+      setLiveStep("understanding");
 
       try {
         const effectiveMediaAssetIds = retry?.mediaAssetIds ?? mediaAssetIds;
@@ -268,13 +316,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             ...(effectiveMediaAssetIds.length > 0
               ? { mediaAssetIds: effectiveMediaAssetIds }
               : {}),
+            ...(intentAnswers.length > 0 ? { intentAnswers } : {}),
           },
           (event) => {
             if (event.type === "step_started" && event.step) {
               setLiveStep(event.step);
-            }
-            if (event.type === "thinking_delta" && event.delta) {
-              setLiveThinking((current) => `${current}${event.delta}`);
             }
             onStreamEvent?.(event);
           },
@@ -325,12 +371,39 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         });
         return result.conversation.id;
       } catch (error) {
+        const busy =
+          error instanceof ApiError && error.code === "RUN_IN_PROGRESS";
         const uncertain = !(error instanceof ApiError);
+        if (conversationId && (busy || uncertain)) {
+          // Keep the in-chat working state instead of a conflict toast; wait for the active run.
+          const finished = await waitForIdleConversation(conversationId, [
+            key,
+            conversationId,
+          ]);
+          if (finished || busy) {
+            return finished ? conversationId : null;
+          }
+        }
         const messageText =
           error instanceof ApiError
-            ? error.code === "RUN_IN_PROGRESS"
-              ? "Sochestral is already working in this conversation."
-              : "That request could not be completed safely."
+            ? busy
+              ? "Sochestral is still finishing work in this conversation."
+              : error.code === "INVALID_MESSAGE"
+                ? typeof error.details.message === "string" &&
+                  error.details.message.trim() &&
+                  error.details.message !== "INVALID_MESSAGE"
+                  ? error.details.message
+                  : "Those image attachments could not be used for this chat. Remove them, re-attach, and try again."
+                : error.code === "INVALID_TOOL_ARGUMENTS"
+                  ? "I could not form a safe platform request. Name Threads, Instagram, or LinkedIn, or restate what to draft or schedule."
+                  : error.code === "MODEL_UNAVAILABLE"
+                    ? "I could not reach the language model in time. Please try again shortly."
+                    : error.code === "SOCIALMCP_UNAVAILABLE"
+                      ? "I could not reach the social account service. No post was published."
+                      : error.code === "STREAM_INCOMPLETE" ||
+                          error.code === "STREAM_UNAVAILABLE"
+                        ? "The reply was interrupted before it finished. Please try again."
+                        : "That request could not be completed safely."
             : "The connection was interrupted. You can retry safely.";
         setErrors((current) => ({ ...current, [key]: messageText }));
         setRetries((current) => ({
@@ -346,16 +419,26 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       } finally {
         setPending((current) => ({ ...current, [key]: false }));
         setLiveStep(null);
-        setLiveThinking("");
       }
     },
-    [refreshConversations],
+    [refreshConversations, waitForIdleConversation],
   );
 
   const deleteConversation = useCallback(async (id: string) => {
-    await apiRequest<void>(`/orchestration/conversations/${id}`, {
-      method: "DELETE",
-    });
+    try {
+      await apiRequest<void>(`/orchestration/conversations/${id}`, {
+        method: "DELETE",
+      });
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "RUN_IN_PROGRESS") {
+        throw new ApiError(409, "RUN_IN_PROGRESS", {
+          error: "RUN_IN_PROGRESS",
+          message:
+            "A publish is still finishing for this conversation. Wait a moment, then delete again.",
+        });
+      }
+      throw error;
+    }
     setConversations((current) =>
       current.filter((conversation) => conversation.id !== id),
     );
@@ -381,7 +464,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pendingLaunch,
       launchOptimistic,
       liveStep,
-      liveThinking,
       startNewChat,
       takePendingLaunch,
       clearLaunchOptimistic,
@@ -403,7 +485,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pendingLaunch,
       launchOptimistic,
       liveStep,
-      liveThinking,
       startNewChat,
       takePendingLaunch,
       clearLaunchOptimistic,

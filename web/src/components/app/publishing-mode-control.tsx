@@ -19,9 +19,11 @@ const modeOptions = [
 export function PublishingModeControl({
   source,
   compact = false,
+  disabled = false,
 }: {
   source: "composer" | "settings";
   compact?: boolean;
+  disabled?: boolean;
 }) {
   const [preference, setPreference] = useState<PublishingPreference | null>(null);
   const [busy, setBusy] = useState(false);
@@ -91,7 +93,7 @@ export function PublishingModeControl({
           className={compact ? "os-select-chip-compact" : undefined}
           value={preference?.currentMode ?? "always_draft"}
           onChange={(value) => select(value as PublishingMode)}
-          disabled={!preference || busy || !preference.enabled}
+          disabled={disabled || !preference || busy || !preference.enabled}
           options={modeOptions}
           placement={compact ? "top" : "bottom"}
         />

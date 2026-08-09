@@ -2,8 +2,16 @@ export type OrchestrationConfig = {
   theseanApiKey: string;
   theseanModel: string;
   theseanIntentModel: string;
+  theseanVisionModel: string;
+  theseanSetupModel: string;
+  theseanVisionEnabled: boolean;
   theseanThinkingEnabled: boolean;
   theseanThinkingBudgetTokens: number;
+  theseanTimeoutMs: number;
+  setupAgentEnabled: boolean;
+  deepseekApiKey: string | null;
+  deepseekBaseUrl: string;
+  deepseekModel: string;
   socialMcpUrl: string;
   contextTokenLimit: number;
   outputTokenLimit: number;
@@ -31,6 +39,20 @@ function required(value: string | undefined, name: string): string {
   return trimmed;
 }
 
+/** Vision is on unless explicitly disabled with the string "false". */
+export function isTheseanVisionEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return env.THESEAN_VISION_ENABLED !== "false";
+}
+
+/** Setup gate is on unless explicitly disabled with the string "false". */
+export function isSetupAgentEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return env.SETUP_AGENT_ENABLED !== "false";
+}
+
 export function loadOrchestrationConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): OrchestrationConfig {
@@ -42,12 +64,28 @@ export function loadOrchestrationConfig(
       env.THESEAN_INTENT_MODEL?.trim() ||
       env.THESEAN_MODEL?.trim() ||
       "ship-like/claude-sonnet-5",
+    theseanVisionModel:
+      env.THESEAN_VISION_MODEL?.trim() || "ship-like/gpt-5.6-luna",
+    theseanSetupModel:
+      env.THESEAN_SETUP_MODEL?.trim() || "ship-like/claude-opus-5",
+    theseanVisionEnabled: isTheseanVisionEnabled(env),
     theseanThinkingEnabled: env.THESEAN_THINKING_ENABLED === "true",
     theseanThinkingBudgetTokens: positiveInteger(
       env.THESEAN_THINKING_BUDGET_TOKENS,
       2048,
       "THESEAN_THINKING_BUDGET_TOKENS",
     ),
+    // Chat tool rounds often need longer than SocialMCP calls.
+    theseanTimeoutMs: positiveInteger(
+      env.THESEAN_TIMEOUT_MS,
+      60_000,
+      "THESEAN_TIMEOUT_MS",
+    ),
+    setupAgentEnabled: isSetupAgentEnabled(env),
+    deepseekApiKey: env.DEEPSEEK_API_KEY?.trim() || null,
+    deepseekBaseUrl:
+      env.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com",
+    deepseekModel: env.DEEPSEEK_MODEL?.trim() || "deepseek-v4-flash",
     socialMcpUrl: required(env.SOCIALMCP_MCP_URL, "SOCIALMCP_MCP_URL"),
     contextTokenLimit: positiveInteger(
       env.ORCHESTRATION_CONTEXT_TOKEN_LIMIT,

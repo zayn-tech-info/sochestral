@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  PLATFORM_CLARIFICATION,
   extractPlatforms,
   platformsFromRecentMessages,
   resolvePlatforms,
@@ -16,7 +15,7 @@ describe("resolvePlatforms", () => {
     });
   });
 
-  it("accepts ordinary conversation without a social action", () => {
+  it("accepts ordinary conversation without inventing platforms", () => {
     expect(resolvePlatforms("Help me improve this sentence")).toEqual({
       kind: "resolved",
       platforms: [],
@@ -28,10 +27,11 @@ describe("resolvePlatforms", () => {
     "Publish this update",
     "Share this on Facebook",
     "Schedule this on all accounts",
-  ])("asks for a supported explicit platform for %s (AC-2)", (message) => {
+    "Based on what you listed above, can you help me schedule the content?",
+  ])("does not short-circuit with a canned clarify for %s", (message) => {
     expect(resolvePlatforms(message)).toEqual({
-      kind: "clarify",
-      message: PLATFORM_CLARIFICATION,
+      kind: "resolved",
+      platforms: [],
     });
   });
 
@@ -49,7 +49,7 @@ describe("resolvePlatforms", () => {
     ]);
   });
 
-  it("inherits platforms when a follow-up action omits the platform name", () => {
+  it("inherits platforms when the current message omits the platform name", () => {
     expect(
       resolvePlatforms("Post it live", {
         inheritedPlatforms: ["instagram"],
@@ -82,14 +82,14 @@ describe("resolvePlatforms", () => {
     });
   });
 
-  it("still clarifies unsupported platforms even when inherited platforms exist", () => {
+  it("prefers named platforms in the message over inherited ones", () => {
     expect(
-      resolvePlatforms("Share this on Facebook", {
+      resolvePlatforms("Share this on Threads", {
         inheritedPlatforms: ["instagram"],
       }),
     ).toEqual({
-      kind: "clarify",
-      message: PLATFORM_CLARIFICATION,
+      kind: "resolved",
+      platforms: ["threads"],
     });
   });
 });

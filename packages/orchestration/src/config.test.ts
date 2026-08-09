@@ -14,8 +14,16 @@ describe("loadOrchestrationConfig", () => {
       theseanApiKey: "thesean-secret",
       theseanModel: "ship-like/claude-sonnet-5",
       theseanIntentModel: "ship-like/claude-sonnet-5",
+      theseanVisionModel: "ship-like/gpt-5.6-luna",
+      theseanSetupModel: "ship-like/claude-opus-5",
+      theseanVisionEnabled: true,
       theseanThinkingEnabled: false,
       theseanThinkingBudgetTokens: 2048,
+      theseanTimeoutMs: 60000,
+      setupAgentEnabled: true,
+      deepseekApiKey: null,
+      deepseekBaseUrl: "https://api.deepseek.com",
+      deepseekModel: "deepseek-v4-flash",
       socialMcpUrl: "https://social.example/mcp",
       contextTokenLimit: 6000,
       outputTokenLimit: 1500,
@@ -29,6 +37,8 @@ describe("loadOrchestrationConfig", () => {
     const config = loadOrchestrationConfig({
       ...required,
       THESEAN_MODEL: " custom-model ",
+      THESEAN_VISION_MODEL: " ship-like/gpt-5.6-luna ",
+      THESEAN_VISION_ENABLED: "false",
       ORCHESTRATION_CONTEXT_TOKEN_LIMIT: "7000",
       ORCHESTRATION_OUTPUT_TOKEN_LIMIT: "900",
       ORCHESTRATION_MAX_TOOL_STEPS: "3",
@@ -39,12 +49,34 @@ describe("loadOrchestrationConfig", () => {
     expect(config).toMatchObject({
       theseanModel: "custom-model",
       theseanIntentModel: "custom-model",
+      theseanVisionModel: "ship-like/gpt-5.6-luna",
+      theseanVisionEnabled: false,
       contextTokenLimit: 7000,
       outputTokenLimit: 900,
       maxToolSteps: 3,
       dailyRunLimit: 12,
       externalTimeoutMs: 2500,
     });
+  });
+
+  it("keeps vision enabled unless THESEAN_VISION_ENABLED is the string false", () => {
+    expect(
+      loadOrchestrationConfig({
+        ...required,
+      }).theseanVisionEnabled,
+    ).toBe(true);
+    expect(
+      loadOrchestrationConfig({
+        ...required,
+        THESEAN_VISION_ENABLED: "true",
+      }).theseanVisionEnabled,
+    ).toBe(true);
+    expect(
+      loadOrchestrationConfig({
+        ...required,
+        THESEAN_VISION_ENABLED: "false",
+      }).theseanVisionEnabled,
+    ).toBe(false);
   });
 
   it("enables Thesean thinking only when the flag is the string true (SOC-8 AC-5)", () => {

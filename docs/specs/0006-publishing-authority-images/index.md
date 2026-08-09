@@ -133,7 +133,7 @@ The product session is the only owner source. Every preference, event, asset, me
 - `MEDIA_PENDING_TTL_HOURS`: unattached retention, default `24`.
 - `MEDIA_UPLOAD_HOURLY_LIMIT`: default `50`.
 - `MEDIA_USER_STORAGE_LIMIT_BYTES`: default `1073741824`.
-- `THESEAN_VISION_ENABLED`: enables image content blocks after smoke verification.
+- `THESEAN_VISION_ENABLED`: opt-out kill switch for attaching image bytes (`false` disables; unset/true keeps vision on). Image turns use `THESEAN_VISION_MODEL` (default `ship-like/gpt-5.6-luna`).
 - `THESEAN_INTENT_MODEL`: optional dedicated classifier model for live publish intent; defaults to `THESEAN_MODEL`.
 
 **Critical test scenarios**:

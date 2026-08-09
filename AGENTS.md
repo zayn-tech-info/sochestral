@@ -43,7 +43,7 @@ Instagram Graph version: `INSTAGRAM_GRAPH_API_VERSION` (default `v21.0`).
 
 Business-strict AI social operator for three ICPs: physical product sellers (relevance and customers), founders launching a product (steady updates), and developers/builders who want to be seen while shipping. Not for casual “anyone who posts.” Prefer professional implementation and better practice defaults (official APIs, validated tool execution, review before live publish). Full intent and bar: `docs/scope/scope.md` and `docs/MASTER_PLAN.md`.
 
-Progress lives in `docs/scope/scope.md` (Progress snapshot + At a glance) and `sochestral-master-plan.md` §2. Tracer Bullet path is proven on the cloud product URL. Slice 1 Features 4/5/14 are Done. Remaining close outs: Feature 12 live smoke + authority flag (SOC-9), Feature 13 Thinking flag (SOC-8). Slice 2 (tiers, setup agent, channels) is not started. Free beta access; billing is parallel and not a beta gate.
+Progress lives in `docs/scope/scope.md` (Progress snapshot + At a glance) and `sochestral-master-plan.md` §2. Tracer Bullet path is proven on the cloud product URL. Slice 1 Features 4/5/14 are Done. Feature 7 (setup agent + business profile) is Done (SOC-12 / SOC-13). Feature 12 Done (SOC-9). Feature 13 intent clarify Done; Thesean Thinking close-out Canceled (SOC-8). Feature 6 tiers deferred. Channels wait. Next: Feature 10 remaining web surfaces / schedule calendar (SOC-14). Free beta access; billing is parallel and not a beta gate.
 
 ## Context files
 
@@ -69,8 +69,8 @@ Heads up: most of this file above (and `README.md`) describes the external **Soc
 - **Product API**: `https://api.sochestral.shop` (Fly app `sochestral-api`, Hono)
 - **Product Postgres**: **Neon** is the primary production database (`DATABASE_URL` secret on `sochestral-api`). Do not treat local Docker Postgres as the live story.
 - **SocialMCP**: runs in cloud and is reached via `SOCIALMCP_MCP_URL` (product secret). Platform OAuth tokens stay in the MCP execution DB.
-- **R2**: Cloudflare R2 private media is fully wired in cloud for Feature 12 uploads. `PUBLISHING_AUTHORITY_ENABLED` stays false until Feature 12 live smoke (SOC-9).
-- **Thesean**: cloud LLM for orchestration. `THESEAN_THINKING_ENABLED` / Thinking UI smoke is tracked on SOC-8.
+- **R2**: Cloudflare R2 private media is fully wired in cloud for Feature 12 uploads. Feature 12 live smoke Done (SOC-9); `PUBLISHING_AUTHORITY_ENABLED` is enabled in cloud after that smoke.
+- **Thesean**: cloud LLM for orchestration. Extended Thesean Thinking UI was abandoned (SOC-8 Canceled); chat uses action labels + intent clarify instead. `THESEAN_THINKING_*` is soft-deprecated.
 
 ### Local agent / Cursor Cloud VM services (secondary)
 

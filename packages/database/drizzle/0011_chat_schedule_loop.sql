@@ -1,0 +1,4 @@
+ALTER TABLE "orchestration_tool_calls" DROP CONSTRAINT "orchestration_tool_calls_name_check";--> statement-breakpoint
+ALTER TABLE "orchestration_tool_calls" ADD CONSTRAINT "orchestration_tool_calls_name_check" CHECK ("orchestration_tool_calls"."tool_name" in ('list_connected_accounts', 'validate_post', 'publish_now', 'prepare_review', 'save_profile_entry', 'schedule_post', 'update_business_identity', 'upsert_profile_entry', 'skip_competitors', 'research_competitors', 'save_tone_rule', 'complete_setup_if_ready'));--> statement-breakpoint
+ALTER TABLE "orchestration_runs" DROP CONSTRAINT "orchestration_runs_live_intent_kind_check";--> statement-breakpoint
+ALTER TABLE "orchestration_runs" ADD CONSTRAINT "orchestration_runs_live_intent_kind_check" CHECK ("orchestration_runs"."live_intent_kind" is null or "orchestration_runs"."live_intent_kind" in ('live', 'draft', 'unclear', 'schedule'));

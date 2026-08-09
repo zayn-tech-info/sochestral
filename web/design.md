@@ -16,7 +16,7 @@ Two columns by default: a compact icon rail and a wide main workspace. When a co
 
 ## Navigation
 
-Icon rail by default; expands on hover/focus to show labels. Wired: AI Workspace, Connected Accounts / Settings. Calendar, Scheduled Posts, Drafts, Analytics, Brand Assets stay Soon until APIs exist. Sign out lives in the rail footer.
+Icon rail by default; expands on hover/focus to show labels. Wired: AI Workspace, Calendar, Scheduled Posts, Settings (Business profile, Connected Accounts, Brand Assets). Drafts and Analytics stay Soon until APIs exist. Sign out lives in the rail footer.
 
 ## Header
 

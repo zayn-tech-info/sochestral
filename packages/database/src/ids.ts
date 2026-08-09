@@ -41,3 +41,11 @@ export function createRunId(): string {
 export function createToolCallId(): string {
   return `toolcall_${nanoid(ID_LENGTH)}`;
 }
+
+export function createBusinessProfileId(): string {
+  return `bprof_${nanoid(ID_LENGTH)}`;
+}
+
+export function createProfileEntryId(): string {
+  return `pentry_${nanoid(ID_LENGTH)}`;
+}

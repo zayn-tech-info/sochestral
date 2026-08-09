@@ -87,7 +87,7 @@ describe("apiRequest", () => {
 });
 
 describe("apiStreamTurn", () => {
-  it("parses NDJSON thinking deltas and returns the terminal turn (SOC-8 AC-5)", async () => {
+  it("parses NDJSON step events and returns the terminal turn", async () => {
     const terminal = {
       conversation: {
         id: "conv_1",
@@ -113,7 +113,7 @@ describe("apiStreamTurn", () => {
         id: "run_1",
         status: "completed",
         safeError: null,
-        thinkingText: "Plan the draft",
+        thinkingText: null,
       },
       toolSummaries: [],
       reviewGroups: [],
@@ -123,15 +123,12 @@ describe("apiStreamTurn", () => {
       ndjsonResponse([
         { type: "turn_started", sequence: 1 },
         { type: "step_started", sequence: 2, step: "preparing_draft" },
-        { type: "thinking_delta", sequence: 3, delta: "Plan " },
-        { type: "thinking_delta", sequence: 4, delta: "the draft" },
-        { type: "thinking_completed", sequence: 5 },
-        { type: "step_completed", sequence: 6, step: "preparing_draft" },
-        { type: "turn_completed", sequence: 7, result: terminal },
+        { type: "step_completed", sequence: 3, step: "preparing_draft" },
+        { type: "turn_completed", sequence: 4, result: terminal },
       ]),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const seen: Array<{ type: string; delta?: string }> = [];
+    const seen: Array<{ type: string; step?: string }> = [];
 
     const result = await apiStreamTurn(
       "/orchestration/conversations/stream",
@@ -153,9 +150,9 @@ describe("apiStreamTurn", () => {
     );
     expect(
       seen
-        .filter((event) => event.type === "thinking_delta")
-        .map((event) => event.delta),
-    ).toEqual(["Plan ", "the draft"]);
+        .filter((event) => event.type === "step_started")
+        .map((event) => event.step),
+    ).toEqual(["preparing_draft"]);
     expect(result).toEqual(terminal);
   });
 
@@ -173,5 +170,70 @@ describe("apiStreamTurn", () => {
       status: 502,
       code: "STREAM_INCOMPLETE",
     });
+  });
+});
+
+describe("business profile client helpers", () => {
+  it("GETs and PATCHes /profile (AC-5)", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "bprof_1",
+          businessName: "Acme",
+          businessDescription: "Tools",
+          websiteUrl: null,
+          targetAudience: null,
+          industry: null,
+          setupStatus: "in_progress",
+          setupStep: "tone",
+          competitorsSkipped: false,
+          compiledNote: "# Business profile",
+          minimumComplete: false,
+          sections: {},
+          updatedAt: "2026-08-08T00:00:00.000Z",
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "bprof_1",
+          businessName: "Acme Updated",
+          businessDescription: "Tools",
+          websiteUrl: null,
+          targetAudience: null,
+          industry: null,
+          setupStatus: "in_progress",
+          setupStep: "tone",
+          competitorsSkipped: true,
+          compiledNote: "# Business profile",
+          minimumComplete: false,
+          sections: {},
+          updatedAt: "2026-08-08T00:00:00.000Z",
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { getBusinessProfile, patchBusinessProfile } = await import("./product-api");
+    const loaded = await getBusinessProfile();
+    expect(loaded.businessName).toBe("Acme");
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${apiBase}/profile`,
+      expect.objectContaining({ credentials: "include" }),
+    );
+
+    const patched = await patchBusinessProfile({
+      competitorsSkipped: true,
+      redoSetup: true,
+    });
+    expect(patched.businessName).toBe("Acme Updated");
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${apiBase}/profile`,
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          competitorsSkipped: true,
+          redoSetup: true,
+        }),
+      }),
+    );
   });
 });

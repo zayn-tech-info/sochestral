@@ -142,7 +142,6 @@ beforeEach(() => {
     pendingLaunch: null,
     launchOptimistic: null,
     liveStep: null,
-    liveThinking: "",
     startNewChat: vi.fn(),
     takePendingLaunch: vi.fn(() => null),
     clearLaunchOptimistic: vi.fn(),
@@ -182,16 +181,23 @@ describe("ChatWorkspace", () => {
     mocks.workspace.takePendingLaunch = vi.fn(() => {
       if (launchTaken) return null;
       launchTaken = true;
+      mocks.workspace.pendingLaunch = null;
       return launch;
+    });
+    mocks.workspace.clearLaunchOptimistic = vi.fn(() => {
+      mocks.workspace.launchOptimistic = null;
     });
     mocks.workspace.sendMessage = vi.fn(
       () =>
         new Promise((resolve) => {
-          setTimeout(() => resolve("conv_launch"), 20);
+          setTimeout(() => {
+            mocks.workspace.pending = {};
+            resolve("conv_launch");
+          }, 20);
         }),
     );
 
-    render(<ChatWorkspace conversationId="new" />);
+    const { rerender } = render(<ChatWorkspace conversationId="new" />);
 
     expect(screen.getByText("Plan a week of posts")).toBeInTheDocument();
     expect(mocks.workspace.takePendingLaunch).toHaveBeenCalled();
@@ -208,6 +214,12 @@ describe("ChatWorkspace", () => {
       expect(mocks.workspace.clearLaunchOptimistic).toHaveBeenCalled();
       expect(mocks.replace).toHaveBeenCalledWith("/app/chat/conv_launch");
     });
+    // Re-render with cleared launch flags (as WorkspaceProvider would) while still on /new.
+    rerender(<ChatWorkspace conversationId="new" />);
+    await waitFor(() => {
+      expect(mocks.replace).toHaveBeenCalledWith("/app/chat/conv_launch");
+    });
+    expect(mocks.replace).not.toHaveBeenCalledWith("/app/workspace");
   });
 
   it("keeps Shift Enter as a new line without sending (AC 2)", async () => {
@@ -317,8 +329,7 @@ describe("ChatWorkspace", () => {
     expect(screen.queryByText("validate post")).toBeNull();
   });
 
-  it("shows unavailable reasoning copy when persisted thinking text is empty (SOC-8 AC-3, AC-5)", async () => {
-    const user = userEvent.setup();
+  it("shows a non-expandable action label for completed prepare turns", () => {
     mocks.workspace.details = {
       conv_1: detail({
         runs: [
@@ -352,17 +363,14 @@ describe("ChatWorkspace", () => {
     };
     render(<ChatWorkspace conversationId="conv_1" />);
 
-    const toggle = screen.getByRole("button", { name: /Thinking,/i });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await user.click(toggle);
-
+    expect(screen.getByLabelText("Preparing a draft")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Thinking,/i })).toBeNull();
     expect(
-      screen.getByText("Reasoning unavailable for this model."),
-    ).toBeInTheDocument();
+      screen.queryByText("Reasoning unavailable for this model."),
+    ).toBeNull();
   });
 
-  it("expands completed Thinking disclosure with persisted thinking text (SOC-8 AC-2, AC-5)", async () => {
-    const user = userEvent.setup();
+  it("links to calendar and scheduled posts after a successful schedule", () => {
     mocks.workspace.details = {
       conv_1: detail({
         runs: [
@@ -370,8 +378,9 @@ describe("ChatWorkspace", () => {
             id: "run_1",
             status: "completed",
             safeError: null,
-            thinkingText: "  Prefer a short Threads draft  ",
+            thinkingText: null,
             explicitLiveIntent: false,
+            liveIntentKind: "schedule",
           },
         ],
         turnActivities: [
@@ -383,9 +392,14 @@ describe("ChatWorkspace", () => {
               {
                 id: "tool_1",
                 runId: "run_1",
-                toolName: "prepare_review",
+                toolName: "schedule_post",
                 status: "succeeded",
-                summary: { ok: true },
+                summary: {
+                  ok: true,
+                  scheduled: true,
+                  calendarPath: "/app/calendar",
+                  scheduledPath: "/app/scheduled",
+                },
                 safeError: null,
               },
             ],
@@ -396,13 +410,84 @@ describe("ChatWorkspace", () => {
     };
     render(<ChatWorkspace conversationId="conv_1" />);
 
-    const toggle = screen.getByRole("button", { name: /Thinking,/i });
-    await user.click(toggle);
-
-    expect(screen.getByText("Prefer a short Threads draft")).toBeInTheDocument();
+    expect(screen.getByLabelText("Scheduling")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open calendar" })).toHaveAttribute(
+      "href",
+      "/app/calendar",
+    );
     expect(
-      screen.queryByText("Reasoning unavailable for this model."),
-    ).toBeNull();
+      screen.getByRole("link", { name: "Scheduled posts" }),
+    ).toHaveAttribute("href", "/app/scheduled");
+  });
+
+  it("advances the intent Q&A carousel and submits answers before acting", async () => {
+    const user = userEvent.setup();
+    let calls = 0;
+    mocks.workspace.sendMessage = vi.fn(
+      async (_id, _message, _retry, _media, onStreamEvent, intentAnswers) => {
+        calls += 1;
+        if (calls === 1 && !intentAnswers?.length) {
+          onStreamEvent?.({
+            type: "intent_questions",
+            questions: [
+              {
+                id: "goal",
+                prompt: "What should I do with this?",
+                reason: "You asked for ideas and also mentioned posting.",
+                options: [
+                  {
+                    id: "suggest_only",
+                    label: "Suggest captions only",
+                    recommended: true,
+                  },
+                  { id: "draft_review", label: "Draft a post for my review" },
+                  { id: "publish_now", label: "Publish live now" },
+                  { id: "custom", label: "Something else", custom: true },
+                ],
+              },
+            ],
+          });
+        }
+        return "conv_1";
+      },
+    );
+    mocks.workspace.details = { conv_1: detail() };
+    render(<ChatWorkspace conversationId="conv_1" />);
+
+    await user.type(
+      screen.getByLabelText("Message Sochestral"),
+      "Suggest captions and post{Enter}",
+    );
+
+    expect(await screen.findByLabelText("Clarify intent")).toBeInTheDocument();
+    expect(screen.getByText("What should I do with this?")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Clarify intent" }));
+    expect(
+      screen.getByRole("button", { name: /What should I do with this\?/i }),
+    ).toHaveAttribute("aria-expanded", "false");
+    await user.click(
+      screen.getByRole("button", { name: /What should I do with this\?/i }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Clarify intent" }),
+    ).toHaveAttribute("aria-expanded", "true");
+
+    await user.click(
+      screen.getByRole("button", { name: /Suggest captions only/i }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.workspace.sendMessage).toHaveBeenCalledTimes(2);
+    });
+    expect(mocks.workspace.sendMessage).toHaveBeenLastCalledWith(
+      "conv_1",
+      "Suggest captions and post",
+      undefined,
+      [],
+      expect.any(Function),
+      [{ questionId: "goal", optionId: "suggest_only" }],
+    );
   });
 
   it("opens the live preview aside without a View review launcher", async () => {
@@ -489,9 +574,10 @@ describe("ChatWorkspace", () => {
     expect(
       screen.getByRole("status", { name: "Sochestral is working" }),
     ).toBeInTheDocument();
-    expect(screen.queryByText("Checking context and safe tools")).toBeNull();
+    expect(screen.getByText("Reading your message")).toBeInTheDocument();
     expect(screen.getByLabelText("Message Sochestral")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Attach images" })).toBeDisabled();
   });
 
   it("shows the sent message and a small assistant progress state immediately", async () => {

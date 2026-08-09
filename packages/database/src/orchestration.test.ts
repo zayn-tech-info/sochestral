@@ -16,6 +16,7 @@ import {
   listOwnedConversations,
   listRunToolCalls,
   OrchestrationDatabaseError,
+  updateOwnedConversationTitle,
 } from "./orchestration.js";
 import {
   orchestrationConversations,
@@ -105,7 +106,7 @@ describe("orchestration database", () => {
     ).resolves.toEqual([]);
   });
 
-  it("blocks a second active run and deletion while running (AC-8)", async () => {
+  it("blocks a second active run while one is running (AC-8)", async () => {
     const turn = await createConversationTurn(database.db, {
       userId: ownerId,
       requestId: "10000000-0000-4000-8000-000000000004",
@@ -128,9 +129,25 @@ describe("orchestration database", () => {
     ).rejects.toMatchObject({
       code: "RUN_IN_PROGRESS",
     } satisfies Partial<OrchestrationDatabaseError>);
-    await expect(
-      deleteOwnedConversation(database.db, ownerId, turn.conversation.id),
-    ).rejects.toMatchObject({ code: "RUN_IN_PROGRESS" });
+  });
+
+  it("cancels a running chat turn when the conversation is deleted", async () => {
+    const turn = await createConversationTurn(database.db, {
+      userId: ownerId,
+      requestId: "10000000-0000-4000-8000-000000000042",
+      content: "Post on Threads",
+      title: "Post on Threads",
+      provider: "thesean",
+      model: "contract-model",
+      targetPlatforms: ["threads"],
+    });
+
+    expect(
+      await deleteOwnedConversation(database.db, ownerId, turn.conversation.id),
+    ).toBe(true);
+    expect(
+      await getOwnedConversation(database.db, ownerId, turn.conversation.id),
+    ).toBeNull();
   });
 
   it("recovers an interrupted stale run before appending a retry", async () => {
@@ -277,20 +294,38 @@ describe("orchestration database", () => {
     ).toHaveLength(0);
   });
 
-  it("does not reveal whether another owner conversation exists on delete (AC-1)", async () => {
+  it("updates owned conversation titles without leaking other users", async () => {
     const turn = await createConversationTurn(database.db, {
       userId: ownerId,
-      requestId: "10000000-0000-4000-8000-000000000009",
-      content: "Preview on Threads",
-      title: "Preview on Threads",
-      assistantContent: "Ready",
+      requestId: "10000000-0000-4000-8000-000000000010",
+      content: "Hi",
+      title: "New chat",
+      assistantContent: "Hello",
     });
 
-    await expect(
-      deleteOwnedConversation(database.db, otherId, turn.conversation.id),
-    ).resolves.toBe(false);
+    const updated = await updateOwnedConversationTitle(
+      database.db,
+      ownerId,
+      turn.conversation.id,
+      "Launch post plan",
+    );
+    expect(updated?.title).toBe("Launch post plan");
     expect(
-      await getOwnedConversation(database.db, ownerId, turn.conversation.id),
-    ).not.toBeNull();
+      (await getOwnedConversation(database.db, ownerId, turn.conversation.id))
+        ?.title,
+    ).toBe("Launch post plan");
+
+    await expect(
+      updateOwnedConversationTitle(
+        database.db,
+        otherId,
+        turn.conversation.id,
+        "Stolen title",
+      ),
+    ).resolves.toBeNull();
+    expect(
+      (await getOwnedConversation(database.db, ownerId, turn.conversation.id))
+        ?.title,
+    ).toBe("Launch post plan");
   });
 });

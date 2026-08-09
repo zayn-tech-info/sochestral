@@ -25,17 +25,17 @@ Implementation stays professional and conservative: official APIs only, validate
 **Workflow:** Medium (after `/develop`: `/check verify`, then `/test`). Auth, database, orchestration, and tier design override to `full`.
 **Weight profile:** product database, auth/JWT, and orchestration are `full`; subscription tier design is `full`; most channel and agent features are `medium`.
 
-## Progress snapshot (reconciled against code + Linear, 2026-08-07)
+## Progress snapshot (reconciled against code + Linear, 2026-08-09)
 
 | Area | Reality |
 |------|---------|
 | Foundation (1 to 2) | Shipped: product schema on **Neon** Postgres, sessions, MCP JWT minting |
 | Slice 1 core (3 to 5) | **Done.** Tracer Bullet path proven on the product URL (`https://app.sochestral.shop`): connect → chat → draft → preview aside → approve → SocialMCP publish → live result. Linear SOC-5 / SOC-6 / SOC-18 / SOC-19 Done |
-| Slice 3 early (12 to 14) | Feature 14 **Done** (SOC-7). Feature 13 build + Thinking automated tests Done; cloud Thinking flag smoke still open (SOC-8). Feature 12 code + **R2 wired** in cloud; live smoke then `PUBLISHING_AUTHORITY_ENABLED` remains (SOC-9) |
-| Slice 2 (6 to 10) | Not started. Feature 10 is narrowed: chat/connectors/preview already ship under 4/5/14 |
+| Slice 3 early (12 to 14) | Feature 14 **Done** (SOC-7). Feature 12 live smoke **Done** (SOC-9). Feature 13 intent clarify + action labels **Done**; Thesean Thinking smoke **Canceled** (SOC-8) — model has no extended thinking; think-stream UI removed |
+| Slice 2 (6 to 10) | Feature 7 **Done** ([0009](../specs/0009-setup-agent-business-profile/index.md), SOC-12 / SOC-13). Feature 6 tiers **deferred** (SOC-10 / SOC-11 Backlog). Channels (8/9) wait until the main web app is further along. Feature 10 calendar + scheduled posts list **build landed** ([0010](../specs/0010-schedule-calendar/index.md), [0011](../specs/0011-scheduled-posts-list/index.md)); next `/check verify` then `/test`. Feature 15 chat schedule loop **build + tests landed** ([0012](../specs/0012-chat-schedule-loop/index.md)); live SocialMCP smoke still open in verify.md. Brand kit (SOC-40) stays a strong parallel Settings deepen |
 | Hosting | Fly apps `sochestral` (web) + `sochestral-api` (Hono); cloud SocialMCP; Neon as primary product DB. Local Docker Postgres on 5433 is for agent/dev only |
 
-**Close out next (before Slice 2):** Feature 12 live smoke + enable `PUBLISHING_AUTHORITY_ENABLED` (SOC-9) → Feature 13 Thinking flag smoke (SOC-8). Free beta access; billing is parallel and not a beta gate.
+**Next:** `/check verify chat schedule loop` (Feature 15, [0012](../specs/0012-chat-schedule-loop/index.md)), then `/test`. Feature 10 calendar verify can run in parallel. WhatsApp/Telegram after the web operator loop feels complete. Feature 6 tiers still deferred. Free beta access; billing is parallel and not a beta gate.
 
 ## Already done in SocialMCP (do not rebuild here)
 
@@ -67,15 +67,16 @@ Treat the following as shipped in the external SocialMCP repo. This SaaS scope o
 | 3 | Orchestration backend skeleton | Slice 1 | done |
 | 4 | Sochestral chat workspace and connectors UI | Slice 1 | done |
 | 5 | Review mode publish loop | Slice 1 | done |
-| 6 | Subscription tier model | Slice 2 | planned |
-| 7 | Setup agent and business profile | Slice 2 | planned |
+| 6 | Subscription tier model | Slice 2 | deferred |
+| 7 | Setup agent and business profile | Slice 2 | done |
 | 8 | WhatsApp channel for agent chat | Slice 2 | planned |
 | 9 | Telegram channel for agent chat | Slice 2 | planned |
-| 10 | Remaining web product surfaces | Slice 2 | planned |
+| 10 | Remaining web product surfaces | Slice 2 | in-progress |
 | 11 | Structured memory and correction loop | Slice 3 | planned |
-| 12 | Configurable publishing authority and image uploads | Slice 3 | in-progress |
-| 13 | Intent clarify and Thinking UI | Slice 3 | in-progress |
+| 12 | Configurable publishing authority and image uploads | Slice 3 | done |
+| 13 | Intent clarify and Thinking UI | Slice 3 | done |
 | 14 | Live platform preview aside | Slice 3 | done |
+| 15 | Chat schedule loop | Slice 3 | in-progress |
 | — | Operator comment/mention handling | Deferred | planned |
 | — | Video and image generation pipeline | Deferred | planned |
 | — | Facebook Pages (after MCP adapter exists) | Deferred | planned |
@@ -174,17 +175,27 @@ Default for new users: agent prepares a draft set in the product, user edits and
 
 Users can manage the product through web UI or optional messaging apps. Neither channel is mandatory.
 
-### 6. Subscription tier model · full
+### 6. Subscription tier model · full · deferred
 
 Define tiers and what each tier gates (platforms, post volume, channels, autonomy, generation features). Gate checks live in the product before orchestration assumes unlimited access. Payment provider integration is deferred.
 **Done when:** tier definitions and gate checks are documented in a spec; orchestration can read a user's tier from Postgres and block or allow actions accordingly; payment provider work is explicitly out of this feature.
+**Progress:** Intentionally deferred (2026-08-09) until core operator features exist to gate. Free beta continues without Feature 6. Linear SOC-10 / SOC-11 in Backlog. Reopen before paid launch.
 - [ ] Design it (spec): `/architect subscription tier model`
 
-### 7. Setup agent and business profile · full
+### 7. Setup agent and business profile · full · done
 
 Separate setup agent turns plain language onboarding into structured profile data (tone, rules, cadence, skills, approval mode). Distinct from the operator agent that runs day to day. Profile lives in product Postgres, categorized — not one blob.
 **Done when:** a new user can complete onboarding and the persisted structured profile drives content generation; sample post correction flow captures tone; profile categories are queryable, not a single opaque document.
-- [ ] Design it (spec): `/architect setup agent and business profile`
+**Spec:** [0009](../specs/0009-setup-agent-business-profile/index.md)
+**Code:** `packages/database/src/profile.ts`, `packages/api/src/profile-routes.ts`, `packages/orchestration/src/setup-agent.ts`, `packages/orchestration/src/service.ts`, `web/src/components/app/profile-settings.tsx`, `web/src/app/app/settings/profile/page.tsx`
+- [x] Design it (spec): `/architect setup agent and business profile`
+- [x] Build it: `/develop setup agent and business profile`
+  - [x] Persist `business_profiles` / `profile_entries` and profile REST + compile helper (AC-1, AC-5, AC-8)
+  - [x] Setup gate + setup agent writes + minimum complete rules (AC-2, AC-3, AC-9)
+  - [x] DeepSeek research confirm + sample tone path (AC-3, AC-4)
+  - [x] Operator note injection, profile level confirm, Profile settings and chat gate UX (AC-5, AC-6, AC-7, AC-9)
+- [x] Verify it: `/check verify setup agent and business profile`
+- [x] Test it: `/test setup agent and business profile`
 
 ### 8. WhatsApp channel for agent chat · full
 
@@ -198,12 +209,24 @@ Telegram as a second messaging add-on. Same channel abstraction as WhatsApp wher
 **Done when:** a linked Telegram identity maps to one SaaS `userId`; core operator flows (draft, approve, status) work at parity with WhatsApp for text-first interactions.
 - [ ] Design it (spec): `/architect Telegram channel for agent chat`
 
-### 10. Remaining web product surfaces · medium
+### 10. Remaining web product surfaces · medium · in-progress
 
 Chat workspace, connectors, review/preview aside, login, and the marketing landing already ship under Features 4, 5, 14 and `web/src/app/page.tsx`. This feature is no longer a greenfield web app. It covers the remaining operator surfaces that Slice 1 did not build.
 **Done when:** a signed in user can manage a schedule view, business profile settings, and any standalone approval queue needed beyond the conversation scoped preview aside, without being forced onto messaging channels.
-**Progress:** Partially delivered elsewhere. No schedule view, profile settings, or dedicated approval queue routes yet. Design this as the gap list, not a second chat product.
-- [ ] Design it (spec): `/architect remaining web product surfaces`
+**Progress:** Profile settings already ship under Feature 7. Preview aside covers review. Spec 0010 calendar build landed (week grid, detail + live preview). Spec 0011 locks the Scheduled Posts list (`/app/scheduled`, sort/filter, 30 day windows, shared detail). Channels are out of this feature. Standalone approval queue stays out unless the aside proves insufficient later. Manual create form is deferred (from 0011).
+**Spec:** [0010](../specs/0010-schedule-calendar/index.md) · [0011](../specs/0011-scheduled-posts-list/index.md)
+- [x] Design it (spec): `/architect remaining web product surfaces`
+- [x] Build it: `/develop remaining web product surfaces`
+  - [x] MCP schedule contract + calendar list/accounts APIs (AC-2, AC-3, AC-4, AC-9, AC-10, AC-13)
+  - [x] Slot detail mutations (get / reschedule / cancel) with ownership guards (AC-5, AC-6, AC-7, AC-8, AC-13)
+  - [x] `/app/calendar` week UI, account sidebar, detail + preview, nav wiring (AC-1, AC-11, AC-12)
+  - [x] Diff any automation calendar work to 0010; keep matches or rewrite; then close tests (AC-1 through AC-13)
+  - [x] Shared projection + `GET /scheduled/posts` (30 day window, filters, sort, hasOlder/hasNewer) (0011 AC-2 to AC-5, AC-10, AC-14)
+  - [x] `/app/scheduled` table UI, empty/error, Scheduled Posts nav, Week/List cross links (0011 AC-1, AC-6 to AC-9, AC-11 to AC-13)
+- [ ] Verify it: `/check verify remaining web product surfaces`
+- [ ] Test it: `/test remaining web product surfaces`
+
+**Code:** `packages/orchestration/src/calendar.ts`, `packages/api/src/calendar-routes.ts`, `web/src/app/app/calendar/`, `web/src/app/app/scheduled/`, `web/src/components/app/schedule-calendar.tsx`, `web/src/components/app/schedule-detail.tsx`, `web/src/components/app/scheduled-posts-list.tsx`
 
 ## Slice 3: Memory and autonomy
 
@@ -213,37 +236,36 @@ User corrections become discrete rules in categorized product storage. Every gen
 **Done when:** a correction in chat or web updates stored rules in Postgres; the next draft reflects it; conflicting rules resolve with newer wins; rules do not live only in raw chat logs.
 - [ ] Design it (spec): `/architect structured memory and correction loop`
 
-### 12. Configurable publishing authority and image uploads · medium · in-progress
+### 12. Configurable publishing authority and image uploads · medium · done
 
 Users choose Always draft, Approve for me, or Full access across conversations. Every automatic live post still requires explicit live wording and trusted review preflight. Private image uploads flow through chat, review, model vision, and SocialMCP without exposing storage keys.
 **Done when:** publishing preferences are versioned and auditable; Full access requires explicit consent; authority is snapshotted per run; owned sanitized images can be attached and published; and a feature flag forces Always draft until R2, SocialMCP `connectedAt`, and live smoke checks are complete.
-**Progress:** Schema, APIs, orchestration routing, composer attach, Settings mode control, and review media wiring exist (migrations `0004` to `0006`). **Cloudflare R2 is fully wired** in the cloud product env (SOC-9). `.env.example` still leaves R2 empty and `PUBLISHING_AUTHORITY_ENABLED=false` / `THESEAN_VISION_ENABLED=false` for local defaults. Remaining: coordinated live image publish smoke on the product URL, then enable `PUBLISHING_AUTHORITY_ENABLED`.
+**Progress:** Done on cloud (Linear SOC-9). Schema, APIs, orchestration routing, composer attach, Settings mode control, review media, R2, and live image publish smoke complete; `PUBLISHING_AUTHORITY_ENABLED` enabled in cloud after smoke.
 **Spec:** [0006](../specs/0006-publishing-authority-images/index.md)
 **Code:** `packages/database/src/publishing.ts`, `packages/orchestration/src/publishing.ts`, `packages/api/src/publishing-routes.ts`, `packages/api/src/media-routes.ts`, `packages/api/src/media-storage.ts`, `web/src/components/app/publishing-mode-control.tsx`
 - [x] Design it (spec): `/architect configurable publishing authority and image uploads`
-- [ ] Build it: `/develop configurable publishing authority and image uploads`
+- [x] Build it: `/develop configurable publishing authority and image uploads`
   - [x] Persist preferences, consent, audit events, authority snapshots, and normalized media
   - [x] Add guarded preference and private image upload APIs
   - [x] Route explicit automatic publishing through trusted review services
   - [x] Add composer, Settings, image, and review media UI
-  - [ ] Complete storage, vision, contract, and rollout checks (R2 wired in cloud; vision smoke + SocialMCP `connectedAt` + enable flag still pending on SOC-9)
-- [ ] Verify it: `/check verify configurable publishing authority and image uploads`
-- [ ] Test it: `/test configurable publishing authority and image uploads`
+  - [x] Complete storage, vision, contract, and rollout checks (SOC-9)
+- [x] Verify it: `/check verify configurable publishing authority and image uploads`
+- [x] Test it: `/test configurable publishing authority and image uploads`
 
-### 13. Intent clarify and Thinking UI · medium · in-progress
+### 13. Intent clarify and Thinking UI · medium · done
 
-When Approve for me or Full access cannot tell live publish from draft, ask instead of silently drafting. Chat shows a Thinking disclosure with safe step labels and optional Thesean model reasoning over NDJSON streaming.
-**Done when:** unclear intent never calls `prepare_review`; clarify copy is product owned; stream emits safe steps and sanitized thinking; web shows an expandable Thinking control.
-**Progress:** Build is complete in code (migration `0007`, ternary intent, clarify turn, stream events, Thinking disclosure). Intent clarify that blocks silent drafts is part of the working cloud chat path. Automated Thinking / stream close out tests for SOC-8 are landed. **Thinking flag note:** cloud `THESEAN_THINKING_ENABLED` still needs operator smoke + Fly secret record (or intentional delay). See `docs/specs/SOC-8-spec.md` and `docs/specs/0007-intent-clarify-thinking-ui/verify.md`.
-**Spec:** [0007](../specs/0007-intent-clarify-thinking-ui/index.md) · close out [SOC-8](../specs/SOC-8-spec.md)
+When Approve for me or Full access cannot tell live publish from draft, ask instead of silently drafting. Chat shows safe progress **action labels** (and structured intent Q&A). Thesean extended think-stream UI was abandoned: the model route has no extended thinking, smoke failed, and the expandable Thinking disclosure was removed.
+**Done when:** unclear intent never calls `prepare_review`; clarify copy is product owned; stream emits safe steps; web shows action labels (not Thesean think-log).
+**Progress:** Intent clarify + action labels shipped (0007 amended). SOC-8 Thesean Thinking close-out **Canceled** (2026-08-09).
+**Spec:** [0007](../specs/0007-intent-clarify-thinking-ui/index.md)
 **Code:** `packages/database`, `packages/orchestration/src/publishing.ts`, `packages/orchestration/src/stream.ts`, `packages/api/src/orchestration-routes.ts`, `web/src/components/app/chat-workspace.tsx`, `web/src/components/app/workspace-provider.tsx`
 - [x] Design it (spec): `/architect intent clarify and Thinking UI`
 - [x] Build it: `/develop intent clarify and Thinking UI`
   - [x] Ternary intent + unclear clarify turn
-  - [x] Thinking persist + Thesean flag
-  - [x] NDJSON stream with step and thinking events
-  - [x] Web Thinking disclosure + stream client
-- [ ] Verify it: `/check verify intent clarify and Thinking UI`
+  - [x] Action labels + NDJSON stream (Thesean think-stream removed)
+  - [x] Web action labels + stream client + intent Q&A carousel
+- [x] Verify it: `/check verify intent clarify and Thinking UI`
 - [x] Test it: `/test intent clarify and Thinking UI`
 
 ### 14. Live platform preview aside · medium · done
@@ -262,6 +284,20 @@ Replace the chat draft log and review modal with a right hand aside that shows a
 - [x] Verify it: `/check verify live platform preview aside`
 - [x] Test it: `/test live platform preview aside`
 
+### 15. Chat schedule loop · medium · in-progress
+
+Operators can ask chat to schedule a post. The agent understands first, drafts via `prepare_review` when content is new, then calls SocialMCP `schedule_post` when when and intent are clear. Calendar and Scheduled Posts already display the result.
+**Done when:** a signed in user can schedule at least one post through chat with a clear `publishAt`, see it on Calendar or Scheduled Posts, and never get a false “scheduled” claim on tool failure. Multi day series require an accepted plan before multiple schedule calls.
+**Spec:** [0012](../specs/0012-chat-schedule-loop/index.md)
+- [x] Design it (spec): `/architect chat schedule loop`
+- [x] Build it: `/develop chat schedule loop`
+  - [x] DB checks + `schedule_post` Zod/allowlist/MCP wiring (AC-1, AC-7, AC-8)
+  - [x] Schedule intent + SYSTEM_MESSAGE + clarify UI + tests (AC-2 to AC-6, AC-9)
+- [ ] Verify it: `/check verify chat schedule loop` (unit AC proof green; live SocialMCP smoke still open in [verify.md](../specs/0012-chat-schedule-loop/verify.md))
+- [x] Test it: `/test chat schedule loop`
+
+**Code:** `packages/orchestration/src/tools.ts`, `packages/orchestration/src/publishing.ts`, `packages/orchestration/src/service.ts`, `packages/database`
+
 ## Deferred
 
 Out of scope for the current build pass. Kept so the plan stays honest.
@@ -272,6 +308,7 @@ Out of scope for the current build pass. Kept so the plan stays honest.
 - **Analytics and trend detection**: needs posting volume first · needs a decision · medium (login promo analytics cards are decoration only)
 - **Payment provider integration**: follows subscription tier model spec · full
 - **System dark mode**: product shell plus platform preview chrome · enrolled from 0008 follow-up · medium
+- **Manual schedule create form**: empty state Create post stops linking only to Workspace · from spec 0011 · medium
 - **Anything that belongs only in the open MCP repo**: adapters, token encryption, worker internals, MCP tool implementations
 
 ## Legend
@@ -287,7 +324,7 @@ Out of scope for the current build pass. Kept so the plan stays honest.
 | `done` | `/test`, then `/sync` | all boxes ticked |
 | `existing` / already done in SocialMCP | `/scope` context | listed only under “Already done in SocialMCP”; not a build task here |
 
-**Next step** = finish Feature 12 live smoke + enable authority flag (SOC-9), then Feature 13 Thinking flag smoke (SOC-8). After that, lowest numbered `planned` feature is Feature 6 (`/architect subscription tier model`).
+**Next step** = `/check verify chat schedule loop` (Feature 15, [0012](../specs/0012-chat-schedule-loop/index.md)), then `/test`. Feature 10 calendar verify remains available in parallel. Channels (Feature 8/9) wait. Feature 6 tiers stay deferred.
 
 **Weight `full`** = fresh model `/check review` warranted before merge.
 

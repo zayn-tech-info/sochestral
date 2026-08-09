@@ -48,18 +48,18 @@ const items = [
     kind: "link" as const,
   },
   {
-    href: "#",
+    href: "/app/calendar",
     label: "Calendar",
     icon: CalendarDays,
-    match: () => false,
-    kind: "soon" as const,
+    match: (p: string) => p.startsWith("/app/calendar"),
+    kind: "link" as const,
   },
   {
-    href: "#",
+    href: "/app/scheduled",
     label: "Scheduled Posts",
     icon: CalendarDays,
-    match: () => false,
-    kind: "soon" as const,
+    match: (p: string) => p.startsWith("/app/scheduled"),
+    kind: "link" as const,
   },
   {
     href: "#",
@@ -75,19 +75,26 @@ const items = [
     match: () => false,
     kind: "soon" as const,
   },
+] as const;
+
+const settingsLinks = [
   {
-    href: "#",
-    label: "Brand Assets",
-    icon: ImageIcon,
-    match: () => false,
-    kind: "soon" as const,
+    href: "/app/settings/profile",
+    label: "Business profile",
+    icon: FileText,
+    match: (p: string) => p.startsWith("/app/settings/profile"),
   },
   {
     href: "/app/settings/connectors",
     label: "Connected Accounts",
     icon: Link2,
-    match: (p: string) => p.startsWith("/app/settings"),
-    kind: "link" as const,
+    match: (p: string) => p.startsWith("/app/settings/connectors"),
+  },
+  {
+    href: "/app/settings/brand-assets",
+    label: "Brand Assets",
+    icon: ImageIcon,
+    match: (p: string) => p.startsWith("/app/settings/brand-assets"),
   },
 ] as const;
 
@@ -115,11 +122,17 @@ export function SideNav({ expanded = false, onNavigate }: SideNavProps) {
   const reduceMotion = useReducedMotion();
   const [hovered, setHovered] = useState(false);
   const [recentOpen, setRecentOpen] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(true);
   const closeTimer = useRef<number | null>(null);
   const initial = (user?.email?.[0] ?? "S").toUpperCase();
   const open = expanded || hovered;
   const profileLabel = user?.email?.split("@")[0] ?? "Workspace";
   const recent = conversations.slice(0, RECENT_LIMIT);
+  const settingsActive = pathname.startsWith("/app/settings");
+
+  useEffect(() => {
+    if (settingsActive) setSettingsOpen(true);
+  }, [settingsActive]);
 
   useEffect(() => {
     return () => {
@@ -305,19 +318,87 @@ export function SideNav({ expanded = false, onNavigate }: SideNavProps) {
             </RevealLabel>
           </button>
         </RailItemShell>
-        <RailItemShell label="Settings" open={open}>
-          <Link
-            href="/app/settings/connectors"
-            onClick={onNavigate}
-            className="os-rail-item"
-            aria-label="Settings"
-          >
-            <Settings className="size-4 shrink-0" aria-hidden="true" />
-            <RevealLabel show={open} className="os-rail-label">
-              Settings
-            </RevealLabel>
-          </Link>
-        </RailItemShell>
+        {open ? (
+          <section className="os-rail-settings" aria-label="Settings">
+            <button
+              type="button"
+              className={cn(
+                "os-rail-item os-rail-settings-head",
+                settingsActive && "os-rail-item-active",
+              )}
+              aria-expanded={settingsOpen}
+              aria-current={settingsActive ? "page" : undefined}
+              onClick={() => setSettingsOpen((current) => !current)}
+            >
+              <Settings className="size-4 shrink-0" aria-hidden="true" />
+              <span className="os-rail-label">Settings</span>
+              <ChevronDown
+                className={cn(
+                  "size-3.5 os-rail-recent-caret ml-auto",
+                  settingsOpen && "os-rail-recent-caret-open",
+                )}
+                aria-hidden="true"
+              />
+            </button>
+            <AnimatePresence initial={false}>
+              {settingsOpen ? (
+                <motion.div
+                  key="settings-list"
+                  initial={reduceMotion ? false : { opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={
+                    reduceMotion ? undefined : { opacity: 0, height: 0 }
+                  }
+                  transition={
+                    reduceMotion ? { duration: 0 } : productMotion.quick
+                  }
+                  className="os-rail-settings-body"
+                >
+                  <ul className="os-rail-recent-list">
+                    {settingsLinks.map((item) => {
+                      const active = item.match(pathname);
+                      const Icon = item.icon;
+                      return (
+                        <li key={item.href}>
+                          <Link
+                            href={item.href}
+                            onClick={onNavigate}
+                            className={cn(
+                              "os-rail-recent-item os-rail-settings-link",
+                              active && "os-rail-recent-item-active",
+                            )}
+                            aria-current={active ? "page" : undefined}
+                          >
+                            <Icon
+                              className="size-3.5 shrink-0"
+                              aria-hidden="true"
+                            />
+                            <span>{item.label}</span>
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
+          </section>
+        ) : (
+          <RailItemShell label="Settings" open={false}>
+            <Link
+              href="/app/settings"
+              onClick={onNavigate}
+              className={cn(
+                "os-rail-item",
+                settingsActive && "os-rail-item-active",
+              )}
+              aria-label="Settings"
+              aria-current={settingsActive ? "page" : undefined}
+            >
+              <Settings className="size-4 shrink-0" aria-hidden="true" />
+            </Link>
+          </RailItemShell>
+        )}
         <RailItemShell label="Sign out" open={open}>
           <button
             type="button"

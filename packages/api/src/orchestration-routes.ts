@@ -32,6 +32,27 @@ function errorResponse(error: unknown): {
 }
 
 function mutationInput(input: Record<string, unknown> | null) {
+  const intentAnswers = Array.isArray(input?.intentAnswers)
+    ? input.intentAnswers.flatMap((entry) => {
+        if (!entry || typeof entry !== "object") return [];
+        const row = entry as Record<string, unknown>;
+        if (
+          typeof row.questionId !== "string" ||
+          typeof row.optionId !== "string"
+        ) {
+          return [];
+        }
+        return [
+          {
+            questionId: row.questionId,
+            optionId: row.optionId,
+            ...(typeof row.customText === "string"
+              ? { customText: row.customText }
+              : {}),
+          },
+        ];
+      })
+    : undefined;
   return {
     message: typeof input?.message === "string" ? input.message : "",
     requestId: typeof input?.requestId === "string" ? input.requestId : "",
@@ -42,6 +63,7 @@ function mutationInput(input: Record<string, unknown> | null) {
           ),
         }
       : {}),
+    ...(intentAnswers && intentAnswers.length > 0 ? { intentAnswers } : {}),
   };
 }
 

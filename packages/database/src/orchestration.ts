@@ -72,7 +72,7 @@ export type CreateTurnInput = {
   publishingConsentVersion?: string | null;
   publishingAuthorityEventId?: string | null;
   explicitLiveIntent?: boolean;
-  liveIntentKind?: "live" | "draft" | "unclear" | null;
+  liveIntentKind?: "live" | "draft" | "unclear" | "schedule" | null;
   staleRunBefore?: Date;
 };
 
@@ -454,6 +454,27 @@ export async function getOwnedConversation(
   return conversation ?? null;
 }
 
+export async function updateOwnedConversationTitle(
+  db: Database["db"],
+  userId: string,
+  conversationId: string,
+  title: string,
+): Promise<OrchestrationConversation | null> {
+  const nextTitle = title.replace(/\s+/g, " ").trim().slice(0, 120);
+  if (!nextTitle) return null;
+  const [conversation] = await db
+    .update(orchestrationConversations)
+    .set({ title: nextTitle, updatedAt: new Date() })
+    .where(
+      and(
+        eq(orchestrationConversations.id, conversationId),
+        eq(orchestrationConversations.userId, userId),
+      ),
+    )
+    .returning();
+  return conversation ?? null;
+}
+
 export type ConversationCursor = { updatedAt: Date; id: string };
 
 export async function listOwnedConversations(
@@ -724,22 +745,19 @@ export async function deleteOwnedConversation(
   conversationId: string,
 ): Promise<boolean> {
   return db.transaction(async (tx) => {
-    const [active] = await tx
-      .select({ id: orchestrationRuns.id })
-      .from(orchestrationRuns)
-      .innerJoin(
-        orchestrationConversations,
-        eq(orchestrationRuns.conversationId, orchestrationConversations.id),
-      )
+    const [owned] = await tx
+      .select({ id: orchestrationConversations.id })
+      .from(orchestrationConversations)
       .where(
         and(
-          eq(orchestrationRuns.conversationId, conversationId),
-          eq(orchestrationRuns.status, "running"),
+          eq(orchestrationConversations.id, conversationId),
           eq(orchestrationConversations.userId, userId),
         ),
       )
       .limit(1);
-    if (active) throw new OrchestrationDatabaseError("RUN_IN_PROGRESS");
+    if (!owned) return false;
+
+    // Confirmed delete cancels chat work in progress. Live publish attempts still block.
     const [activePublish] = await tx
       .select({ id: draftPublishAttempts.id })
       .from(draftPublishAttempts)
@@ -755,6 +773,50 @@ export async function deleteOwnedConversation(
     if (activePublish) {
       throw new OrchestrationDatabaseError("RUN_IN_PROGRESS");
     }
+
+    const activeRuns = await tx
+      .select({
+        id: orchestrationRuns.id,
+        createdAt: orchestrationRuns.createdAt,
+      })
+      .from(orchestrationRuns)
+      .where(
+        and(
+          eq(orchestrationRuns.conversationId, conversationId),
+          eq(orchestrationRuns.status, "running"),
+        ),
+      );
+    const completedAt = new Date();
+    for (const run of activeRuns) {
+      await tx
+        .update(orchestrationToolCalls)
+        .set({
+          status: "failed",
+          safeError: "CONVERSATION_DELETED",
+          completedAt,
+        })
+        .where(
+          and(
+            eq(orchestrationToolCalls.runId, run.id),
+            eq(orchestrationToolCalls.status, "pending"),
+          ),
+        );
+      await tx
+        .update(orchestrationRuns)
+        .set({
+          status: "failed",
+          durationMs: Math.max(0, completedAt.getTime() - run.createdAt.getTime()),
+          safeError: "CONVERSATION_DELETED",
+          completedAt,
+        })
+        .where(
+          and(
+            eq(orchestrationRuns.id, run.id),
+            eq(orchestrationRuns.status, "running"),
+          ),
+        );
+    }
+
     const deleted = await tx
       .delete(orchestrationConversations)
       .where(

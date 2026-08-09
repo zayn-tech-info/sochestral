@@ -64,25 +64,27 @@ fly apps restart sochestral-api
 
 ### Vision Configuration
 
-**Status**: ⏸️ Decision needed - recommend `true` for GPT-5.6 Luna
+**Status**: ✅ Product default — Luna for image turns; Sonnet for text
+
+Image-bearing turns use `ship-like/gpt-5.6-luna` via Thesean's OpenAI-compatible API (`https://api.thesean.ai/v1`). Text-only turns keep `ship-like/claude-sonnet-5` (`THESEAN_MODEL`).
+
+`THESEAN_VISION_ENABLED` is an **opt-out kill switch**: unset or any value other than the string `false` attaches real image bytes. Only `THESEAN_VISION_ENABLED=false` disables vision (text stubs).
 
 ```bash
-THESEAN_VISION_ENABLED=false  # or true after vision route confirmed
+# Default product behavior (vision on)
+THESEAN_VISION_ENABLED=true
+THESEAN_VISION_MODEL=ship-like/gpt-5.6-luna
+THESEAN_MODEL=ship-like/claude-sonnet-5
+THESEAN_INTENT_MODEL=ship-like/claude-sonnet-5  # Optional, defaults to THESEAN_MODEL
 ```
 
-**Recommended vision route**: GPT-5.6 Luna via Thesean (per Linear SOC-9)
-
-**How to enable**:
+**Kill switch** (emergency only):
 ```bash
-fly secrets set THESEAN_VISION_ENABLED=true -a sochestral-api
+fly secrets set THESEAN_VISION_ENABLED=false -a sochestral-api
 fly apps restart sochestral-api
 ```
 
-**Vision model configuration**:
-```bash
-THESEAN_MODEL=ship-like/claude-sonnet-5  # or GPT-5.6 Luna
-THESEAN_INTENT_MODEL=ship-like/claude-sonnet-5  # Optional, defaults to THESEAN_MODEL
-```
+Pending live smoke on the product URL before treating Luna as fully locked vs Gemini Flash / Claude vision bakeoff.
 
 ### Media Upload Limits (Optional - have defaults)
 
@@ -152,7 +154,7 @@ Expected: `PUBLISHING_AUTHORITY_ENABLED` is `false` or absent (defaults to false
 fly secrets list -a sochestral-api | grep VISION
 ```
 
-Expected: `THESEAN_VISION_ENABLED` is set to desired state (`true` recommended for GPT-5.6 Luna)
+Expected: `THESEAN_VISION_ENABLED` unset or `true` (product default); only `false` disables. `THESEAN_VISION_MODEL` defaults to `ship-like/gpt-5.6-luna`.
 
 ### 4. Verify external dependencies
 
@@ -196,6 +198,7 @@ R2_BUCKET=...
 PUBLISHING_AUTHORITY_ENABLED=false
 PUBLISHING_CONSENT_VERSION=2026-08-01
 THESEAN_VISION_ENABLED=true
+THESEAN_VISION_MODEL=ship-like/gpt-5.6-luna
 EOF
 ```
 

@@ -66,8 +66,6 @@ function serviceMock(): OrchestrationService {
     createConversationStream: vi.fn().mockImplementation(async (_userId, _input, sink) => {
       sink.emit({ type: "turn_started" });
       sink.emit({ type: "step_started", step: "preparing_draft" });
-      sink.emit({ type: "thinking_delta", delta: "Plan the draft" });
-      sink.emit({ type: "thinking_completed" });
       sink.emit({ type: "step_completed", step: "preparing_draft" });
       sink.emit({ type: "turn_completed", result: turnResponse });
       return turnResponse;
@@ -305,12 +303,10 @@ describe("orchestration API routes", () => {
     expect(events.map((event) => event.type)).toEqual([
       "turn_started",
       "step_started",
-      "thinking_delta",
-      "thinking_completed",
       "step_completed",
       "turn_completed",
     ]);
-    expect(events.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(events.map((event) => event.sequence)).toEqual([1, 2, 3, 4]);
     expect(events[1]).toMatchObject({
       type: "step_started",
       step: "preparing_draft",

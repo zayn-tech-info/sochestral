@@ -414,7 +414,7 @@ export const orchestrationRuns = pgTable(
     ),
     check(
       "orchestration_runs_live_intent_kind_check",
-      sql`${table.liveIntentKind} is null or ${table.liveIntentKind} in ('live', 'draft', 'unclear')`,
+      sql`${table.liveIntentKind} is null or ${table.liveIntentKind} in ('live', 'draft', 'unclear', 'schedule')`,
     ),
   ],
 );
@@ -502,7 +502,7 @@ export const orchestrationToolCalls = pgTable(
     ),
     check(
       "orchestration_tool_calls_name_check",
-      sql`${table.toolName} in ('list_connected_accounts', 'validate_post', 'publish_now', 'prepare_review')`,
+      sql`${table.toolName} in ('list_connected_accounts', 'validate_post', 'publish_now', 'prepare_review', 'save_profile_entry', 'schedule_post', 'update_business_identity', 'upsert_profile_entry', 'skip_competitors', 'research_competitors', 'save_tone_rule', 'complete_setup_if_ready')`,
     ),
     check(
       "orchestration_tool_calls_status_check",
@@ -515,12 +515,101 @@ export const orchestrationToolCalls = pgTable(
   ],
 );
 
-export const usersRelations = relations(users, ({ many }) => ({
+export const businessProfiles = pgTable(
+  "business_profiles",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    businessName: text("business_name"),
+    businessDescription: text("business_description"),
+    websiteUrl: text("website_url"),
+    targetAudience: text("target_audience"),
+    industry: text("industry"),
+    setupStatus: text("setup_status").notNull().default("not_started"),
+    setupStep: text("setup_step"),
+    competitorsSkipped: boolean("competitors_skipped").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("business_profiles_user_id_uidx").on(table.userId),
+    check(
+      "business_profiles_setup_status_check",
+      sql`${table.setupStatus} in ('not_started', 'in_progress', 'complete')`,
+    ),
+  ],
+);
+
+export const profileEntries = pgTable(
+  "profile_entries",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    category: text("category").notNull(),
+    title: text("title"),
+    body: text("body").notNull(),
+    status: text("status").notNull().default("active"),
+    source: text("source").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("profile_entries_user_id_idx").on(table.userId),
+    index("profile_entries_user_category_idx").on(table.userId, table.category),
+    index("profile_entries_user_status_idx").on(table.userId, table.status),
+    check(
+      "profile_entries_category_check",
+      sql`${table.category} in ('tone', 'do_not', 'cadence', 'competitor', 'audience', 'skill', 'brand_fact')`,
+    ),
+    check(
+      "profile_entries_status_check",
+      sql`${table.status} in ('proposed', 'active', 'rejected', 'archived')`,
+    ),
+    check(
+      "profile_entries_source_check",
+      sql`${table.source} in ('setup', 'settings', 'operator_confirm', 'research')`,
+    ),
+  ],
+);
+
+export const usersRelations = relations(users, ({ many, one }) => ({
   orchestrationConversations: many(orchestrationConversations),
   drafts: many(drafts),
   draftPublishAttempts: many(draftPublishAttempts),
   publishingAuthorityEvents: many(publishingAuthorityEvents),
   mediaAssets: many(mediaAssets),
+  businessProfile: one(businessProfiles, {
+    fields: [users.id],
+    references: [businessProfiles.userId],
+  }),
+  profileEntries: many(profileEntries),
+}));
+
+export const businessProfilesRelations = relations(businessProfiles, ({ one }) => ({
+  user: one(users, {
+    fields: [businessProfiles.userId],
+    references: [users.id],
+  }),
+}));
+
+export const profileEntriesRelations = relations(profileEntries, ({ one }) => ({
+  user: one(users, {
+    fields: [profileEntries.userId],
+    references: [users.id],
+  }),
 }));
 
 export const orchestrationConversationsRelations = relations(
@@ -596,6 +685,8 @@ export const orchestrationToolCallsRelations = relations(
 
 export type User = typeof users.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
+export type BusinessProfile = typeof businessProfiles.$inferSelect;
+export type ProfileEntry = typeof profileEntries.$inferSelect;
 export type Draft = typeof drafts.$inferSelect;
 export type DraftPublishAttempt = typeof draftPublishAttempts.$inferSelect;
 export type PublishingPreference = typeof publishingPreferences.$inferSelect;
@@ -637,3 +728,22 @@ export type DraftPublishAttemptStatus =
   | "unknown";
 export type PublishingMode = "always_draft" | "approve_for_me" | "full_access";
 export type PublishingAuthoritySource = "composer" | "settings" | "system";
+export type SetupStatus = "not_started" | "in_progress" | "complete";
+export type ProfileEntryCategory =
+  | "tone"
+  | "do_not"
+  | "cadence"
+  | "competitor"
+  | "audience"
+  | "skill"
+  | "brand_fact";
+export type ProfileEntryStatus =
+  | "proposed"
+  | "active"
+  | "rejected"
+  | "archived";
+export type ProfileEntrySource =
+  | "setup"
+  | "settings"
+  | "operator_confirm"
+  | "research";
