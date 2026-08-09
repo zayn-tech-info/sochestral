@@ -257,7 +257,7 @@ Ordered for Tracer Bullet (thin end to end first, then thicken).
 7. [x] **Connect links in chat** — When user asks to connect a platform (or agent needs it), call `ConnectorService.startConnect` and send the authorize URL. Satisfies **AC-6**.
 8. [x] **Minimal web Settings entry** — Small link or unlink UI in existing Settings (reuse current design system; no new marketing page). Satisfies **AC-2** display path.
 9. [x] **Tests** — Unit and route tests listed in **AC-11**; keep Meta HTTP mocked at the client boundary.
-10. [ ] **Cloud enable checklist** — Document Fly secrets and smoke steps on the Linear issue; leave flag false until human smoke. Does not block code merge.
+10. [x] **Cloud enable checklist** — Document Fly secrets and smoke steps on the Linear issue; leave flag false until human smoke. Does not block code merge.
 
 ## Consequences
 
