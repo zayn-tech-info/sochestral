@@ -275,6 +275,7 @@ export const orchestrationConversations = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
+    source: text("source"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -287,6 +288,120 @@ export const orchestrationConversations = pgTable(
       table.userId,
       table.updatedAt,
       table.id,
+    ),
+    index("orchestration_conversations_user_source_idx").on(
+      table.userId,
+      table.source,
+    ),
+    check(
+      "orchestration_conversations_source_check",
+      sql`${table.source} is null or ${table.source} in ('web', 'whatsapp')`,
+    ),
+  ],
+);
+
+export const channelIdentities = pgTable(
+  "channel_identities",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    channel: text("channel").notNull(),
+    externalId: text("external_id").notNull(),
+    displayKey: text("display_key"),
+    status: text("status").notNull(),
+    linkedAt: timestamp("linked_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    lastInboundAt: timestamp("last_inbound_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("channel_identities_active_external_unique")
+      .on(table.channel, table.externalId)
+      .where(sql`${table.status} in ('pending', 'active')`),
+    uniqueIndex("channel_identities_active_user_channel_unique")
+      .on(table.userId, table.channel)
+      .where(sql`${table.status} = 'active'`),
+    index("channel_identities_user_channel_idx").on(table.userId, table.channel),
+    check(
+      "channel_identities_channel_check",
+      sql`${table.channel} in ('whatsapp', 'telegram')`,
+    ),
+    check(
+      "channel_identities_status_check",
+      sql`${table.status} in ('pending', 'active', 'revoked')`,
+    ),
+  ],
+);
+
+export const channelLinkChallenges = pgTable(
+  "channel_link_challenges",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    channel: text("channel").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("channel_link_challenges_user_channel_idx").on(
+      table.userId,
+      table.channel,
+    ),
+    uniqueIndex("channel_link_challenges_token_hash_unique").on(table.tokenHash),
+    check(
+      "channel_link_challenges_channel_check",
+      sql`${table.channel} in ('whatsapp', 'telegram')`,
+    ),
+  ],
+);
+
+export const whatsappInboundReceipts = pgTable("whatsapp_inbound_receipts", {
+  wamid: text("wamid").primaryKey(),
+  channelIdentityId: text("channel_identity_id").references(
+    () => channelIdentities.id,
+    { onDelete: "set null" },
+  ),
+  processedAt: timestamp("processed_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const channelPendingActions = pgTable(
+  "channel_pending_actions",
+  {
+    id: text("id").primaryKey(),
+    channelIdentityId: text("channel_identity_id")
+      .notNull()
+      .references(() => channelIdentities.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    groupId: text("group_id").notNull(),
+    summaryText: text("summary_text").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("channel_pending_actions_open_identity_unique")
+      .on(table.channelIdentityId)
+      .where(sql`${table.consumedAt} is null`),
+    check(
+      "channel_pending_actions_kind_check",
+      sql`${table.kind} in ('approve_group')`,
     ),
   ],
 );
@@ -606,6 +721,10 @@ export type OrchestrationConversation =
 export type OrchestrationMessage = typeof orchestrationMessages.$inferSelect;
 export type OrchestrationRun = typeof orchestrationRuns.$inferSelect;
 export type OrchestrationToolCall = typeof orchestrationToolCalls.$inferSelect;
+export type ChannelIdentity = typeof channelIdentities.$inferSelect;
+export type ChannelLinkChallenge = typeof channelLinkChallenges.$inferSelect;
+export type WhatsappInboundReceipt = typeof whatsappInboundReceipts.$inferSelect;
+export type ChannelPendingAction = typeof channelPendingActions.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type NewSession = typeof sessions.$inferInsert;
 export type NewDraft = typeof drafts.$inferInsert;
@@ -617,6 +736,14 @@ export type NewOrchestrationMessage =
 export type NewOrchestrationRun = typeof orchestrationRuns.$inferInsert;
 export type NewOrchestrationToolCall =
   typeof orchestrationToolCalls.$inferInsert;
+export type NewChannelIdentity = typeof channelIdentities.$inferInsert;
+export type NewChannelLinkChallenge = typeof channelLinkChallenges.$inferInsert;
+export type NewWhatsappInboundReceipt =
+  typeof whatsappInboundReceipts.$inferInsert;
+export type NewChannelPendingAction = typeof channelPendingActions.$inferInsert;
+export type ChannelKind = "whatsapp" | "telegram";
+export type ChannelIdentityStatus = "pending" | "active" | "revoked";
+export type ConversationSource = "web" | "whatsapp";
 
 export type DraftPlatform =
   | "threads"

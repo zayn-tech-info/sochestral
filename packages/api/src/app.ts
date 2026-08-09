@@ -27,6 +27,11 @@ import { registerReviewRoutes } from "./review-routes.js";
 import { registerPublishingRoutes } from "./publishing-routes.js";
 import { registerMediaRoutes } from "./media-routes.js";
 import { MediaService } from "./media-storage.js";
+import { WhatsAppBridge } from "./whatsapp-bridge.js";
+import { MetaWhatsAppClient, type WhatsAppClient } from "./whatsapp-client.js";
+import { loadWhatsAppConfig, type WhatsAppConfig } from "./whatsapp-config.js";
+import { registerWhatsAppChannelRoutes } from "./whatsapp-channel-routes.js";
+import { registerWhatsAppWebhookRoutes } from "./whatsapp-webhook-routes.js";
 
 export type Env = {
   Variables: {
@@ -42,17 +47,26 @@ function cookieSecure(): boolean {
   return process.env.NODE_ENV === "production";
 }
 
+export type WhatsAppAppDeps = {
+  config?: WhatsAppConfig;
+  client?: WhatsAppClient;
+};
+
 export function createApp(
   db: Database["db"] = getDb().db,
   orchestrationService?: OrchestrationService,
   connectorService?: ConnectorService,
   reviewService?: ReviewService,
+  whatsappDeps?: WhatsAppAppDeps,
 ) {
   const app = new Hono<Env>();
   let resolvedOrchestration = orchestrationService;
   let resolvedConnectors = connectorService;
   let resolvedReview = reviewService;
   let mediaService: MediaService | undefined;
+  let resolvedWhatsAppConfig = whatsappDeps?.config;
+  let resolvedWhatsAppClient = whatsappDeps?.client;
+  let resolvedWhatsAppBridge: WhatsAppBridge | undefined;
 
   function getMediaService(): MediaService {
     mediaService ??= new MediaService(db);
@@ -78,6 +92,46 @@ export function createApp(
       );
     }
     return resolvedReview;
+  }
+
+  function getOrchestrationService(): OrchestrationService {
+    resolvedOrchestration ??= createOrchestrationService(db, {
+      review: getReviewService(),
+      media: {
+        previewUrl: (userId, assetId) => getMediaService().previewUrl(userId, assetId),
+        modelImage: (userId, assetId) => getMediaService().modelImage(userId, assetId),
+        deleteConversationAssets: (userId, conversationId) =>
+          getMediaService().deleteConversationAssets(userId, conversationId),
+      },
+    });
+    return resolvedOrchestration;
+  }
+
+  function getConnectorService(): ConnectorService {
+    resolvedConnectors ??= createConnectorService();
+    return resolvedConnectors;
+  }
+
+  function getWhatsAppConfig(): WhatsAppConfig {
+    resolvedWhatsAppConfig ??= loadWhatsAppConfig();
+    return resolvedWhatsAppConfig;
+  }
+
+  function getWhatsAppClient(): WhatsAppClient {
+    resolvedWhatsAppClient ??= new MetaWhatsAppClient(getWhatsAppConfig());
+    return resolvedWhatsAppClient;
+  }
+
+  function getWhatsAppBridge(): WhatsAppBridge {
+    resolvedWhatsAppBridge ??= new WhatsAppBridge({
+      db,
+      config: getWhatsAppConfig(),
+      client: getWhatsAppClient(),
+      getOrchestration: getOrchestrationService,
+      getReview: getReviewService,
+      getConnectors: getConnectorService,
+    });
+    return resolvedWhatsAppBridge;
   }
 
   app.use(
@@ -169,28 +223,22 @@ export function createApp(
     }
   });
 
-  registerOrchestrationRoutes(app, db, () => {
-    resolvedOrchestration ??= createOrchestrationService(db, {
-      review: getReviewService(),
-      media: {
-        previewUrl: (userId, assetId) => getMediaService().previewUrl(userId, assetId),
-        modelImage: (userId, assetId) => getMediaService().modelImage(userId, assetId),
-        deleteConversationAssets: (userId, conversationId) =>
-          getMediaService().deleteConversationAssets(userId, conversationId),
-      },
-    });
-    return resolvedOrchestration;
-  });
-  registerConnectorRoutes(app, db, () => {
-    resolvedConnectors ??= createConnectorService();
-    return resolvedConnectors;
-  });
+  registerOrchestrationRoutes(app, db, getOrchestrationService);
+  registerConnectorRoutes(app, db, getConnectorService);
   registerReviewRoutes(app, db, () => {
     return getReviewService();
   });
   const publishingPreferences = new PublishingPreferenceService(db);
   registerPublishingRoutes(app, db, () => publishingPreferences);
   registerMediaRoutes(app, db, getMediaService);
+  registerWhatsAppWebhookRoutes(app, {
+    getConfig: getWhatsAppConfig,
+    getClient: getWhatsAppClient,
+    getBridge: getWhatsAppBridge,
+  });
+  registerWhatsAppChannelRoutes(app, db, {
+    getConfig: getWhatsAppConfig,
+  });
 
   return app;
 }
