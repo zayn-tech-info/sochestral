@@ -61,6 +61,44 @@ describe("auth API routes", () => {
     });
   });
 
+  it("OPTIONS /auth/login reflects localhost and 127.0.0.1 CORS origins", async () => {
+    const previousCors = process.env.CORS_ORIGIN;
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.CORS_ORIGIN = "http://localhost:3000";
+    process.env.NODE_ENV = "development";
+    const corsApp = createApp(database.db);
+
+    for (const origin of ["http://localhost:3000", "http://127.0.0.1:3000"]) {
+      const res = await corsApp.request("/auth/login", {
+        method: "OPTIONS",
+        headers: {
+          Origin: origin,
+          "Access-Control-Request-Method": "POST",
+          "Access-Control-Request-Headers": "content-type",
+        },
+      });
+      expect(res.status).toBe(204);
+      expect(res.headers.get("access-control-allow-origin")).toBe(origin);
+      expect(res.headers.get("access-control-allow-credentials")).toBe("true");
+    }
+
+    const denied = await corsApp.request("/auth/login", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "http://192.168.1.174:3000",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type",
+      },
+    });
+    expect(denied.status).toBe(204);
+    expect(denied.headers.get("access-control-allow-origin")).toBeNull();
+
+    if (previousCors === undefined) delete process.env.CORS_ORIGIN;
+    else process.env.CORS_ORIGIN = previousCors;
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+  });
+
   it("POST /auth/login sets session cookie and returns public user (AC-3, AC-9)", async () => {
     const user = await provisionWithPassword(
       "login@example.com",

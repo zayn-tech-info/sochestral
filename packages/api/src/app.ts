@@ -30,6 +30,7 @@ import { registerPublishingRoutes } from "./publishing-routes.js";
 import { registerMediaRoutes } from "./media-routes.js";
 import { registerProfileRoutes } from "./profile-routes.js";
 import { registerCalendarRoutes } from "./calendar-routes.js";
+import { allowedCorsOrigins } from "./cors-origin.js";
 import { MediaService } from "./media-storage.js";
 
 export type Env = {
@@ -89,7 +90,7 @@ export function createApp(
   app.use(
     "*",
     cors({
-      origin: process.env.CORS_ORIGIN ?? "http://localhost:3000",
+      origin: allowedCorsOrigins(),
       credentials: true,
     }),
   );

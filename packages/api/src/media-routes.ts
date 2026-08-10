@@ -4,6 +4,7 @@ import { SESSION_COOKIE_NAME, validateSessionToken } from "@sochestral/auth";
 import type { Database } from "@sochestral/database";
 import { MediaError, type MediaService } from "./media-storage.js";
 import type { Env } from "./app.js";
+import { isAllowedCorsOrigin } from "./cors-origin.js";
 
 function mapped(error: unknown) {
   if (error instanceof MediaError) return { body: { error: error.code }, status: error.status } as const;
@@ -21,9 +22,8 @@ export function registerMediaRoutes(
     const session = await validateSessionToken(db, raw);
     if (!session && raw) deleteCookie(c, SESSION_COOKIE_NAME, { path: "/" });
     if (!session) return { response: c.json({ error: "UNAUTHORIZED" }, 401) };
-    const origin = process.env.CORS_ORIGIN ?? "http://localhost:3000";
     if (
-      c.req.header("Origin") !== origin ||
+      !isAllowedCorsOrigin(c.req.header("Origin")) ||
       c.req.header("X-Sochestral-Request") !== "publishing-action" ||
       (c.req.method !== "DELETE" && !c.req.header("Content-Type")?.toLowerCase().startsWith("application/json"))
     ) {

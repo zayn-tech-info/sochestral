@@ -4,6 +4,7 @@ import { SESSION_COOKIE_NAME, validateSessionToken } from "@sochestral/auth";
 import type { Database } from "@sochestral/database";
 import { ReviewError, type ReviewService } from "@sochestral/orchestration";
 import type { Env } from "./app.js";
+import { isAllowedCorsOrigin } from "./cors-origin.js";
 
 type ServiceFactory = () => ReviewService;
 
@@ -30,9 +31,8 @@ export function registerReviewRoutes(
   async function trustedRequest(c: Context<Env>) {
     const user = await sessionUser(c);
     if (!user) return { response: c.json({ error: "UNAUTHORIZED" }, 401) };
-    const expectedOrigin = process.env.CORS_ORIGIN ?? "http://localhost:3000";
     if (
-      c.req.header("Origin") !== expectedOrigin ||
+      !isAllowedCorsOrigin(c.req.header("Origin")) ||
       c.req.header("X-Sochestral-Request") !== "review-action" ||
       !c.req.header("Content-Type")?.toLowerCase().startsWith("application/json")
     ) {

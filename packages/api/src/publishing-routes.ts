@@ -7,6 +7,7 @@ import {
   type PublishingPreferenceService,
 } from "@sochestral/orchestration";
 import type { Env } from "./app.js";
+import { isAllowedCorsOrigin } from "./cors-origin.js";
 
 type ServiceFactory = () => PublishingPreferenceService;
 
@@ -39,9 +40,8 @@ export function registerPublishingRoutes(
   app.patch("/publishing/preferences", async (c) => {
     const user = await sessionUser(c);
     if (!user) return c.json({ error: "UNAUTHORIZED" }, 401);
-    const expectedOrigin = process.env.CORS_ORIGIN ?? "http://localhost:3000";
     if (
-      c.req.header("Origin") !== expectedOrigin ||
+      !isAllowedCorsOrigin(c.req.header("Origin")) ||
       c.req.header("X-Sochestral-Request") !== "publishing-action" ||
       !c.req.header("Content-Type")?.toLowerCase().startsWith("application/json")
     ) {
