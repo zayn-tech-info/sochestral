@@ -6,9 +6,12 @@ import {
   LIVE_PUBLISH_INTENT_USER_MESSAGE_START,
   intentClarification,
   isSchedulePlanAcceptance,
+  isSchedulePlanRejection,
   localDraftIntent,
+  localAutonomousScheduleIntent,
   localLiveIntent,
   localScheduleIntent,
+  priorHasAutonomousScheduleContext,
   priorHasScheduleContext,
   resolveLivePublishIntent,
   continuesLivePublishContext,
@@ -99,6 +102,68 @@ describe("localScheduleIntent", () => {
     "Draft a caption",
   ])("does not treat live or draft as schedule: %s", (message) => {
     expect(localScheduleIntent(message)).toBe(false);
+  });
+});
+
+describe("localAutonomousScheduleIntent", () => {
+  it.each([
+    "Manage my posting this week, decide everything yourself",
+    "Do this all by yourself for Threads",
+    "Pick the best times and topics for me",
+    "Handle my content calendar autonomously",
+  ])("detects autonomy cues: %s", (message) => {
+    expect(localAutonomousScheduleIntent(message)).toBe(true);
+    expect(localScheduleIntent(message)).toBe(true);
+  });
+
+  it.each([
+    "Schedule this for Friday at 3pm",
+    "Draft a better caption",
+    "Post this live on Threads",
+  ])("does not treat ordinary schedule, draft, or live as autonomy: %s", (message) => {
+    expect(localAutonomousScheduleIntent(message)).toBe(false);
+  });
+});
+
+describe("isSchedulePlanRejection", () => {
+  it.each([
+    "I don't like this plan",
+    "Don't like those times, try different slots",
+    "Redo this with a better spread",
+    "Scrap this and make a new plan",
+    "Reschedule — change the times",
+  ])("detects rejection cues: %s", (message) => {
+    expect(isSchedulePlanRejection(message)).toBe(true);
+  });
+
+  it.each([
+    "Yeah go for this",
+    "Schedule this for Friday at 3pm",
+    "Draft a better caption",
+    "Reschedule this to Friday",
+    "Can you reschedule the Threads post to Monday morning?",
+  ])("does not treat accept, schedule, draft, or single-post reschedule as rejection: %s", (message) => {
+    expect(isSchedulePlanRejection(message)).toBe(false);
+  });
+});
+
+describe("priorHasAutonomousScheduleContext", () => {
+  it("detects prior autonomy asks without treating ordinary schedule as autonomy", () => {
+    expect(
+      priorHasAutonomousScheduleContext([
+        "Manage my posting this week on Threads, decide everything yourself",
+      ]),
+    ).toBe(true);
+    expect(
+      priorHasAutonomousScheduleContext([
+        "help with my week\n\nIntent confirmed:\n- goal: decide_schedule",
+      ]),
+    ).toBe(true);
+    expect(
+      priorHasAutonomousScheduleContext([
+        "Schedule the launch update for Friday at 3pm on Threads",
+      ]),
+    ).toBe(false);
   });
 });
 
@@ -266,6 +331,18 @@ describe("resolveLivePublishIntent", () => {
         mode: "full_access",
       }),
     ).resolves.toBe("schedule");
+
+    await expect(
+      resolveLivePublishIntent(model, {
+        message: "I don't like this plan, try different times",
+        priorMessages: [
+          "Manage my posting this week, decide everything yourself",
+        ],
+        modelName: "intent-model",
+        mode: "full_access",
+      }),
+    ).resolves.toBe("schedule");
+    expect(model.complete).not.toHaveBeenCalled();
   });
 
   it("does not treat concatenated calendar priors as local live via window", async () => {

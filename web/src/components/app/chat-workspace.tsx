@@ -23,13 +23,13 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import {
   apiRequest,
-  ApiError,
   STREAM_STEP_LABELS,
   type IntentAnswer,
   type IntentQuestion,
   type StreamEvent,
   type StreamStep,
 } from "@/lib/product-api";
+import { userFacingError } from "@/lib/user-facing-error";
 import {
   LivePreviewAside,
   pickActiveReviewGroup,
@@ -39,6 +39,7 @@ import { IntentQuestionsCarousel } from "./intent-questions-carousel";
 import { MessageMarkdown } from "./message-markdown";
 import { productMotion } from "./product-motion-provider";
 import { PublishingModeControl } from "./publishing-mode-control";
+import { useToast } from "./toast-provider";
 import { useWorkspace } from "./workspace-provider";
 
 const starterPrompts = [
@@ -89,6 +90,7 @@ export function ChatWorkspace({
 }) {
   const router = useRouter();
   const reduceMotion = useReducedMotion();
+  const { toast } = useToast();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const transcriptEndRef = useRef<HTMLSpanElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -499,11 +501,11 @@ export function ChatWorkspace({
       router.push("/app/workspace");
     } catch (error) {
       dialogRef.current?.close();
-      setDeleteError(
-        error instanceof ApiError && error.code === "RUN_IN_PROGRESS"
-          ? "A publish is still finishing for this conversation. Wait a moment, then delete again."
-          : "This conversation could not be deleted right now.",
-      );
+      const messageText = userFacingError(error, {
+        fallback: "This conversation could not be deleted right now.",
+      });
+      setDeleteError(messageText);
+      toast({ tone: "error", title: messageText });
     }
   }
 

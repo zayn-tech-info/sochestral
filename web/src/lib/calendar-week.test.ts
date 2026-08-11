@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   dayKeyForInstant,
+  clampDropMinutes,
+  formatGuideTime,
+  instantAtDayMinutes,
+  minutesFromMidnight,
+  minutesToPx,
+  moveInstantToDayKey,
+  pxToMinutes,
+  snapMinutes,
   startOfWeekMonday,
   weekRange,
   zonedYmd,
@@ -33,5 +41,36 @@ describe("calendar-week", () => {
     expect(dayKeyForInstant("2026-08-10T12:00:00.000Z", "UTC")).toBe(
       "2026-08-10",
     );
+  });
+
+  it("moves an instant to another day while keeping local clock time", () => {
+    const moved = moveInstantToDayKey(
+      "2026-08-10T15:30:00.000Z",
+      "2026-08-12",
+      "UTC",
+    );
+    expect(moved).toBe("2026-08-12T15:30:00.000Z");
+    expect(dayKeyForInstant(moved, "UTC")).toBe("2026-08-12");
+  });
+
+  it("snaps minutes and maps px to timeline minutes", () => {
+    expect(snapMinutes(17)).toBe(15);
+    expect(snapMinutes(18)).toBe(20);
+    expect(minutesFromMidnight("2026-08-10T17:00:00.000Z", "UTC")).toBe(17 * 60);
+    expect(minutesToPx(60)).toBe(56);
+    expect(pxToMinutes(56)).toBe(60);
+    expect(formatGuideTime(17 * 60 + 15)).toBe("5:15 PM");
+    expect(instantAtDayMinutes("2026-08-12", 17 * 60, "UTC")).toBe(
+      "2026-08-12T17:00:00.000Z",
+    );
+  });
+
+  it("clamps drop minutes to the next future slot on today", () => {
+    const now = new Date("2026-08-10T15:07:00.000Z"); // 3:07 PM UTC
+    expect(clampDropMinutes("2026-08-09", 12 * 60, "UTC", now)).toBeNull();
+    expect(clampDropMinutes("2026-08-11", 9 * 60, "UTC", now)).toBe(9 * 60);
+    // 15:07 UTC → earliest ceil slot is 15:10 (910 min)
+    expect(clampDropMinutes("2026-08-10", 10 * 60, "UTC", now)).toBe(910);
+    expect(clampDropMinutes("2026-08-10", 18 * 60, "UTC", now)).toBe(18 * 60);
   });
 });

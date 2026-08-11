@@ -234,6 +234,493 @@ describe("DefaultOrchestrationService", () => {
     expect(JSON.stringify(result)).not.toContain("secret-token");
   });
 
+  it("autonomy mode schedules from a context brief without plan acceptance", async () => {
+    await patchBusinessProfile(database.db, userId, {
+      businessName: "Acme Tools",
+      businessDescription: "Hand tools for makers",
+      setupStatus: "complete",
+      setupStep: "done",
+      competitorsSkipped: true,
+    });
+    await createProfileEntry(database.db, {
+      userId,
+      category: "tone",
+      body: "Direct and practical",
+      status: "active",
+      source: "setup",
+    });
+
+    const connectors = {
+      list: vi.fn().mockResolvedValue({
+        connectors: [
+          {
+            platform: "threads",
+            state: "connected",
+            accounts: [{ id: "acc_1", username: "acme", displayName: "Acme", state: "connected" }],
+          },
+        ],
+      }),
+      startConnect: vi.fn(),
+    };
+    const calendar = {
+      listAccounts: vi.fn(),
+      listSlots: vi.fn().mockResolvedValue({ slots: [], timeZone: "UTC" }),
+      listPosts: vi.fn(),
+      getSlot: vi.fn(),
+      cancel: vi.fn(),
+      reschedule: vi.fn(),
+    };
+    service = new DefaultOrchestrationService(
+      database.db,
+      config,
+      model,
+      mcp,
+      new PublishingPreferenceService(database.db),
+      undefined,
+      undefined,
+      undefined,
+      connectors as never,
+      calendar as never,
+    );
+
+    vi.mocked(model.complete)
+      .mockResolvedValueOnce(
+        modelCompletion({
+          toolCalls: [
+            toolCall("call_auto_1", "schedule_post", {
+              platforms: ["threads"],
+              text: "Maker tip: sharpen once a week.",
+              publishAt: "2026-08-11T12:00:00.000Z",
+            }),
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        modelCompletion({
+          content:
+            "Scheduled from your profile and Threads playbook. Open Calendar to cancel if needed.",
+        }),
+      );
+    vi.mocked(mcp.callTool).mockResolvedValue({
+      attempts: 1,
+      value: {
+        ok: true,
+        id: "sched_auto",
+        publishAt: "2026-08-11T12:00:00.000Z",
+        platforms: ["threads"],
+      },
+    });
+
+    const result = await service.createConversation(userId, {
+      message: "Manage my posting this week on Threads, decide everything yourself",
+      requestId: "00000000-0000-4000-8000-0000000000a9",
+    });
+
+    expect(connectors.list).toHaveBeenCalled();
+    expect(calendar.listSlots).toHaveBeenCalled();
+    expect(mcp.callTool).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "schedule_post" }),
+    );
+    const system = String(vi.mocked(model.complete).mock.calls[0]?.[0]?.system ?? "");
+    expect(system).toMatch(/Autonomy context brief/i);
+    expect(system).not.toMatch(/plan-only/i);
+    expect(result.run).toMatchObject({
+      status: "completed",
+      explicitLiveIntent: false,
+      liveIntentKind: "schedule",
+    });
+    expect(result.assistantMessage.content).toMatch(/Calendar/i);
+  });
+
+  it("autonomy mode refuses when setup is incomplete", async () => {
+    const connectors = {
+      list: vi.fn().mockResolvedValue({
+        connectors: [
+          {
+            platform: "threads",
+            state: "connected",
+            accounts: [{ id: "acc_1", username: "acme", displayName: "Acme", state: "connected" }],
+          },
+        ],
+      }),
+      startConnect: vi.fn(),
+    };
+    service = new DefaultOrchestrationService(
+      database.db,
+      config,
+      model,
+      mcp,
+      new PublishingPreferenceService(database.db),
+      undefined,
+      undefined,
+      undefined,
+      connectors as never,
+      {
+        listAccounts: vi.fn(),
+        listSlots: vi.fn().mockResolvedValue({ slots: [], timeZone: "UTC" }),
+        listPosts: vi.fn(),
+        getSlot: vi.fn(),
+        cancel: vi.fn(),
+        reschedule: vi.fn(),
+      } as never,
+    );
+
+    const result = await service.createConversation(userId, {
+      message: "Decide everything yourself and schedule my week",
+      requestId: "00000000-0000-4000-8000-0000000000aa",
+    });
+
+    expect(result.assistantMessage.content).toMatch(/setup/i);
+    expect(mcp.callTool).not.toHaveBeenCalled();
+    expect(model.complete).not.toHaveBeenCalled();
+  });
+
+  it("rejects a prior autonomy plan, cancels those schedules, and reschedules", async () => {
+    await patchBusinessProfile(database.db, userId, {
+      businessName: "Acme Tools",
+      businessDescription: "Hand tools for makers",
+      setupStatus: "complete",
+      setupStep: "done",
+      competitorsSkipped: true,
+    });
+    await createProfileEntry(database.db, {
+      userId,
+      category: "tone",
+      body: "Direct and practical",
+      status: "active",
+      source: "setup",
+    });
+
+    const cancel = vi.fn().mockResolvedValue({ ok: true, scheduleId: "sched_auto" });
+    const connectors = {
+      list: vi.fn().mockResolvedValue({
+        connectors: [
+          {
+            platform: "threads",
+            state: "connected",
+            accounts: [
+              {
+                id: "acc_1",
+                username: "acme",
+                displayName: "Acme",
+                state: "connected",
+              },
+            ],
+          },
+        ],
+      }),
+      startConnect: vi.fn(),
+    };
+    const calendar = {
+      listAccounts: vi.fn(),
+      listSlots: vi.fn().mockResolvedValue({ slots: [], timeZone: "UTC" }),
+      listPosts: vi.fn(),
+      getSlot: vi.fn(),
+      cancel,
+      reschedule: vi.fn(),
+    };
+    service = new DefaultOrchestrationService(
+      database.db,
+      config,
+      model,
+      mcp,
+      new PublishingPreferenceService(database.db),
+      undefined,
+      undefined,
+      undefined,
+      connectors as never,
+      calendar as never,
+    );
+
+    vi.mocked(model.complete)
+      .mockResolvedValueOnce(
+        modelCompletion({
+          toolCalls: [
+            toolCall("call_auto_1", "schedule_post", {
+              platforms: ["threads"],
+              text: "First plan tip",
+              publishAt: "2026-08-11T12:00:00.000Z",
+            }),
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        modelCompletion({
+          content: "Scheduled the first plan. Open Calendar to review.",
+        }),
+      )
+      .mockResolvedValueOnce(
+        modelCompletion({
+          toolCalls: [
+            toolCall("call_auto_2", "schedule_post", {
+              platforms: ["threads"],
+              text: "Revised tip with a wider spread",
+              publishAt: "2026-08-13T12:00:00.000Z",
+            }),
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        modelCompletion({
+          content: "Canceled the old slots and scheduled a new spread.",
+        }),
+      );
+    vi.mocked(mcp.callTool)
+      .mockResolvedValueOnce({
+        attempts: 1,
+        value: {
+          ok: true,
+          id: "sched_auto",
+          publishAt: "2026-08-11T12:00:00.000Z",
+          platforms: ["threads"],
+        },
+      })
+      .mockResolvedValueOnce({
+        attempts: 1,
+        value: {
+          ok: true,
+          id: "sched_redo",
+          publishAt: "2026-08-13T12:00:00.000Z",
+          platforms: ["threads"],
+        },
+      });
+
+    const first = await service.createConversation(userId, {
+      message: "Manage my posting this week on Threads, decide everything yourself",
+      requestId: "00000000-0000-4000-8000-0000000000ab",
+    });
+    expect(first.toolSummaries[0]?.summary).toMatchObject({
+      scheduleId: "sched_auto",
+    });
+
+    const redo = await service.addMessage(userId, first.conversation.id, {
+      message: "I don't like this plan, try different times across the week",
+      requestId: "00000000-0000-4000-8000-0000000000ac",
+    });
+
+    expect(cancel).toHaveBeenCalledWith(userId, "sched_auto");
+    expect(mcp.callTool).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        name: "schedule_post",
+        arguments: expect.objectContaining({
+          scheduledAt: "2026-08-13T12:00:00.000Z",
+        }),
+      }),
+    );
+    const redoSystem = String(
+      vi.mocked(model.complete).mock.calls[2]?.[0]?.system ?? "",
+    );
+    expect(redoSystem).toMatch(/Redo feedback/i);
+    expect(redoSystem).toMatch(/2026-08-11T12:00:00.000Z/);
+    expect(redo.run).toMatchObject({
+      status: "completed",
+      liveIntentKind: "schedule",
+      explicitLiveIntent: false,
+    });
+    expect(redo.assistantMessage.content).toMatch(/Canceled|Calendar/i);
+  });
+
+  it("refuses an autonomy redo without canceling prior schedules when setup is incomplete", async () => {
+    await patchBusinessProfile(database.db, userId, {
+      businessName: "Acme Tools",
+      businessDescription: "Hand tools for makers",
+      setupStatus: "complete",
+      setupStep: "done",
+      competitorsSkipped: true,
+    });
+    await createProfileEntry(database.db, {
+      userId,
+      category: "tone",
+      body: "Direct and practical",
+      status: "active",
+      source: "setup",
+    });
+
+    const cancel = vi.fn().mockResolvedValue({ ok: true, scheduleId: "sched_auto" });
+    const connectors = {
+      list: vi.fn().mockResolvedValue({
+        connectors: [
+          {
+            platform: "threads",
+            state: "connected",
+            accounts: [
+              {
+                id: "acc_1",
+                username: "acme",
+                displayName: "Acme",
+                state: "connected",
+              },
+            ],
+          },
+        ],
+      }),
+      startConnect: vi.fn(),
+    };
+    service = new DefaultOrchestrationService(
+      database.db,
+      config,
+      model,
+      mcp,
+      new PublishingPreferenceService(database.db),
+      undefined,
+      undefined,
+      undefined,
+      connectors as never,
+      {
+        listAccounts: vi.fn(),
+        listSlots: vi.fn().mockResolvedValue({ slots: [], timeZone: "UTC" }),
+        listPosts: vi.fn(),
+        getSlot: vi.fn(),
+        cancel,
+        reschedule: vi.fn(),
+      } as never,
+    );
+
+    vi.mocked(model.complete)
+      .mockResolvedValueOnce(
+        modelCompletion({
+          toolCalls: [
+            toolCall("call_auto_1", "schedule_post", {
+              platforms: ["threads"],
+              text: "First plan tip",
+              publishAt: "2026-08-11T12:00:00.000Z",
+            }),
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        modelCompletion({
+          content: "Scheduled the first plan. Open Calendar to review.",
+        }),
+      );
+    vi.mocked(mcp.callTool).mockResolvedValueOnce({
+      attempts: 1,
+      value: {
+        ok: true,
+        id: "sched_auto",
+        publishAt: "2026-08-11T12:00:00.000Z",
+        platforms: ["threads"],
+      },
+    });
+
+    const first = await service.createConversation(userId, {
+      message: "Manage my posting this week on Threads, decide everything yourself",
+      requestId: "00000000-0000-4000-8000-0000000000ad",
+    });
+    expect(first.toolSummaries[0]?.summary).toMatchObject({
+      scheduleId: "sched_auto",
+    });
+
+    await patchBusinessProfile(database.db, userId, {
+      businessName: null,
+      setupStatus: "in_progress",
+      setupStep: "tone",
+    });
+
+    const redo = await service.addMessage(userId, first.conversation.id, {
+      message: "I don't like this plan, try different times across the week",
+      requestId: "00000000-0000-4000-8000-0000000000ae",
+    });
+
+    expect(cancel).not.toHaveBeenCalled();
+    expect(mcp.callTool).toHaveBeenCalledTimes(1);
+    expect(redo.assistantMessage.content).toMatch(/setup|incomplete/i);
+    expect(redo.assistantMessage.content).not.toMatch(/canceled/i);
+  });
+
+  it("does not enter autonomy mode for ordinary schedule-plan rejection", async () => {
+    await patchBusinessProfile(database.db, userId, {
+      businessName: "Acme Tools",
+      businessDescription: "Hand tools for makers",
+      setupStatus: "complete",
+      setupStep: "done",
+      competitorsSkipped: true,
+    });
+
+    const cancel = vi.fn().mockResolvedValue({ ok: true, scheduleId: "sched_plan" });
+    service = new DefaultOrchestrationService(
+      database.db,
+      config,
+      model,
+      mcp,
+      new PublishingPreferenceService(database.db),
+      undefined,
+      undefined,
+      undefined,
+      {
+        list: vi.fn().mockResolvedValue({ connectors: [] }),
+        startConnect: vi.fn(),
+      } as never,
+      {
+        listAccounts: vi.fn(),
+        listSlots: vi.fn().mockResolvedValue({ slots: [], timeZone: "UTC" }),
+        listPosts: vi.fn(),
+        getSlot: vi.fn(),
+        cancel,
+        reschedule: vi.fn(),
+      } as never,
+    );
+
+    vi.mocked(model.complete)
+      .mockResolvedValueOnce(
+        modelCompletion({
+          toolCalls: [
+            toolCall("call_plan_1", "schedule_post", {
+              platforms: ["threads"],
+              text: "Accepted plan tip",
+              publishAt: "2026-08-14T15:00:00.000Z",
+            }),
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        modelCompletion({
+          content: "Scheduled the accepted slots.",
+        }),
+      )
+      .mockResolvedValueOnce(
+        modelCompletion({
+          content:
+            "I canceled the prior slots. Here is a revised plan for your approval.",
+        }),
+      );
+    vi.mocked(mcp.callTool).mockResolvedValueOnce({
+      attempts: 1,
+      value: {
+        ok: true,
+        id: "sched_plan",
+        publishAt: "2026-08-14T15:00:00.000Z",
+        platforms: ["threads"],
+      },
+    });
+
+    const first = await service.createConversation(userId, {
+      message: "Yeah go for this schedule plan on Threads",
+      requestId: "00000000-0000-4000-8000-0000000000af",
+    });
+    expect(first.toolSummaries[0]?.summary).toMatchObject({
+      scheduleId: "sched_plan",
+    });
+
+    const redo = await service.addMessage(userId, first.conversation.id, {
+      message: "I don't like this plan, try different times",
+      requestId: "00000000-0000-4000-8000-0000000000b0",
+    });
+
+    expect(cancel).toHaveBeenCalledWith(userId, "sched_plan");
+    const redoSystem = String(
+      vi.mocked(model.complete).mock.calls.at(-1)?.[0]?.system ?? "",
+    );
+    expect(redoSystem).toMatch(/plan-only/i);
+    expect(redoSystem).not.toMatch(/Autonomy mode is on for this turn/i);
+    expect(redoSystem).toMatch(/canceled/i);
+    expect(mcp.callTool).toHaveBeenCalledTimes(1);
+    expect(redo.run).toMatchObject({
+      status: "completed",
+      liveIntentKind: "schedule",
+    });
+  });
+
   it("asks in chat when schedule_post is missing publishAt instead of failing the turn", async () => {
     vi.mocked(model.complete)
       .mockResolvedValueOnce(

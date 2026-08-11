@@ -2,15 +2,17 @@
 
 import { Bookmark, Heart, MessageCircle, MoreHorizontal, Send } from "lucide-react";
 
+import { PreviewAvatar } from "./preview-avatar";
+import { InstagramMediaCarousel } from "./preview-media";
 import {
   accountHandle,
   accountLabel,
   mediaSrc,
-  monogram,
   type PlatformPreviewProps,
 } from "./preview-shared";
 
 export function InstagramPreview({
+  platform,
   body,
   mediaItems,
   mediaPreviews,
@@ -18,13 +20,15 @@ export function InstagramPreview({
   locked,
   live,
   onBodyChange,
+  avatarUrl,
+  bodyRef,
+  onBodySelect,
 }: PlatformPreviewProps) {
   const label = account ? accountLabel(account) : "Connect an account";
   const handle = account ? accountHandle(account) : "connect";
   const images = mediaItems
     .map((item) => mediaSrc(item, mediaPreviews))
     .filter((src): src is string => Boolean(src));
-  const activeDot = 0;
 
   return (
     <article
@@ -32,9 +36,11 @@ export function InstagramPreview({
       aria-label="Instagram post preview"
     >
       <header className="pp-instagram-header">
-        <span className="pp-avatar" aria-hidden="true">
-          {monogram(label)}
-        </span>
+        <PreviewAvatar
+          platform={platform}
+          label={label}
+          avatarUrl={avatarUrl}
+        />
         <div className="pp-instagram-meta">
           <strong>{handle}</strong>
           <span className="pp-time">now</span>
@@ -45,24 +51,7 @@ export function InstagramPreview({
       </header>
 
       <div className="pp-instagram-stage">
-        {images.length ? (
-          <>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={images[activeDot]!} alt="" />
-            {images.length > 1 ? (
-              <div className="pp-carousel-dots" aria-hidden="true">
-                {images.map((_, index) => (
-                  <span
-                    key={index}
-                    className={index === activeDot ? "pp-dot pp-dot-active" : "pp-dot"}
-                  />
-                ))}
-              </div>
-            ) : null}
-          </>
-        ) : (
-          <div className="pp-instagram-empty">Add an image to preview the post</div>
-        )}
+        <InstagramMediaCarousel images={images} />
       </div>
 
       <div className="pp-instagram-actions" aria-hidden="true">
@@ -82,12 +71,16 @@ export function InstagramPreview({
         <label className="pp-instagram-caption-edit">
           <strong>{handle}</strong>
           <textarea
+            ref={bodyRef}
             className="pp-body pp-body-edit"
             value={body}
             onChange={(event) => onBodyChange(event.target.value)}
+            onSelect={(event) => onBodySelect?.(event.currentTarget)}
+            onKeyUp={(event) => onBodySelect?.(event.currentTarget)}
+            onMouseUp={(event) => onBodySelect?.(event.currentTarget)}
             maxLength={8000}
             rows={Math.min(8, Math.max(2, body.split("\n").length + 1))}
-            aria-label="Instagram caption"
+            aria-label="Edit caption"
           />
         </label>
       )}

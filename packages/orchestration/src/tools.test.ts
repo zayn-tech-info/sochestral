@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { AUTONOMY_SCHEDULE_POST_CAP, STANDARD_SCHEDULE_POST_CAP } from "./autonomy-brief.js";
 import { OrchestrationError } from "./errors.js";
 import {
   ALLOWED_TOOL_NAMES,
@@ -20,6 +21,17 @@ describe("orchestration tools", () => {
       "save_profile_entry",
       ...ALLOWED_TOOL_NAMES,
     ]);
+  });
+
+  it("documents the same schedule_post autonomy cap the service enforces", () => {
+    const scheduleTool = MODEL_TOOLS.find((tool) => tool.name === "schedule_post");
+    expect(scheduleTool?.description).toContain(
+      `At most ${STANDARD_SCHEDULE_POST_CAP} schedule_post calls per turn normally`,
+    );
+    expect(scheduleTool?.description).toContain(
+      `autonomy mode may allow up to ${AUTONOMY_SCHEDULE_POST_CAP}`,
+    );
+    expect(scheduleTool?.description).not.toMatch(/up to seven/i);
   });
 
   it("rejects unknown tools before execution (AC-3)", () => {

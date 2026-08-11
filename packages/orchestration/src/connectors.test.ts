@@ -23,6 +23,7 @@ describe("connector service", () => {
           platformAccountId: "provider_secret",
           platformUsername: "studio",
           displayName: "Studio",
+          avatarUrl: "https://cdn.example/avatar.jpg",
           status: "active",
           accessTokenEncrypted: "secret",
           metadataJson: "secret",
@@ -48,6 +49,7 @@ describe("connector service", () => {
             id: "acct_threads_1",
             username: "studio",
             displayName: "Studio",
+            avatarUrl: "https://cdn.example/avatar.jpg",
             state: "connected",
           },
         ],
@@ -65,6 +67,7 @@ describe("connector service", () => {
             id: "acct_instagram_1",
             username: "visuals",
             displayName: null,
+            avatarUrl: null,
             state: "reconnect_required",
           },
         ],
@@ -73,6 +76,51 @@ describe("connector service", () => {
     expect(JSON.stringify(result)).not.toMatch(
       /user_secret|provider_secret|accessToken|metadataJson|secret/,
     );
+  });
+
+  it("reads https avatar urls from nested metadata when top-level is missing", async () => {
+    const source = gateway({
+      ok: true,
+      accounts: [
+        {
+          id: "acct_threads_2",
+          platform: "threads",
+          platformUsername: "nested",
+          displayName: "Nested",
+          status: "active",
+          metadataJson: JSON.stringify({
+            avatarUrl: "https://cdn.example/from-meta.jpg",
+          }),
+        },
+        {
+          id: "acct_threads_3",
+          platform: "threads",
+          platformUsername: "insecure",
+          displayName: "Insecure",
+          status: "active",
+          avatarUrl: "http://cdn.example/not-https.jpg",
+        },
+      ],
+    });
+
+    const result = await new DefaultConnectorService(source).list("user_1");
+    const threads = result.connectors.find((item) => item.platform === "threads");
+    expect(threads?.accounts).toEqual([
+      {
+        id: "acct_threads_2",
+        username: "nested",
+        displayName: "Nested",
+        avatarUrl: "https://cdn.example/from-meta.jpg",
+        state: "connected",
+      },
+      {
+        id: "acct_threads_3",
+        username: "insecure",
+        displayName: "Insecure",
+        avatarUrl: null,
+        state: "connected",
+      },
+    ]);
   });
 
   it.each([

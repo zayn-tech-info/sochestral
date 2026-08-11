@@ -15,8 +15,10 @@ import {
   type BusinessProfileResponse,
   type ProfileEntry,
 } from "@/lib/product-api";
+import { userFacingError } from "@/lib/user-facing-error";
 import { AppShell } from "./app-shell";
 import { productMotion } from "./product-motion-provider";
+import { useToast } from "./toast-provider";
 
 const CATEGORY_LABELS: Record<string, string> = {
   tone: "Tone",
@@ -29,11 +31,12 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export function ProfileSettings() {
+  const { toast } = useToast();
   const reduceMotion = useReducedMotion();
   const [profile, setProfile] = useState<BusinessProfileResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState({
     businessName: "",
     businessDescription: "",
@@ -45,7 +48,7 @@ export function ProfileSettings() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    setError(null);
+    setLoadError(null);
     try {
       const next = await getBusinessProfile();
       setProfile(next);
@@ -57,7 +60,7 @@ export function ProfileSettings() {
         industry: next.industry ?? "",
       });
     } catch (err) {
-      setError(err instanceof ApiError ? err.code : "REQUEST_FAILED");
+      setLoadError(err instanceof ApiError ? err.code : "REQUEST_FAILED");
     } finally {
       setLoading(false);
     }
@@ -67,9 +70,17 @@ export function ProfileSettings() {
     void load();
   }, [load]);
 
+  function actionError(err: unknown) {
+    toast({
+      tone: "error",
+      title: userFacingError(err, {
+        fallback: "Something went wrong. Please try again.",
+      }),
+    });
+  }
+
   async function saveIdentity() {
     setSaving(true);
-    setError(null);
     try {
       const next = await patchBusinessProfile({
         businessName: draft.businessName || null,
@@ -79,8 +90,9 @@ export function ProfileSettings() {
         industry: draft.industry || null,
       });
       setProfile(next);
+      toast({ tone: "success", title: "Profile saved." });
     } catch (err) {
-      setError(err instanceof ApiError ? err.code : "REQUEST_FAILED");
+      actionError(err);
     } finally {
       setSaving(false);
     }
@@ -88,7 +100,6 @@ export function ProfileSettings() {
 
   async function redoSetup(reset: boolean) {
     setSaving(true);
-    setError(null);
     try {
       const next = await patchBusinessProfile({
         redoSetup: true,
@@ -96,7 +107,7 @@ export function ProfileSettings() {
       });
       setProfile(next);
     } catch (err) {
-      setError(err instanceof ApiError ? err.code : "REQUEST_FAILED");
+      actionError(err);
     } finally {
       setSaving(false);
     }
@@ -113,7 +124,7 @@ export function ProfileSettings() {
       setNewEntry({ category: "brand_fact", body: "" });
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.code : "REQUEST_FAILED");
+      actionError(err);
     } finally {
       setSaving(false);
     }
@@ -125,7 +136,7 @@ export function ProfileSettings() {
       await patchProfileEntry(entry.id, { body });
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.code : "REQUEST_FAILED");
+      actionError(err);
     } finally {
       setSaving(false);
     }
@@ -137,7 +148,7 @@ export function ProfileSettings() {
       await deleteProfileEntry(id);
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.code : "REQUEST_FAILED");
+      actionError(err);
     } finally {
       setSaving(false);
     }
@@ -172,14 +183,16 @@ export function ProfileSettings() {
           </button>
         </header>
 
-        {error ? (
+        {loadError && !profile ? (
           <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
-            {error}
+            {userFacingError(loadError)}
           </p>
         ) : null}
 
         {loading || !profile ? (
-          <p className="text-sm text-muted-foreground">Loading profile…</p>
+          loadError ? null : (
+            <p className="text-sm text-muted-foreground">Loading profile…</p>
+          )
         ) : (
           <>
             <section className="space-y-3 rounded-xl border p-4">

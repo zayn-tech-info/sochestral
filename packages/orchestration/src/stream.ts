@@ -2,6 +2,7 @@ export type OrchestrationStreamStep =
   | "understanding"
   | "checking_intent"
   | "clarifying_intent"
+  | "planning"
   | "preparing_draft"
   | "validating"
   | "scheduling"
@@ -64,6 +65,7 @@ export const STEP_LABELS: Record<OrchestrationStreamStep, string> = {
   understanding: "Reading your message",
   checking_intent: "Checking intent",
   clarifying_intent: "Clarifying intent",
+  planning: "Planning from your context",
   preparing_draft: "Preparing a draft",
   validating: "Validating",
   scheduling: "Scheduling",

@@ -17,12 +17,14 @@ import {
   PLATFORM_LABELS,
   resolveTimeZone,
 } from "@/lib/calendar-week";
+import { userFacingError } from "@/lib/user-facing-error";
 import {
   InstagramPreview,
   LinkedInPreview,
   ThreadsPreview,
 } from "@/components/preview";
 import { AppShell } from "./app-shell";
+import { useToast } from "./toast-provider";
 
 function PreviewForDetail({ detail }: { detail: ScheduleDetail }) {
   const account = {
@@ -57,12 +59,12 @@ function PreviewForDetail({ detail }: { detail: ScheduleDetail }) {
 
 export function ScheduleDetailView({ scheduleId }: { scheduleId: string }) {
   const router = useRouter();
+  const { toast } = useToast();
   const timeZone = useMemo(() => resolveTimeZone(), []);
   const [detail, setDetail] = useState<ScheduleDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
   const [rescheduleValue, setRescheduleValue] = useState("");
 
   const load = useCallback(async () => {
@@ -91,14 +93,17 @@ export function ScheduleDetailView({ scheduleId }: { scheduleId: string }) {
   async function onCancel() {
     if (!detail?.canCancel) return;
     setBusy(true);
-    setMessage(null);
-    setError(null);
     try {
       await cancelCalendarSlot(scheduleId);
-      setMessage("Schedule canceled.");
+      toast({ tone: "success", title: "Schedule canceled." });
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.code : "REQUEST_FAILED");
+      toast({
+        tone: "error",
+        title: userFacingError(
+          err instanceof ApiError ? err.code : "REQUEST_FAILED",
+        ),
+      });
     } finally {
       setBusy(false);
     }
@@ -107,15 +112,18 @@ export function ScheduleDetailView({ scheduleId }: { scheduleId: string }) {
   async function onReschedule() {
     if (!detail?.canReschedule || !rescheduleValue) return;
     setBusy(true);
-    setMessage(null);
-    setError(null);
     try {
       const scheduledAt = new Date(rescheduleValue).toISOString();
       const next = await rescheduleCalendarSlot(scheduleId, scheduledAt);
       setDetail(next);
-      setMessage("Schedule updated.");
+      toast({ tone: "success", title: "Schedule updated." });
     } catch (err) {
-      setError(err instanceof ApiError ? err.code : "REQUEST_FAILED");
+      toast({
+        tone: "error",
+        title: userFacingError(
+          err instanceof ApiError ? err.code : "REQUEST_FAILED",
+        ),
+      });
     } finally {
       setBusy(false);
     }
@@ -146,13 +154,12 @@ export function ScheduleDetailView({ scheduleId }: { scheduleId: string }) {
           {loading ? <p className="cal-day-muted">Loading…</p> : null}
           {error ? (
             <div className="cal-error" role="alert">
-              <p>Could not load this schedule ({error}).</p>
+              <p>{userFacingError(error)}</p>
               <button type="button" className="cal-link-btn" onClick={() => void load()}>
                 Retry
               </button>
             </div>
           ) : null}
-          {message ? <p className="cal-message">{message}</p> : null}
 
           {detail ? (
             <>

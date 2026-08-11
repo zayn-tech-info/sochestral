@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Check,
   CircleAlert,
   ExternalLink,
   RefreshCw,
@@ -23,6 +22,7 @@ import {
 } from "@/components/auth/platform-icons";
 import { AppShell } from "./app-shell";
 import { productMotion } from "./product-motion-provider";
+import { useToast } from "./toast-provider";
 
 const labels: Record<ConnectorPlatform, string> = {
   threads: "Threads",
@@ -74,16 +74,37 @@ function connectLabel(connector: ConnectorSummary) {
   return "Connect another";
 }
 
-function accountLine(connector: ConnectorSummary) {
-  const account = connector.accounts[0];
-  if (!account) return null;
+function formatAccountLabel(account: ConnectorSummary["accounts"][number]) {
   const name =
     account.displayName ?? account.username ?? "Connected account";
   const handle = account.username ? `@${account.username}` : null;
   return handle ? `${name} · ${handle}` : name;
 }
 
+function ConnectorAccountList({
+  accounts,
+}: {
+  accounts: ConnectorSummary["accounts"];
+}) {
+  if (accounts.length === 0) return null;
+  return (
+    <ul className="connector-account-list">
+      {accounts.map((account) => (
+        <li key={account.id} className="connector-account-item">
+          <span className="connector-account-name">
+            {formatAccountLabel(account)}
+          </span>
+          {account.state === "reconnect_required" ? (
+            <span className="connector-account-state">Reconnect required</span>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function ConnectorsSettings() {
+  const { toast } = useToast();
   const reduceMotion = useReducedMotion();
   const [connectors, setConnectors] = useState<ConnectorSummary[] | null>(
     null,
@@ -95,10 +116,6 @@ export function ConnectorsSettings() {
   const [connecting, setConnecting] = useState<ConnectorPlatform | null>(
     null,
   );
-  const [banner, setBanner] = useState<{
-    tone: "success" | "error";
-    text: string;
-  } | null>(null);
 
   const refresh = useCallback(async (quiet = false) => {
     if (quiet) setRefreshing(true);
@@ -132,15 +149,15 @@ export function ConnectorsSettings() {
         ? platform
         : null;
     if (result === "connected" && knownPlatform) {
-      setBanner({
+      toast({
         tone: "success",
-        text: `${labels[knownPlatform]} is connected.`,
+        title: `${labels[knownPlatform]} is connected.`,
       });
       setTab("connected");
     } else if (result === "error") {
-      setBanner({
+      toast({
         tone: "error",
-        text: code
+        title: code
           ? `Connection was not completed (${code}). Try again when ready.`
           : "Connection was not completed. Try again when ready.",
       });
@@ -150,7 +167,7 @@ export function ConnectorsSettings() {
     const onFocus = () => void refresh(true);
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [refresh]);
+  }, [refresh, toast]);
 
   const allConnectors = connectors ?? [];
   const connected = useMemo(
@@ -169,16 +186,15 @@ export function ConnectorsSettings() {
 
   async function connect(platform: ConnectorPlatform) {
     setConnecting(platform);
-    setBanner(null);
     try {
       const result = await apiRequest<{
         authorizeUrl: string;
       }>(`/connectors/${platform}/connect`, { method: "POST" });
       window.location.assign(result.authorizeUrl);
     } catch (error) {
-      setBanner({
+      toast({
         tone: "error",
-        text:
+        title:
           error instanceof ApiError && error.code === "SOCIALMCP_UNAVAILABLE"
             ? "The connector service is unavailable. Nothing changed."
             : "Connection could not start safely. Please try again.",
@@ -196,32 +212,6 @@ export function ConnectorsSettings() {
         className="settings-content os-settings connectors-page"
         aria-labelledby="connectors-title"
       >
-        <AnimatePresence initial={false}>
-          {banner ? (
-            <motion.div
-              key={`oauth-${banner.tone}-${banner.text}`}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={productMotion.enter}
-              className={`oauth-banner oauth-banner-${banner.tone}`}
-              role={banner.tone === "error" ? "alert" : "status"}
-            >
-              {banner.tone === "success" ? (
-                <Check className="size-5" aria-hidden="true" />
-              ) : (
-                <CircleAlert className="size-5" aria-hidden="true" />
-              )}
-              <span>{banner.text}</span>
-              {banner.tone === "error" ? (
-                <button type="button" onClick={() => setBanner(null)}>
-                  Dismiss
-                </button>
-              ) : null}
-            </motion.div>
-          ) : null}
-        </AnimatePresence>
-
         <AnimatePresence initial={false}>
           {unavailable ? (
             <motion.div
@@ -295,7 +285,11 @@ export function ConnectorsSettings() {
                 <div className="connector-featured-copy">
                   <h3>{labels[connector.platform]}</h3>
                   {isConnected(connector) ? (
-                    <p>{accountLine(connector) ?? "Connected"}</p>
+                    connector.accounts.length > 0 ? (
+                      <ConnectorAccountList accounts={connector.accounts} />
+                    ) : (
+                      <p>Connected</p>
+                    )
                   ) : (
                     <p>Type · {CONNECTOR_TYPE}</p>
                   )}
@@ -389,10 +383,10 @@ export function ConnectorsSettings() {
                               <span className="connector-table-title">
                                 {labels[connector.platform]}
                               </span>
-                              {linked && accountLine(connector) ? (
-                                <span className="connector-table-meta">
-                                  {accountLine(connector)}
-                                </span>
+                              {linked && connector.accounts.length > 0 ? (
+                                <ConnectorAccountList
+                                  accounts={connector.accounts}
+                                />
                               ) : null}
                             </div>
                           </div>

@@ -2,11 +2,12 @@
 
 import { MessageSquare, Repeat2, Send, ThumbsUp, MoreHorizontal } from "lucide-react";
 
+import { PreviewAvatar } from "./preview-avatar";
+import { LinkedInMediaCollage } from "./preview-media";
 import {
   accountLabel,
   accountSubtitle,
   mediaSrc,
-  monogram,
   type PlatformPreviewProps,
 } from "./preview-shared";
 
@@ -19,6 +20,9 @@ export function LinkedInPreview({
   live,
   onBodyChange,
   platform,
+  avatarUrl,
+  bodyRef,
+  onBodySelect,
 }: PlatformPreviewProps) {
   const label = account ? accountLabel(account) : "Connect an account";
   const headline = accountSubtitle(platform, account);
@@ -32,9 +36,12 @@ export function LinkedInPreview({
       aria-label="LinkedIn post preview"
     >
       <header className="pp-linkedin-header">
-        <span className="pp-avatar pp-avatar-lg" aria-hidden="true">
-          {monogram(label)}
-        </span>
+        <PreviewAvatar
+          platform={platform}
+          label={label}
+          avatarUrl={avatarUrl}
+          large
+        />
         <div className="pp-linkedin-meta">
           <strong>{label}</strong>
           <small>{headline}</small>
@@ -49,21 +56,20 @@ export function LinkedInPreview({
         <p className="pp-body">{body || " "}</p>
       ) : (
         <textarea
+          ref={bodyRef}
           className="pp-body pp-body-edit"
           value={body}
           onChange={(event) => onBodyChange(event.target.value)}
+          onSelect={(event) => onBodySelect?.(event.currentTarget)}
+          onKeyUp={(event) => onBodySelect?.(event.currentTarget)}
+          onMouseUp={(event) => onBodySelect?.(event.currentTarget)}
           maxLength={8000}
           rows={Math.min(12, Math.max(3, body.split("\n").length + 1))}
-          aria-label="LinkedIn post text"
+          aria-label="Edit caption"
         />
       )}
 
-      {images.length ? (
-        <div className="pp-media pp-media-linkedin">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={images[0]!} alt="" />
-        </div>
-      ) : null}
+      <LinkedInMediaCollage images={images} />
 
       <footer className="pp-linkedin-actions" aria-hidden="true">
         <span><ThumbsUp className="size-4" /> Like</span>

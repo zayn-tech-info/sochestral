@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 
 import {
@@ -21,9 +21,13 @@ import {
   forwardListWindow,
   PLATFORM_LABELS,
   resolveTimeZone,
+  rollingListWindow,
   shiftListWindow,
 } from "@/lib/calendar-week";
+import { userFacingError } from "@/lib/user-facing-error";
 import { AppShell } from "./app-shell";
+import { PlatformAccountPicker } from "./platform-account-picker";
+import { ScheduleDetailModal } from "./schedule-detail-modal";
 
 const STATUS_OPTIONS: CalendarStatusBucket[] = [
   "Scheduled",
@@ -59,10 +63,13 @@ function EmptyState({
 
 export function ScheduledPostsList() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const selectedScheduleId = searchParams.get("schedule");
   const timeZone = useMemo(() => resolveTimeZone(), []);
   const [status, setStatus] = useState<CalendarStatusBucket>("Scheduled");
   const [sort, setSort] = useState<ScheduledPostsSort>("scheduledAt:asc");
-  const [accountId, setAccountId] = useState<string>("");
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [platform, setPlatform] = useState<string>("");
   const [windowRange, setWindowRange] = useState(() => forwardListWindow());
   const [accounts, setAccounts] = useState<CalendarAccount[]>([]);
@@ -90,7 +97,8 @@ export function ScheduledPostsList() {
           from: windowRange.from,
           to: windowRange.to,
           timeZone,
-          accountId: accountId || undefined,
+          accountIds:
+            selectedAccountIds.length > 0 ? selectedAccountIds : undefined,
           platform: platform || undefined,
           status,
           sort,
@@ -108,7 +116,7 @@ export function ScheduledPostsList() {
     } finally {
       setLoading(false);
     }
-  }, [accountId, platform, sort, status, timeZone, windowRange.from, windowRange.to]);
+  }, [selectedAccountIds, platform, sort, status, timeZone, windowRange.from, windowRange.to]);
 
   useEffect(() => {
     void load();
@@ -208,20 +216,28 @@ export function ScheduledPostsList() {
             </select>
           </label>
 
-          <label className="sched-field">
-            <span>Account</span>
-            <select
-              value={accountId}
-              onChange={(event) => setAccountId(event.target.value)}
-            >
-              <option value="">All accounts</option>
-              {accounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="sched-field sched-field-accounts">
+            <span>Accounts</span>
+            <div className="cal-account-filter-row">
+              <button
+                type="button"
+                className={`cal-account-btn cal-account-btn-all${
+                  selectedAccountIds.length === 0 ? " cal-account-btn-active" : ""
+                }`}
+                aria-pressed={selectedAccountIds.length === 0}
+                onClick={() => setSelectedAccountIds([])}
+              >
+                All accounts
+              </button>
+              <PlatformAccountPicker
+                accounts={accounts}
+                selectedAccountIds={selectedAccountIds}
+                onChange={setSelectedAccountIds}
+                mode="filter"
+                aria-label="Filter scheduled posts by account"
+              />
+            </div>
+          </div>
 
           <label className="sched-field">
             <span>Platform</span>
@@ -239,7 +255,7 @@ export function ScheduledPostsList() {
 
         {error ? (
           <div className="cal-error" role="alert">
-            <p>Could not load scheduled posts ({error}).</p>
+            <p>{userFacingError(error)}</p>
             <button type="button" className="cal-link-btn" onClick={() => void load()}>
               Retry
             </button>
@@ -271,12 +287,18 @@ export function ScheduledPostsList() {
                     tabIndex={0}
                     className="sched-row"
                     onClick={() =>
-                      router.push(`/app/calendar/${post.scheduleId}`)
+                      router.push(
+                        `${pathname || "/app/scheduled"}?schedule=${encodeURIComponent(post.scheduleId)}`,
+                        { scroll: false },
+                      )
                     }
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
-                        router.push(`/app/calendar/${post.scheduleId}`);
+                        router.push(
+                          `${pathname || "/app/scheduled"}?schedule=${encodeURIComponent(post.scheduleId)}`,
+                          { scroll: false },
+                        );
                       }
                     }}
                   >
@@ -294,6 +316,18 @@ export function ScheduledPostsList() {
           </div>
         ) : null}
       </div>
+
+      <ScheduleDetailModal
+        scheduleId={selectedScheduleId}
+        open={Boolean(selectedScheduleId)}
+        accounts={accounts}
+        onClose={() => {
+          router.push(pathname || "/app/scheduled", { scroll: false });
+        }}
+        onChanged={() => {
+          void load();
+        }}
+      />
     </AppShell>
   );
 }

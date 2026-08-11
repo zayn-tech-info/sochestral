@@ -95,6 +95,6 @@ No new product schedule tables. Extend check constraints on `orchestration_tool_
 
 ## Follow-up
 
-- [ ] SOC-39 autonomous schedule planner
+- [x] SOC-39 autonomous schedule planner → [0013](../0013-autonomous-schedule-planner/index.md)
 - [ ] Manual create form (0011 deferred)
 - [ ] MCP reschedule verb

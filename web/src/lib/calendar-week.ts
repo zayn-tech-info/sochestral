@@ -203,6 +203,109 @@ export function dayKeyForInstant(iso: string, timeZone: string): string {
   return `${year}-${pad2(month)}-${pad2(day)}`;
 }
 
+/** Keep local clock time; move the calendar day to `dayKey` (YYYY-MM-DD). */
+export function moveInstantToDayKey(
+  iso: string,
+  dayKey: string,
+  timeZone: string,
+): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dayKey);
+  if (!match) throw new Error("INVALID_DAY_KEY");
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const source = new Date(iso);
+  const sourceYmd = zonedYmd(source, timeZone);
+  const sourceMidnight = zonedLocalMidnight(
+    sourceYmd.year,
+    sourceYmd.month,
+    sourceYmd.day,
+    timeZone,
+  );
+  const offsetMs = source.getTime() - sourceMidnight.getTime();
+  const targetMidnight = zonedLocalMidnight(year, month, day, timeZone);
+  return new Date(targetMidnight.getTime() + offsetMs).toISOString();
+}
+
+/** Minutes from local midnight for an instant in `timeZone` (0–1439). */
+export function minutesFromMidnight(iso: string, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(iso));
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
+  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+  return Math.min(24 * 60 - 1, Math.max(0, hour * 60 + minute));
+}
+
+export function snapMinutes(minutes: number, step = 5): number {
+  if (!Number.isFinite(minutes)) return 0;
+  const clamped = Math.min(24 * 60 - step, Math.max(0, minutes));
+  return Math.round(clamped / step) * step;
+}
+
+export const DAY_PX_PER_HOUR = 56;
+export const DAY_PX_PER_MINUTE = DAY_PX_PER_HOUR / 60;
+export const DAY_TIMELINE_HEIGHT = DAY_PX_PER_HOUR * 24;
+
+export function minutesToPx(minutes: number): number {
+  return minutes * DAY_PX_PER_MINUTE;
+}
+
+export function pxToMinutes(px: number): number {
+  return px / DAY_PX_PER_MINUTE;
+}
+
+/** Build an ISO instant for `dayKey` at `minutes` after local midnight. */
+export function instantAtDayMinutes(
+  dayKey: string,
+  minutes: number,
+  timeZone: string,
+): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dayKey);
+  if (!match) throw new Error("INVALID_DAY_KEY");
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const midnight = zonedLocalMidnight(year, month, day, timeZone);
+  const safeMinutes = snapMinutes(minutes);
+  return new Date(midnight.getTime() + safeMinutes * 60 * 1000).toISOString();
+}
+
+export function formatGuideTime(minutes: number): string {
+  const hour24 = Math.floor(minutes / 60) % 24;
+  const minute = minutes % 60;
+  const period = hour24 >= 12 ? "PM" : "AM";
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  return `${hour12}:${pad2(minute)} ${period}`;
+}
+
+/**
+ * Clamp drop minutes so past times on today (or earlier days) are not offered.
+ * Returns null when the day is entirely in the past.
+ */
+export function clampDropMinutes(
+  dayKey: string,
+  minutes: number,
+  timeZone: string,
+  now = new Date(),
+): number | null {
+  const todayKey = dayKeyForInstant(now.toISOString(), timeZone);
+  if (dayKey < todayKey) return null;
+  const snapped = snapMinutes(minutes);
+  if (dayKey > todayKey) return snapped;
+
+  const nowMinutes = minutesFromMidnight(now.toISOString(), timeZone);
+  const earliest = Math.min(
+    24 * 60 - 5,
+    Math.ceil((nowMinutes + 1) / 5) * 5,
+  );
+  if (earliest >= 24 * 60) return null;
+  return Math.max(snapped, earliest);
+}
+
 export const PLATFORM_LABELS: Record<string, string> = {
   threads: "Threads",
   linkedin_personal: "LinkedIn",

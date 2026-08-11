@@ -1,5 +1,9 @@
 import { z } from "zod";
 import type { TargetPlatform } from "@sochestral/database";
+import {
+  AUTONOMY_SCHEDULE_POST_CAP,
+  STANDARD_SCHEDULE_POST_CAP,
+} from "./autonomy-brief.js";
 import { OrchestrationError } from "./errors.js";
 import type { ModelTool } from "./model.js";
 
@@ -155,7 +159,7 @@ const definitions: Array<{
   {
     name: "schedule_post",
     description:
-      "Schedule a post for a future publishAt (UTC ISO, must be after now) through SocialMCP. Use when schedule intent is clear and publishAt is known from the user or an accepted plan. Write the caption in text and call this tool directly; do not use prepare_review for schedule asks. Never claim a schedule succeeded unless this tool returns ok. Max five mediaAssetIds. At most two schedule_post calls per turn.",
+      `Schedule a post for a future publishAt (UTC ISO, must be after now) through SocialMCP. Use when schedule intent is clear and publishAt is known from the user, an accepted plan, or an autonomy context brief. Write the caption in text and call this tool directly; do not use prepare_review for schedule asks. Never claim a schedule succeeded unless this tool returns ok. Max five mediaAssetIds. At most ${STANDARD_SCHEDULE_POST_CAP} schedule_post calls per turn normally; autonomy mode may allow up to ${AUTONOMY_SCHEDULE_POST_CAP}.`,
     schema: schedulePostInputSchema,
   },
 ];

@@ -22,6 +22,8 @@ import {
   type StreamEvent,
   type StreamStep,
 } from "@/lib/product-api";
+import { userFacingError } from "@/lib/user-facing-error";
+import { useToast } from "./toast-provider";
 
 type RetryItem = {
   message: string;
@@ -78,6 +80,7 @@ function safeReturnPath(pathname: string): string {
 }
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
+  const { toast } = useToast();
   const router = useRouter();
   const pathname = usePathname();
   const [user, setUser] = useState<ProductUser | null>(null);
@@ -159,10 +162,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         setUser(currentUser);
         void refreshConversations().catch(() => {
           if (active) {
+            const messageText = "Conversation history is unavailable.";
             setErrors((current) => ({
               ...current,
-              conversations: "Conversation history is unavailable.",
+              conversations: messageText,
             }));
+            toast({ tone: "error", title: messageText });
           }
         });
       })
@@ -177,7 +182,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-  }, [pathname, refreshConversations, router]);
+  }, [pathname, refreshConversations, router, toast]);
 
   const loadConversation = useCallback(
     async (id: string, older = false): Promise<ConversationDetail | null> => {
@@ -364,10 +369,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           return next;
         });
         void refreshConversations().catch(() => {
+          const messageText = "Conversation history could not refresh.";
           setErrors((current) => ({
             ...current,
-            conversations: "Conversation history could not refresh.",
+            conversations: messageText,
           }));
+          toast({ tone: "error", title: messageText });
         });
         return result.conversation.id;
       } catch (error) {
@@ -387,25 +394,20 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         const messageText =
           error instanceof ApiError
             ? busy
-              ? "Sochestral is still finishing work in this conversation."
+              ? userFacingError("RUN_IN_PROGRESS")
               : error.code === "INVALID_MESSAGE"
                 ? typeof error.details.message === "string" &&
                   error.details.message.trim() &&
                   error.details.message !== "INVALID_MESSAGE"
                   ? error.details.message
-                  : "Those image attachments could not be used for this chat. Remove them, re-attach, and try again."
-                : error.code === "INVALID_TOOL_ARGUMENTS"
-                  ? "I could not form a safe platform request. Name Threads, Instagram, or LinkedIn, or restate what to draft or schedule."
-                  : error.code === "MODEL_UNAVAILABLE"
-                    ? "I could not reach the language model in time. Please try again shortly."
-                    : error.code === "SOCIALMCP_UNAVAILABLE"
-                      ? "I could not reach the social account service. No post was published."
-                      : error.code === "STREAM_INCOMPLETE" ||
-                          error.code === "STREAM_UNAVAILABLE"
-                        ? "The reply was interrupted before it finished. Please try again."
-                        : "That request could not be completed safely."
+                  : userFacingError("INVALID_MESSAGE")
+                : userFacingError(error, {
+                    fallback:
+                      "That request could not be completed safely.",
+                  })
             : "The connection was interrupted. You can retry safely.";
         setErrors((current) => ({ ...current, [key]: messageText }));
+        toast({ tone: "error", title: messageText });
         setRetries((current) => ({
           ...current,
           [key]: {
@@ -421,7 +423,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         setLiveStep(null);
       }
     },
-    [refreshConversations, waitForIdleConversation],
+    [refreshConversations, toast, waitForIdleConversation],
   );
 
   const deleteConversation = useCallback(async (id: string) => {

@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   DeleteObjectCommand,
   GetObjectCommand,
@@ -18,6 +19,71 @@ import {
   type Database,
   type MediaAsset,
 } from "@sochestral/database";
+
+function mediaViewSecret(): string {
+  // Prefer a dedicated secret in production; JWT_SECRET fallback is local DX only.
+  const secret =
+    process.env.MEDIA_VIEW_SECRET?.trim() ||
+    process.env.JWT_SECRET?.trim() ||
+    "";
+  if (!secret) throw new MediaError("STORAGE_UNAVAILABLE", 502);
+  return secret;
+}
+
+function publicApiBase(): string {
+  const raw =
+    process.env.PUBLIC_API_URL?.trim() ||
+    process.env.NEXT_PUBLIC_API_URL?.trim() ||
+    "";
+  if (raw) return raw.replace(/\/$/, "");
+  const port = process.env.PORT?.trim() || "8787";
+  return `http://localhost:${port}`;
+}
+
+/** Default 30 days — long enough for scheduled publish + Meta fetch, not indefinite. */
+const DEFAULT_MEDIA_VIEW_TTL_DAYS = 30;
+
+function mediaViewTtlSeconds(): number {
+  return positiveInteger(process.env.MEDIA_VIEW_TTL_DAYS, DEFAULT_MEDIA_VIEW_TTL_DAYS) * 24 * 60 * 60;
+}
+
+export function signMediaView(userId: string, assetId: string, exp: number): string {
+  return createHmac("sha256", mediaViewSecret())
+    .update(`${userId}:${assetId}:${exp}`)
+    .digest("base64url");
+}
+
+/**
+ * Verify a media view capability URL.
+ * Fail closed: legacy URLs without `exp` (HMAC over userId:assetId only) are rejected.
+ */
+export function verifyMediaViewSig(
+  userId: string,
+  assetId: string,
+  exp: string | undefined,
+  sig: string,
+  nowMs = Date.now(),
+): boolean {
+  if (!sig || exp === undefined || exp === "") return false;
+  const expSeconds = Number(exp);
+  // Require a finite integer unix-seconds expiry bound into the HMAC.
+  if (!Number.isInteger(expSeconds) || expSeconds <= 0) return false;
+  if (expSeconds * 1000 <= nowMs) return false;
+  const expected = signMediaView(userId, assetId, expSeconds);
+  try {
+    const a = Buffer.from(expected);
+    const b = Buffer.from(sig);
+    return a.length === b.length && timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
+export function buildMediaViewUrl(userId: string, assetId: string, base = publicApiBase()): string {
+  const exp = Math.floor(Date.now() / 1000) + mediaViewTtlSeconds();
+  const sig = signMediaView(userId, assetId, exp);
+  return `${base.replace(/\/$/, "")}/media/assets/${encodeURIComponent(assetId)}/view?u=${encodeURIComponent(userId)}&exp=${exp}&sig=${encodeURIComponent(sig)}`;
+}
 
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -53,6 +119,8 @@ export type PublicMediaAsset = {
   width: number;
   height: number;
   previewUrl: string;
+  /** Durable product URL that re-signs R2 on each request. Prefer this for MCP storage. */
+  viewUrl: string;
 };
 
 export type ModelMediaAsset = {
@@ -347,6 +415,15 @@ export class MediaService {
     );
   }
 
+  /** Stable HTTPS URL for calendar/MCP storage; redirects to a fresh signed GET. */
+  viewUrl(userId: string, assetId: string, base?: string): string {
+    return buildMediaViewUrl(userId, assetId, base);
+  }
+
+  async signedRedirectTarget(userId: string, assetId: string): Promise<string> {
+    return this.publishUrl(userId, assetId);
+  }
+
   async modelImage(userId: string, assetId: string): Promise<ModelMediaAsset> {
     const asset = await getOwnedMediaAsset(this.db, userId, assetId);
     if (!asset || asset.state !== "ready" || !asset.mimeType || !ALLOWED_MIME.has(asset.mimeType)) {
@@ -382,6 +459,7 @@ export class MediaService {
         asset.storageKey,
         positiveInteger(process.env.MEDIA_PREVIEW_TTL_SECONDS, 3600),
       ),
+      viewUrl: buildMediaViewUrl(asset.userId, asset.id),
     };
   }
 }

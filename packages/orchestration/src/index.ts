@@ -94,6 +94,7 @@ export {
   StreamableHttpCalendarGateway,
   createCalendarService,
   isSafeMediaUrl,
+  isUnsupportedMcpToolText,
   mapStatusBucket,
   STATUS_BUCKETS,
   type CalendarAccount,
@@ -101,9 +102,17 @@ export {
   type CalendarService,
   type CalendarSlot,
   type CalendarStatusBucket,
+  type CalendarToolName,
+  type MirrorInput,
+  type MirrorTarget,
   type ScheduleDetail,
   type ScheduledPostsSort,
 } from "./calendar.js";
+export {
+  rewriteScheduleSelection,
+  type ScheduleRewriteAction,
+  type ScheduleRewriteInput,
+} from "./schedule-rewrite.js";
 export {
   createReviewService,
   DefaultReviewService,
@@ -125,9 +134,12 @@ export {
   LIVE_PUBLISH_INTENT_USER_MESSAGE_START,
   intentClarification,
   isSchedulePlanAcceptance,
+  localAutonomousScheduleIntent,
+  isSchedulePlanRejection,
   localDraftIntent,
   localLiveIntent,
   localScheduleIntent,
+  priorHasAutonomousScheduleContext,
   priorHasScheduleContext,
   resolveExplicitLivePublishIntent,
   resolveLivePublishIntent,
@@ -146,6 +158,15 @@ export {
   type IntentQuestion,
   type IntentQuestionOption,
 } from "./intent-questions.js";
+export {
+  AUTONOMY_SCHEDULE_POST_CAP,
+  STANDARD_SCHEDULE_POST_CAP,
+  buildAutonomyBrief,
+  buildPublishAtCandidates,
+  coverageDayOffsets,
+  resolveAutonomyTimeZone,
+} from "./autonomy-brief.js";
+export { PLATFORM_PLAYBOOKS, playbookFor } from "./platform-playbooks.js";
 export {
   createSequenceSink,
   STEP_LABELS,

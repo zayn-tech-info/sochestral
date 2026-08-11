@@ -1,4 +1,5 @@
 import sharp from "sharp";
+import { createHmac } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   createDb,
@@ -10,6 +11,9 @@ import {
 import {
   MediaError,
   MediaService,
+  buildMediaViewUrl,
+  signMediaView,
+  verifyMediaViewSig,
   type MediaObjectStore,
 } from "./media-storage.js";
 
@@ -43,14 +47,90 @@ class MemoryMediaStore implements MediaObjectStore {
   }
 }
 
-describe("private media storage", () => {
-  let database: Database;
+describe("media view HMAC expiry", () => {
+  const previousJwt = process.env.JWT_SECRET;
+  const previousMediaSecret = process.env.MEDIA_VIEW_SECRET;
+  const previousTtl = process.env.MEDIA_VIEW_TTL_DAYS;
+  const userId = "user_view_hmac";
+  const assetId = "media_view_hmac";
 
   beforeAll(() => {
+    process.env.JWT_SECRET = "media-view-test-jwt";
+    delete process.env.MEDIA_VIEW_SECRET;
+    delete process.env.MEDIA_VIEW_TTL_DAYS;
+  });
+
+  afterAll(() => {
+    if (previousJwt === undefined) delete process.env.JWT_SECRET;
+    else process.env.JWT_SECRET = previousJwt;
+    if (previousMediaSecret === undefined) delete process.env.MEDIA_VIEW_SECRET;
+    else process.env.MEDIA_VIEW_SECRET = previousMediaSecret;
+    if (previousTtl === undefined) delete process.env.MEDIA_VIEW_TTL_DAYS;
+    else process.env.MEDIA_VIEW_TTL_DAYS = previousTtl;
+  });
+
+  it("accepts a valid unexpired signature", () => {
+    const exp = Math.floor(Date.now() / 1000) + 3600;
+    const sig = signMediaView(userId, assetId, exp);
+    expect(verifyMediaViewSig(userId, assetId, String(exp), sig)).toBe(true);
+  });
+
+  it("rejects an expired signature", () => {
+    const exp = Math.floor(Date.now() / 1000) - 1;
+    const sig = signMediaView(userId, assetId, exp);
+    expect(verifyMediaViewSig(userId, assetId, String(exp), sig)).toBe(false);
+  });
+
+  it("rejects missing exp (fail closed for legacy URLs)", () => {
+    const legacySig = createHmac("sha256", process.env.JWT_SECRET!)
+      .update(`${userId}:${assetId}`)
+      .digest("base64url");
+    expect(verifyMediaViewSig(userId, assetId, undefined, legacySig)).toBe(false);
+    expect(verifyMediaViewSig(userId, assetId, "", legacySig)).toBe(false);
+  });
+
+  it("rejects a tampered exp that does not match the HMAC", () => {
+    const exp = Math.floor(Date.now() / 1000) + 3600;
+    const sig = signMediaView(userId, assetId, exp);
+    const tamperedExp = String(exp + 86_400);
+    expect(verifyMediaViewSig(userId, assetId, tamperedExp, sig)).toBe(false);
+  });
+
+  it("rejects a signature minted with the wrong secret", () => {
+    const exp = Math.floor(Date.now() / 1000) + 3600;
+    const wrongSig = createHmac("sha256", "wrong-secret")
+      .update(`${userId}:${assetId}:${exp}`)
+      .digest("base64url");
+    expect(verifyMediaViewSig(userId, assetId, String(exp), wrongSig)).toBe(false);
+  });
+
+  it("mints view URLs that include exp and verify successfully", () => {
+    const url = new URL(buildMediaViewUrl(userId, assetId, "https://api.example"));
+    expect(url.pathname).toBe(`/media/assets/${assetId}/view`);
+    expect(url.searchParams.get("u")).toBe(userId);
+    const exp = url.searchParams.get("exp");
+    const sig = url.searchParams.get("sig");
+    expect(exp).toMatch(/^\d+$/);
+    expect(sig).toBeTruthy();
+    const ttlSeconds = Number(exp) - Math.floor(Date.now() / 1000);
+    expect(ttlSeconds).toBeGreaterThan(29 * 24 * 60 * 60 - 5);
+    expect(ttlSeconds).toBeLessThanOrEqual(30 * 24 * 60 * 60);
+    expect(verifyMediaViewSig(userId, assetId, exp!, sig!)).toBe(true);
+  });
+});
+
+describe("private media storage", () => {
+  let database: Database;
+  const previousJwt = process.env.JWT_SECRET;
+
+  beforeAll(() => {
+    process.env.JWT_SECRET = previousJwt || "media-storage-test-jwt";
     database = createDb(requireTestDatabaseUrl());
   });
 
   afterAll(async () => {
+    if (previousJwt === undefined) delete process.env.JWT_SECRET;
+    else process.env.JWT_SECRET = previousJwt;
     await database.client.end({ timeout: 5 });
   });
 
@@ -80,6 +160,20 @@ describe("private media storage", () => {
       height: 2,
     });
     expect(completed.previewUrl).toMatch(/^https:\/\/media\.invalid\//);
+    expect(completed.viewUrl).toMatch(
+      new RegExp(`/media/assets/${completed.id}/view\\?u=`),
+    );
+    expect(completed.viewUrl).toMatch(/[?&]exp=\d+/);
+    expect(completed.viewUrl).toMatch(/[?&]sig=/);
+    const view = new URL(completed.viewUrl);
+    expect(
+      verifyMediaViewSig(
+        user.id,
+        completed.id,
+        view.searchParams.get("exp") ?? undefined,
+        view.searchParams.get("sig") ?? "",
+      ),
+    ).toBe(true);
     expect(JSON.stringify(completed)).not.toContain(key);
     expect((await sharp(store.objects.get(key)!).metadata()).exif).toBeUndefined();
 

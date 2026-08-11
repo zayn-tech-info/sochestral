@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiRequest, type ConversationDetail } from "@/lib/product-api";
 import { ChatWorkspace } from "./chat-workspace";
+import { ToastProvider } from "./toast-provider";
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
@@ -80,6 +81,15 @@ function detail(overrides: Partial<ConversationDetail> = {}): ConversationDetail
   };
 }
 
+
+function renderChat(ui: React.ReactElement) {
+  return render(<ToastProvider>{ui}</ToastProvider>);
+}
+
+function wrapChat(ui: React.ReactElement) {
+  return <ToastProvider>{ui}</ToastProvider>;
+}
+
 beforeEach(() => {
   window.history.replaceState({}, "", "/app");
   mocks.push.mockReset();
@@ -154,7 +164,7 @@ beforeEach(() => {
 describe("ChatWorkspace", () => {
   it("sends trimmed text with Enter and opens the created conversation (AC 1, AC 2)", async () => {
     const user = userEvent.setup();
-    render(<ChatWorkspace conversationId={null} />);
+    renderChat(<ChatWorkspace conversationId={null} />);
 
     const composer = screen.getByLabelText("Message Sochestral");
     await user.type(composer, "  Draft a Threads post  {Enter}");
@@ -197,7 +207,7 @@ describe("ChatWorkspace", () => {
         }),
     );
 
-    const { rerender } = render(<ChatWorkspace conversationId="new" />);
+    const { rerender } = renderChat(<ChatWorkspace conversationId="new" />);
 
     expect(screen.getByText("Plan a week of posts")).toBeInTheDocument();
     expect(mocks.workspace.takePendingLaunch).toHaveBeenCalled();
@@ -215,7 +225,7 @@ describe("ChatWorkspace", () => {
       expect(mocks.replace).toHaveBeenCalledWith("/app/chat/conv_launch");
     });
     // Re-render with cleared launch flags (as WorkspaceProvider would) while still on /new.
-    rerender(<ChatWorkspace conversationId="new" />);
+    rerender(wrapChat(<ChatWorkspace conversationId="new" />));
     await waitFor(() => {
       expect(mocks.replace).toHaveBeenCalledWith("/app/chat/conv_launch");
     });
@@ -224,7 +234,7 @@ describe("ChatWorkspace", () => {
 
   it("keeps Shift Enter as a new line without sending (AC 2)", async () => {
     const user = userEvent.setup();
-    render(<ChatWorkspace conversationId={null} />);
+    renderChat(<ChatWorkspace conversationId={null} />);
 
     const composer = screen.getByLabelText("Message Sochestral");
     await user.type(composer, "First line{Shift>}{Enter}{/Shift}Second line");
@@ -235,7 +245,7 @@ describe("ChatWorkspace", () => {
 
   it("uploads an image before sending and attaches the ready owned asset", async () => {
     const user = userEvent.setup();
-    const { container } = render(<ChatWorkspace conversationId={null} />);
+    const { container } = renderChat(<ChatWorkspace conversationId={null} />);
     const input = container.querySelector<HTMLInputElement>('input[type="file"]')!;
     await user.upload(input, new File([new Uint8Array([1, 2, 3, 4])], "post.png", {
       type: "image/png",
@@ -258,7 +268,7 @@ describe("ChatWorkspace", () => {
 
   it("submits a starter prompt as a normal message", async () => {
     const user = userEvent.setup();
-    render(<ChatWorkspace conversationId={null} />);
+    renderChat(<ChatWorkspace conversationId={null} />);
 
     await user.click(
       screen.getByRole("button", {
@@ -278,7 +288,7 @@ describe("ChatWorkspace", () => {
   it("renders owned messages and loads older history (AC 1, AC 3)", async () => {
     const user = userEvent.setup();
     mocks.workspace.details = { conv_1: detail({ nextCursor: "older" }) };
-    render(<ChatWorkspace conversationId="conv_1" />);
+    renderChat(<ChatWorkspace conversationId="conv_1" />);
 
     expect(screen.getByText("Check this post")).toBeInTheDocument();
     expect(screen.getByText("preview").tagName).toBe("STRONG");
@@ -293,7 +303,7 @@ describe("ChatWorkspace", () => {
       turnActivities: undefined,
     } as unknown as ConversationDetail;
     mocks.workspace.details = { conv_1: incomplete };
-    render(<ChatWorkspace conversationId="conv_1" />);
+    renderChat(<ChatWorkspace conversationId="conv_1" />);
 
     expect(screen.getByText("Check this post")).toBeInTheDocument();
     expect(screen.getByText("preview").tagName).toBe("STRONG");
@@ -322,7 +332,7 @@ describe("ChatWorkspace", () => {
         ],
       }),
     };
-    render(<ChatWorkspace conversationId="conv_1" />);
+    renderChat(<ChatWorkspace conversationId="conv_1" />);
 
     expect(screen.queryByRole("button", { name: /Tool activity/i })).toBeNull();
     expect(screen.queryByText(/tool action/i)).toBeNull();
@@ -361,7 +371,7 @@ describe("ChatWorkspace", () => {
         ],
       }),
     };
-    render(<ChatWorkspace conversationId="conv_1" />);
+    renderChat(<ChatWorkspace conversationId="conv_1" />);
 
     expect(screen.getByLabelText("Preparing a draft")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Thinking,/i })).toBeNull();
@@ -408,7 +418,7 @@ describe("ChatWorkspace", () => {
         ],
       }),
     };
-    render(<ChatWorkspace conversationId="conv_1" />);
+    renderChat(<ChatWorkspace conversationId="conv_1" />);
 
     expect(screen.getByLabelText("Scheduling")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open calendar" })).toHaveAttribute(
@@ -452,7 +462,7 @@ describe("ChatWorkspace", () => {
       },
     );
     mocks.workspace.details = { conv_1: detail() };
-    render(<ChatWorkspace conversationId="conv_1" />);
+    renderChat(<ChatWorkspace conversationId="conv_1" />);
 
     await user.type(
       screen.getByLabelText("Message Sochestral"),
@@ -548,7 +558,7 @@ describe("ChatWorkspace", () => {
       }),
     };
     const user = userEvent.setup();
-    render(<ChatWorkspace conversationId="conv_1" />);
+    renderChat(<ChatWorkspace conversationId="conv_1" />);
 
     expect(screen.queryByRole("button", { name: /View review/i })).toBeNull();
     expect(
@@ -569,7 +579,7 @@ describe("ChatWorkspace", () => {
   it("announces pending work and blocks another send (AC 2)", () => {
     mocks.workspace.pending = { conv_1: true };
     mocks.workspace.details = { conv_1: detail() };
-    render(<ChatWorkspace conversationId="conv_1" />);
+    renderChat(<ChatWorkspace conversationId="conv_1" />);
 
     expect(
       screen.getByRole("status", { name: "Sochestral is working" }),
@@ -586,7 +596,7 @@ describe("ChatWorkspace", () => {
     mocks.workspace.sendMessage = vi.fn(
       () => new Promise<string | null>(() => undefined),
     );
-    render(<ChatWorkspace conversationId="conv_1" />);
+    renderChat(<ChatWorkspace conversationId="conv_1" />);
 
     const composer = screen.getByLabelText("Message Sochestral");
     await user.type(composer, "Now post this on LinkedIn{Enter}");
@@ -606,7 +616,7 @@ describe("ChatWorkspace", () => {
   it("requires confirmation before deleting an idle conversation (AC 1)", async () => {
     const user = userEvent.setup();
     mocks.workspace.details = { conv_1: detail() };
-    render(<ChatWorkspace conversationId="conv_1" />);
+    renderChat(<ChatWorkspace conversationId="conv_1" />);
 
     await user.click(
       screen.getByRole("button", { name: "Delete this conversation" }),

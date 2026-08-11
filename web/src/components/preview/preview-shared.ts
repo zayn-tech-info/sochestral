@@ -1,5 +1,7 @@
 "use client";
 
+import type { RefObject } from "react";
+
 import type { ConnectorPlatform } from "@/lib/product-api";
 
 export const platformNames = {
@@ -108,4 +110,10 @@ export type PlatformPreviewProps = {
   locked: boolean;
   live: boolean;
   onBodyChange: (value: string) => void;
+  /** Optional circular profile photo for schedule / account chrome. */
+  avatarUrl?: string | null;
+  /** Optional ref to the editable caption textarea (schedule selection AI). */
+  bodyRef?: RefObject<HTMLTextAreaElement | null>;
+  /** Fired when the caption selection changes; receives the active textarea. */
+  onBodySelect?: (el: HTMLTextAreaElement) => void;
 };

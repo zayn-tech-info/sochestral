@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiRequest, type ReviewGroup as ReviewGroupValue } from "@/lib/product-api";
 import { LivePreviewAside } from "./live-preview-aside";
+import { ToastProvider } from "@/components/app/toast-provider";
 
 vi.mock("@/lib/product-api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/product-api")>();
@@ -53,10 +54,14 @@ describe("LivePreviewAside", () => {
     vi.mocked(apiRequest).mockReset().mockResolvedValue(connectorResponse);
   });
 
+  function renderAside(ui: React.ReactElement) {
+    return render(<ToastProvider>{ui}</ToastProvider>);
+  }
+
   it("auto selects the only account and requires an explicit save before approval", async () => {
     const user = userEvent.setup();
     const onRefresh = vi.fn().mockResolvedValue(undefined);
-    render(<LivePreviewAside group={group} onRefresh={onRefresh} />);
+    renderAside(<LivePreviewAside group={group} onRefresh={onRefresh} />);
 
     expect(screen.getByLabelText("Live platform preview")).toBeInTheDocument();
     expect(screen.getByLabelText("Threads post preview")).toBeInTheDocument();
@@ -84,7 +89,7 @@ describe("LivePreviewAside", () => {
   it("calls onClose from the close control and Escape", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
-    render(
+    renderAside(
       <LivePreviewAside
         group={group}
         onRefresh={vi.fn().mockResolvedValue(undefined)}
@@ -120,7 +125,7 @@ describe("LivePreviewAside", () => {
         },
       ],
     };
-    render(
+    renderAside(
       <LivePreviewAside
         group={unknown}
         onRefresh={vi.fn().mockResolvedValue(undefined)}
@@ -144,7 +149,7 @@ describe("LivePreviewAside", () => {
       ...group,
       drafts: group.drafts.map((draft) => ({ ...draft, status: "published" })),
     };
-    render(
+    renderAside(
       <LivePreviewAside
         group={completed}
         onRefresh={vi.fn().mockResolvedValue(undefined)}
@@ -158,7 +163,7 @@ describe("LivePreviewAside", () => {
 
   it("shows all platforms so users can preview each look", async () => {
     const user = userEvent.setup();
-    render(
+    renderAside(
       <LivePreviewAside
         group={group}
         onRefresh={vi.fn().mockResolvedValue(undefined)}
@@ -176,7 +181,7 @@ describe("LivePreviewAside", () => {
 
   it("rejects video files when adding media", async () => {
     const { fireEvent } = await import("@testing-library/react");
-    render(
+    renderAside(
       <LivePreviewAside
         group={group}
         onRefresh={vi.fn().mockResolvedValue(undefined)}

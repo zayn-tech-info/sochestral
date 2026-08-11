@@ -1,4 +1,4 @@
-import { ScheduleDetailView } from "@/components/app/schedule-detail";
+import { redirect } from "next/navigation";
 
 export default async function CalendarDetailPage({
   params,
@@ -6,5 +6,5 @@ export default async function CalendarDetailPage({
   params: Promise<{ scheduleId: string }>;
 }) {
   const { scheduleId } = await params;
-  return <ScheduleDetailView scheduleId={scheduleId} />;
+  redirect(`/app/calendar?schedule=${encodeURIComponent(scheduleId)}`);
 }

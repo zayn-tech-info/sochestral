@@ -113,6 +113,7 @@ export type StreamStep =
   | "understanding"
   | "checking_intent"
   | "clarifying_intent"
+  | "planning"
   | "preparing_draft"
   | "validating"
   | "scheduling"
@@ -154,6 +155,7 @@ export const STREAM_STEP_LABELS: Record<StreamStep, string> = {
   understanding: "Reading your message",
   checking_intent: "Checking intent",
   clarifying_intent: "Clarifying intent",
+  planning: "Planning from your context",
   preparing_draft: "Preparing a draft",
   validating: "Validating",
   scheduling: "Scheduling",
@@ -316,6 +318,7 @@ export type ConnectorSummary = {
     id: string;
     username: string | null;
     displayName: string | null;
+    avatarUrl?: string | null;
     state: "connected" | "reconnect_required";
     connectedAt?: string | null;
   }>;
@@ -419,6 +422,7 @@ export type CalendarSlot = {
   statusBucket: CalendarStatusBucket;
   captionPreview: string;
   thumbUrl: string | null;
+  canReschedule: boolean;
 };
 
 export type ScheduleDetail = CalendarSlot & {
@@ -426,8 +430,8 @@ export type ScheduleDetail = CalendarSlot & {
   media: string[];
   conversationId: string | null;
   draftId: string | null;
-  canReschedule: boolean;
   canCancel: boolean;
+  canEditContent: boolean;
 };
 
 export function getCalendarAccounts() {
@@ -439,6 +443,7 @@ export function getCalendarSlots(query: {
   to: string;
   timeZone: string;
   accountId?: string;
+  accountIds?: string[];
   platform?: string;
 }) {
   const params = new URLSearchParams({
@@ -446,7 +451,12 @@ export function getCalendarSlots(query: {
     to: query.to,
     timeZone: query.timeZone,
   });
-  if (query.accountId) params.set("accountId", query.accountId);
+  const ids = [
+    ...(query.accountIds ?? []),
+    ...(query.accountId ? [query.accountId] : []),
+  ];
+  if (ids.length === 1) params.set("accountId", ids[0]!);
+  else if (ids.length > 1) params.set("accountIds", ids.join(","));
   if (query.platform) params.set("platform", query.platform);
   return apiRequest<{ slots: CalendarSlot[]; timeZone: string }>(
     `/calendar/slots?${params.toString()}`,
@@ -468,6 +478,64 @@ export function rescheduleCalendarSlot(
     {
       method: "PATCH",
       body: JSON.stringify({ scheduledAt }),
+    },
+  );
+}
+
+export function updateCalendarSlotContent(
+  scheduleId: string,
+  input: { caption?: string; media?: string[] },
+) {
+  const body: { caption?: string; media?: string[] } = {};
+  if (typeof input.caption === "string") body.caption = input.caption;
+  if (Array.isArray(input.media)) body.media = input.media;
+  return apiRequest<ScheduleDetail>(
+    `/calendar/slots/${encodeURIComponent(scheduleId)}/content`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+export type MirrorCalendarTarget = {
+  platform: ConnectorPlatform;
+  accountId: string;
+  scheduledAt: string;
+};
+
+export function mirrorCalendarSlot(
+  scheduleId: string,
+  input: {
+    targets: MirrorCalendarTarget[];
+    caption?: string;
+    media?: string[];
+  },
+) {
+  return apiRequest<{ created: ScheduleDetail[] }>(
+    `/calendar/slots/${encodeURIComponent(scheduleId)}/mirror`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export type ScheduleRewriteAction = "regenerate" | "tweak" | "comment";
+
+export function rewriteCalendarSelection(
+  scheduleId: string,
+  input: {
+    selection: string;
+    action: ScheduleRewriteAction;
+    instruction?: string;
+  },
+) {
+  return apiRequest<{ suggestion: string }>(
+    `/calendar/slots/${encodeURIComponent(scheduleId)}/rewrite-selection`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
     },
   );
 }
@@ -496,6 +564,7 @@ export function getScheduledPosts(query: {
   to: string;
   timeZone: string;
   accountId?: string;
+  accountIds?: string[];
   platform?: string;
   status?: CalendarStatusBucket;
   sort?: ScheduledPostsSort;
@@ -505,7 +574,12 @@ export function getScheduledPosts(query: {
     to: query.to,
     timeZone: query.timeZone,
   });
-  if (query.accountId) params.set("accountId", query.accountId);
+  const ids = [
+    ...(query.accountIds ?? []),
+    ...(query.accountId ? [query.accountId] : []),
+  ];
+  if (ids.length === 1) params.set("accountId", ids[0]!);
+  else if (ids.length > 1) params.set("accountIds", ids.join(","));
   if (query.platform) params.set("platform", query.platform);
   if (query.status) params.set("status", query.status);
   if (query.sort) params.set("sort", query.sort);

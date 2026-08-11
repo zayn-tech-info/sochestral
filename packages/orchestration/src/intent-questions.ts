@@ -31,7 +31,7 @@ function platformLabels(platforms: TargetPlatform[]): string[] {
 function withCustom(
   options: Omit<IntentQuestionOption, "custom">[],
 ): IntentQuestionOption[] {
-  const capped = options.slice(0, 4);
+  const capped = options.slice(0, 5);
   return [
     ...capped,
     { id: "custom", label: "Something else", custom: true },
@@ -68,6 +68,10 @@ export function buildIntentQuestions(input: {
         recommended: true,
       },
       { id: "schedule_post", label: "Schedule a post" },
+      {
+        id: "decide_schedule",
+        label: "Decide and schedule for me",
+      },
       { id: "publish_now", label: "Publish live now" },
       { id: "suggest_only", label: "Just help with captions or ideas" },
     ]),
@@ -109,6 +113,7 @@ export function resolveIntentFromAnswers(
   answers: IntentAnswer[],
 ): {
   kind: "live" | "draft" | "suggest" | "schedule";
+  autonomous: boolean;
   platforms: TargetPlatform[];
   useCurrentMedia: boolean;
   summaryMessage: string;
@@ -119,8 +124,12 @@ export function resolveIntentFromAnswers(
   const media = byId.get("media");
 
   let kind: "live" | "draft" | "suggest" | "schedule" = "draft";
+  let autonomous = false;
   if (goal?.optionId === "publish_now") {
     kind = "live";
+  } else if (goal?.optionId === "decide_schedule") {
+    kind = "schedule";
+    autonomous = true;
   } else if (goal?.optionId === "schedule_post") {
     kind = "schedule";
   } else if (goal?.optionId === "suggest_only") {
@@ -132,17 +141,26 @@ export function resolveIntentFromAnswers(
     if (custom.includes("publish") || custom.includes("post live") || custom === "live") {
       kind = "live";
     } else if (
+      custom.includes("suggest") ||
+      custom.includes("caption") ||
+      custom.includes("idea")
+    ) {
+      // Check suggest/caption before the "for me" autonomy heuristic so
+      // "just suggest captions for me" does not become autonomous schedule.
+      kind = "suggest";
+    } else if (
+      custom.includes("decide") ||
+      custom.includes("yourself") ||
+      custom.includes("for me")
+    ) {
+      kind = "schedule";
+      autonomous = true;
+    } else if (
       custom.includes("schedule") ||
       custom.includes("later") ||
       custom.includes("queue")
     ) {
       kind = "schedule";
-    } else if (
-      custom.includes("suggest") ||
-      custom.includes("caption") ||
-      custom.includes("idea")
-    ) {
-      kind = "suggest";
     } else {
       kind = "draft";
     }
@@ -180,6 +198,7 @@ export function resolveIntentFromAnswers(
 
   return {
     kind,
+    autonomous,
     platforms,
     useCurrentMedia,
     summaryMessage: `Intent confirmed:\n${lines.join("\n")}`,

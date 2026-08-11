@@ -32,7 +32,7 @@ Implementation stays professional and conservative: official APIs only, validate
 | Foundation (1 to 2) | Shipped: product schema on **Neon** Postgres, sessions, MCP JWT minting |
 | Slice 1 core (3 to 5) | **Done.** Tracer Bullet path proven on the product URL (`https://app.sochestral.shop`): connect → chat → draft → preview aside → approve → SocialMCP publish → live result. Linear SOC-5 / SOC-6 / SOC-18 / SOC-19 Done |
 | Slice 3 early (12 to 14) | Feature 14 **Done** (SOC-7). Feature 12 live smoke **Done** (SOC-9). Feature 13 intent clarify + action labels **Done**; Thesean Thinking smoke **Canceled** (SOC-8) — model has no extended thinking; think-stream UI removed |
-| Slice 2 (6 to 10) | Feature 7 **Done** ([0009](../specs/0009-setup-agent-business-profile/index.md), SOC-12 / SOC-13). Feature 6 tiers **deferred** (SOC-10 / SOC-11 Backlog). Channels (8/9) wait until the main web app is further along. Feature 10 calendar + scheduled posts list **build landed** ([0010](../specs/0010-schedule-calendar/index.md), [0011](../specs/0011-scheduled-posts-list/index.md)); next `/check verify` then `/test`. Feature 15 chat schedule loop **build + tests landed** ([0012](../specs/0012-chat-schedule-loop/index.md)); live SocialMCP smoke still open in verify.md. Brand kit (SOC-40) stays a strong parallel Settings deepen |
+| Slice 2 (6 to 10) | Feature 7 **Done** ([0009](../specs/0009-setup-agent-business-profile/index.md), SOC-12 / SOC-13). Feature 6 tiers **deferred** (SOC-10 / SOC-11 Backlog). Channels (8/9) wait until the main web app is further along. Feature 10 calendar + scheduled posts list **build landed** ([0010](../specs/0010-schedule-calendar/index.md), [0011](../specs/0011-scheduled-posts-list/index.md)); next `/check verify` then `/test`. Feature 15 chat schedule loop **build + tests landed** ([0012](../specs/0012-chat-schedule-loop/index.md)); live SocialMCP smoke still open in verify.md. Feature 16 autonomous schedule planner **build landed** ([0013](../specs/0013-autonomous-schedule-planner/index.md)); verify/test open. Brand kit (SOC-40) stays a strong parallel Settings deepen |
 | Hosting | Fly apps `sochestral` (web) + `sochestral-api` (Hono); cloud SocialMCP; Neon as primary product DB. Local Docker Postgres on 5433 is for agent/dev only |
 
 **Next:** `/check verify chat schedule loop` (Feature 15, [0012](../specs/0012-chat-schedule-loop/index.md)), then `/test`. Feature 10 calendar verify can run in parallel. WhatsApp/Telegram after the web operator loop feels complete. Feature 6 tiers still deferred. Free beta access; billing is parallel and not a beta gate.
@@ -77,6 +77,7 @@ Treat the following as shipped in the external SocialMCP repo. This SaaS scope o
 | 13 | Intent clarify and Thinking UI | Slice 3 | done |
 | 14 | Live platform preview aside | Slice 3 | done |
 | 15 | Chat schedule loop | Slice 3 | in-progress |
+| 16 | Autonomous schedule planner | Slice 3 | in-progress |
 | — | Operator comment/mention handling | Deferred | planned |
 | — | Video and image generation pipeline | Deferred | planned |
 | — | Facebook Pages (after MCP adapter exists) | Deferred | planned |
@@ -297,6 +298,21 @@ Operators can ask chat to schedule a post. The agent understands first, drafts v
 - [x] Test it: `/test chat schedule loop`
 
 **Code:** `packages/orchestration/src/tools.ts`, `packages/orchestration/src/publishing.ts`, `packages/orchestration/src/service.ts`, `packages/database`
+
+### 16. Autonomous schedule planner · medium · in-progress
+
+When the operator asks chat to decide posting itself, orchestration builds a grounded context brief (profile, competitors, playbooks, cadence, calendar occupancy, heuristic times) and calls `schedule_post` in that turn. No background cron and no analytics ingest in this slice.
+**Done when:** “decide for me / manage posting yourself” with a complete profile and connected accounts creates real SocialMCP schedules from the brief without a second acceptance turn; incomplete profile or missing connectors refuse clearly; live auto publish stays gated.
+**Spec:** [0013](../specs/0013-autonomous-schedule-planner/index.md)
+- [x] Design it (spec): `/architect autonomous schedule planner`
+- [x] Build it: `/develop autonomous schedule planner`
+  - [x] Playbooks + brief builder + timing heuristics (AC-3, AC-4, AC-8)
+  - [x] Autonomy intent + service branch + refuse paths (AC-1, AC-2, AC-5, AC-6, AC-7)
+  - [x] Stream planning label + tests + 0012 follow-up (AC-8)
+- [ ] Verify it: `/check verify autonomous schedule planner`
+- [ ] Test it: `/test autonomous schedule planner`
+
+**Code:** `packages/orchestration/src/autonomy-brief.ts`, `packages/orchestration/src/platform-playbooks.ts`, `packages/orchestration/src/publishing.ts`, `packages/orchestration/src/service.ts`, `web/src/lib/product-api.ts`
 
 ## Deferred
 

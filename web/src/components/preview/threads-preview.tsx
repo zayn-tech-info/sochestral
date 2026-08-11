@@ -2,15 +2,17 @@
 
 import { Heart, MessageCircle, Repeat2, Send, MoreHorizontal } from "lucide-react";
 
+import { PreviewAvatar } from "./preview-avatar";
+import { ThreadsMediaStrip } from "./preview-media";
 import {
   accountHandle,
   accountLabel,
   mediaSrc,
-  monogram,
   type PlatformPreviewProps,
 } from "./preview-shared";
 
 export function ThreadsPreview({
+  platform,
   body,
   mediaItems,
   mediaPreviews,
@@ -18,6 +20,9 @@ export function ThreadsPreview({
   locked,
   live,
   onBodyChange,
+  avatarUrl,
+  bodyRef,
+  onBodySelect,
 }: PlatformPreviewProps) {
   const label = account ? accountLabel(account) : "Connect an account";
   const handle = account ? accountHandle(account) : "connect";
@@ -31,9 +36,11 @@ export function ThreadsPreview({
       aria-label="Threads post preview"
     >
       <header className="pp-threads-header">
-        <span className="pp-avatar" aria-hidden="true">
-          {monogram(label)}
-        </span>
+        <PreviewAvatar
+          platform={platform}
+          label={label}
+          avatarUrl={avatarUrl}
+        />
         <div className="pp-threads-meta">
           <div className="pp-threads-name-row">
             <strong>{handle}</strong>
@@ -49,26 +56,20 @@ export function ThreadsPreview({
         <p className="pp-body">{body || " "}</p>
       ) : (
         <textarea
+          ref={bodyRef}
           className="pp-body pp-body-edit"
           value={body}
           onChange={(event) => onBodyChange(event.target.value)}
+          onSelect={(event) => onBodySelect?.(event.currentTarget)}
+          onKeyUp={(event) => onBodySelect?.(event.currentTarget)}
+          onMouseUp={(event) => onBodySelect?.(event.currentTarget)}
           maxLength={8000}
           rows={Math.min(12, Math.max(3, body.split("\n").length + 1))}
-          aria-label="Threads post text"
+          aria-label="Edit caption"
         />
       )}
 
-      {images.length ? (
-        <div
-          className={`pp-media${images.length > 1 ? " pp-media-grid" : ""}`}
-          data-count={Math.min(images.length, 2)}
-        >
-          {images.slice(0, 2).map((src) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img key={src} src={src} alt="" />
-          ))}
-        </div>
-      ) : null}
+      <ThreadsMediaStrip images={images} />
 
       <footer className="pp-threads-actions" aria-hidden="true">
         <span><Heart className="size-4" /></span>

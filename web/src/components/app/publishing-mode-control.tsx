@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, ShieldAlert, X } from "lucide-react";
 import {
-  ApiError,
   apiRequest,
   type PublishingMode,
   type PublishingPreference,
 } from "@/lib/product-api";
+import { userFacingError } from "@/lib/user-facing-error";
 import { SelectChip } from "@/components/workspace/select-chip";
+import { useToast } from "./toast-provider";
 
 const modeOptions = [
   { value: "always_draft", label: "Always draft" },
@@ -25,27 +26,31 @@ export function PublishingModeControl({
   compact?: boolean;
   disabled?: boolean;
 }) {
+  const { toast } = useToast();
   const [preference, setPreference] = useState<PublishingPreference | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const descriptionId = useId();
 
   useEffect(() => {
     let active = true;
     apiRequest<PublishingPreference>("/publishing/preferences")
       .then((result) => active && setPreference(result))
-      .catch(() => active && setError("Publishing mode is unavailable."));
+      .catch(() => {
+        if (!active) return;
+        toast({
+          tone: "error",
+          title: "Publishing mode is unavailable.",
+        });
+      });
     return () => {
       active = false;
     };
-  }, []);
+  }, [toast]);
 
   async function change(mode: PublishingMode, consent = false) {
     if (!preference || busy) return;
     setBusy(true);
-    setError(null);
     try {
       const result = await apiRequest<PublishingPreference>("/publishing/preferences", {
         method: "PATCH",
@@ -62,11 +67,12 @@ export function PublishingModeControl({
       setAcknowledged(false);
       dialogRef.current?.close();
     } catch (requestError) {
-      setError(
-        requestError instanceof ApiError && requestError.code === "STALE_REVISION"
-          ? "The mode changed elsewhere. Refresh and try again."
-          : "Publishing mode could not be changed safely.",
-      );
+      toast({
+        tone: "error",
+        title: userFacingError(requestError, {
+          fallback: "Publishing mode could not be changed safely.",
+        }),
+      });
     } finally {
       setBusy(false);
     }
@@ -107,11 +113,6 @@ export function PublishingModeControl({
                 ? "Explicit publish requests run automatically only with no warnings."
                 : "Explicit publish requests run after blocking checks pass."
             : "Always draft is enforced while publishing authority rollout checks finish."}
-        </p>
-      ) : null}
-      {error ? (
-        <p id={descriptionId} className="publishing-mode-error" role="alert">
-          {error}
         </p>
       ) : null}
 

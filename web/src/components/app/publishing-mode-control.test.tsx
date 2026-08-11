@@ -6,6 +6,7 @@ import {
   type PublishingPreference,
 } from "@/lib/product-api";
 import { PublishingModeControl } from "./publishing-mode-control";
+import { ToastProvider } from "./toast-provider";
 
 vi.mock("@/lib/product-api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/product-api")>();
@@ -42,7 +43,11 @@ describe("PublishingModeControl", () => {
         consentVersion: "policy-1",
         consentCurrent: true,
       });
-    render(<PublishingModeControl source="settings" />);
+    render(
+      <ToastProvider>
+        <PublishingModeControl source="settings" />
+      </ToastProvider>,
+    );
 
     const trigger = await screen.findByRole("button", { name: "Publishing mode" });
     await user.click(trigger);
@@ -76,7 +81,11 @@ describe("PublishingModeControl", () => {
 
   it("keeps the selector disabled while rollout forces Always draft", async () => {
     vi.mocked(apiRequest).mockResolvedValue({ ...preference, enabled: false });
-    render(<PublishingModeControl source="composer" compact />);
+    render(
+      <ToastProvider>
+        <PublishingModeControl source="composer" compact />
+      </ToastProvider>,
+    );
     expect(
       await screen.findByRole("button", { name: "Publishing mode" }),
     ).toBeDisabled();

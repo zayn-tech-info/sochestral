@@ -35,8 +35,28 @@ vi.mock("./app-shell", () => ({
   ),
 }));
 
+vi.mock("./schedule-detail-modal", () => ({
+  ScheduleDetailModal: ({
+    scheduleId,
+    open,
+  }: {
+    scheduleId: string | null;
+    open: boolean;
+  }) =>
+    open && scheduleId ? (
+      <div role="dialog" aria-label={`Schedule ${scheduleId}`}>
+        Modal {scheduleId}
+      </div>
+    ) : null,
+}));
+
+const pushMock = vi.fn();
+let searchParams = new URLSearchParams();
+
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: pushMock }),
+  usePathname: () => "/app/scheduled",
+  useSearchParams: () => searchParams,
 }));
 
 const accounts: CalendarAccount[] = [
@@ -59,10 +79,13 @@ const posts: CalendarSlot[] = [
     statusBucket: "Scheduled",
     captionPreview: "Hello list",
     thumbUrl: null,
+    canReschedule: true,
   },
 ];
 
 beforeEach(() => {
+  pushMock.mockReset();
+  searchParams = new URLSearchParams();
   vi.mocked(getCalendarAccounts).mockReset();
   vi.mocked(getScheduledPosts).mockReset();
   vi.mocked(getCalendarAccounts).mockResolvedValue({ accounts });
@@ -113,7 +136,7 @@ describe("ScheduledPostsList", () => {
     );
     render(<ScheduledPostsList />);
     expect(
-      await screen.findByText(/Could not load scheduled posts \(SOCIALMCP_UNAVAILABLE\)/),
+      await screen.findByText(/We could not reach the social account service/i),
     ).toBeInTheDocument();
     expect(screen.queryByText("Hello list")).not.toBeInTheDocument();
   });
@@ -128,5 +151,15 @@ describe("ScheduledPostsList", () => {
         expect.objectContaining({ status: "Done" }),
       );
     });
+  });
+
+  it("opens the schedule modal in place from a row click", async () => {
+    render(<ScheduledPostsList />);
+    await screen.findByText("Hello list");
+    await userEvent.click(screen.getByText("Hello list"));
+    expect(pushMock).toHaveBeenCalledWith(
+      "/app/scheduled?schedule=sched_1",
+      { scroll: false },
+    );
   });
 });

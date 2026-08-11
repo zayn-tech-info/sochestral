@@ -18,6 +18,7 @@ export type PublicConnectorAccount = {
   id: string;
   username: string | null;
   displayName: string | null;
+  avatarUrl: string | null;
   state: Exclude<ConnectorState, "not_connected">;
   connectedAt?: string | null;
 };
@@ -145,6 +146,42 @@ function nullableString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function avatarUrlFromAccount(
+  account: Record<string, unknown>,
+): string | null {
+  const directKeys = [
+    "avatarUrl",
+    "avatarHint",
+    "profilePictureUrl",
+    "profile_picture_url",
+  ] as const;
+  for (const key of directKeys) {
+    const value = nullableString(account[key]);
+    if (value && isHttpsUrl(value)) return value;
+  }
+
+  const metadataRaw = account.metadataJson;
+  if (typeof metadataRaw === "string" && metadataRaw.trim()) {
+    try {
+      const metadata = asRecord(JSON.parse(metadataRaw));
+      const nested = nullableString(metadata?.avatarUrl);
+      if (nested && isHttpsUrl(nested)) return nested;
+    } catch {
+      // ignore malformed metadata
+    }
+  }
+
+  return null;
+}
+
 function isPlatform(value: string): value is ConnectorPlatform {
   return CONNECTOR_PLATFORMS.some((platform) => platform === value);
 }
@@ -199,6 +236,7 @@ export class DefaultConnectorService implements ConnectorService {
         id: account.id,
         username: nullableString(account.platformUsername),
         displayName: nullableString(account.displayName),
+        avatarUrl: avatarUrlFromAccount(account),
         state,
         ...(connectedAt ? { connectedAt } : {}),
       });

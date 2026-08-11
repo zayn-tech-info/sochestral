@@ -121,10 +121,41 @@ export function localDraftIntent(message: string): boolean {
 const PLATFORM_LIVE_PATTERN =
   /\b(?:instagram|instagrma|instagarm|instagam|instgram|instalgram|insta|threads|linkedin)\b/i;
 
+/**
+ * User asks the agent to decide topic/timing/content itself (SOC-39).
+ * Distinct from a concrete publishAt or a plan-acceptance go-ahead.
+ */
+export function localAutonomousScheduleIntent(message: string): boolean {
+  const value = message.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!value) return false;
+  const autonomyCue =
+    /\b(?:all\s+by\s+(?:your|my)?\s*self|by\s+yourself)\b/.test(value) ||
+    /\bdecide\s+(?:for\s+me|yourself|everything|on\s+(?:the\s+)?(?:topic|timing|content|when|what))\b/.test(
+      value,
+    ) ||
+    /\bpick\s+(?:the\s+)?best\s+(?:times?|topics?|content)\b/.test(value) ||
+    /\b(?:you|agent)\s+decide\b/.test(value) ||
+    /\b(?:handle|manage|run)\s+(?:my\s+)?(?:posting|content|schedule|calendar)\b/.test(
+      value,
+    ) ||
+    /\btake\s+(?:full\s+)?(?:control|the\s+lead|the\s+wheel)\b/.test(value) ||
+    /\bautonom(?:y|ous(?:ly)?)\b/.test(value);
+  if (!autonomyCue) return false;
+  // Pure draft/edit asks without posting language are not autonomy.
+  if (
+    /\b(?:draft|preview|edit|revise)\b/.test(value) &&
+    !/\b(?:schedule|post|publish|posting|calendar)\b/.test(value)
+  ) {
+    return false;
+  }
+  return true;
+}
+
 /** Clear schedule-for-later wording (not live now). */
 export function localScheduleIntent(message: string): boolean {
   const value = message.trim().toLowerCase().replace(/\s+/g, " ");
   if (!value) return false;
+  if (localAutonomousScheduleIntent(message)) return true;
   if (
     /\b(?:schedule|scheduled|scheduling)\b/.test(value) ||
     /\b(?:queue|slot)\s+(?:this|it|the\s+post)\b/.test(value) ||
@@ -245,6 +276,22 @@ export function priorHasScheduleContext(
     );
 }
 
+/** Recent user turns asked the agent to decide/schedule autonomously. */
+export function priorHasAutonomousScheduleContext(
+  priorMessages: string[] | undefined,
+): boolean {
+  return (priorMessages ?? [])
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .slice(-6)
+    .some(
+      (entry) =>
+        localAutonomousScheduleIntent(entry) ||
+        // Clarify answers persist as "Intent confirmed: … decide_schedule".
+        /\bgoal:\s*decide_schedule\b/i.test(entry),
+    );
+}
+
 /**
  * Accepting a proposed plan ("yeah go for this") — not a live publish command.
  */
@@ -253,6 +300,7 @@ export function isSchedulePlanAcceptance(message: string): boolean {
   if (!value || localDraftIntent(message) || localLiveIntent(message)) {
     return false;
   }
+  if (isSchedulePlanRejection(message)) return false;
   if (/^(?:yeah|yep|yes|ok|okay|sure|perfect|great)[,!.]?$/.test(value)) {
     return true;
   }
@@ -260,6 +308,47 @@ export function isSchedulePlanAcceptance(message: string): boolean {
     /\b(?:go\s+(?:for\s+)?(?:it|this|that)|that'?s\s+what\s+i\s+want|looks\s+good|sounds\s+good|do\s+it|proceed|approve(?:\s+(?:it|this|that))?|lock\s+(?:it|this)\s+in)\b/.test(
       value,
     ) && !/\b(?:don'?t|do\s+not|never|cancel|not\s+yet)\b/.test(value)
+  );
+}
+
+/**
+ * User rejects a schedule / autonomy plan and wants a different one.
+ * Gate with priorHasScheduleContext before treating as redo.
+ * Single-post moves ("reschedule this to Friday") are not plan rejections.
+ */
+export function isSchedulePlanRejection(message: string): boolean {
+  const value = message.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!value) return false;
+  if (localLiveIntent(message)) return false;
+  // Bare "reschedule X to Friday" is a single-slot edit, not a full plan redo.
+  if (
+    /\breschedule\b/.test(value) &&
+    !/\b(?:plan|times?|slots?|spread|everything|all|these|those)\b/.test(value) &&
+    !/\b(?:different|other|new|again|redo|rework)\b/.test(value) &&
+    !/\b(?:don'?t|do\s+not)\s+like\b/.test(value)
+  ) {
+    return false;
+  }
+  return (
+    /\b(?:don'?t|do\s+not)\s+like\b/.test(value) ||
+    /\bhate\s+(?:this|that|the\s+plan|these|those)\b/.test(value) ||
+    /\b(?:not\s+(?:good|great|right)|no\s+good)\b/.test(value) ||
+    /\b(?:redo|rework|retry|start\s+over|try\s+again)\b/.test(value) ||
+    /\b(?:different|other|new)\s+(?:times?|slots?|plan|schedule|days?|approach)\b/.test(
+      value,
+    ) ||
+    /\bchange\s+(?:the\s+)?(?:times?|plan|schedule|slots?)\b/.test(value) ||
+    /\b(?:scrap|ditch|kill)\s+(?:this|that|it|the\s+plan|those|them)\b/.test(
+      value,
+    ) ||
+    /\b(?:cancel|clear)\s+(?:these|those|them|the\s+(?:posts?|schedules?|plan))\b/.test(
+      value,
+    ) ||
+    (/\breschedule\b/.test(value) &&
+      /\b(?:plan|times?|slots?|spread|everything|all|these|those|different|other|new|again)\b/.test(
+        value,
+      )) ||
+    /\bmake\s+(?:a\s+)?(?:new|better|different)\s+plan\b/.test(value)
   );
 }
 
@@ -391,6 +480,17 @@ export async function resolveLivePublishIntent(
     });
     return "unclear";
   }
+  if (
+    priorHasScheduleContext(input.priorMessages) &&
+    isSchedulePlanRejection(message)
+  ) {
+    logIntentResolution({
+      outcome: "schedule",
+      reason: "local_schedule_reject_redo",
+      mode: input.mode,
+    });
+    return "schedule";
+  }
   // localDraftIntent excludes schedule wording, so cadence / start-day replies
   // still reach the LLM classifier.
   if (localDraftIntent(message)) {
@@ -400,6 +500,14 @@ export async function resolveLivePublishIntent(
       mode: input.mode,
     });
     return "draft";
+  }
+  if (localAutonomousScheduleIntent(message)) {
+    logIntentResolution({
+      outcome: "schedule",
+      reason: "local_autonomous_schedule",
+      mode: input.mode,
+    });
+    return "schedule";
   }
   // Accepting a calendar / schedule plan must not become live via window regex.
   if (

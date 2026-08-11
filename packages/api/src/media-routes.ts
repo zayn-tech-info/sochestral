@@ -2,7 +2,7 @@ import type { Context, Hono } from "hono";
 import { deleteCookie, getCookie } from "hono/cookie";
 import { SESSION_COOKIE_NAME, validateSessionToken } from "@sochestral/auth";
 import type { Database } from "@sochestral/database";
-import { MediaError, type MediaService } from "./media-storage.js";
+import { MediaError, verifyMediaViewSig, type MediaService } from "./media-storage.js";
 import type { Env } from "./app.js";
 import { isAllowedCorsOrigin } from "./cors-origin.js";
 
@@ -71,6 +71,24 @@ export function registerMediaRoutes(
     try {
       await getService().delete(request.user.id, c.req.param("assetId"));
       return c.body(null, 204);
+    } catch (error) {
+      const result = mapped(error);
+      return c.json(result.body, result.status);
+    }
+  });
+
+  /** Durable media fetch for calendar/MCP: time-bound HMAC auth, redirects to a fresh signed R2 GET. */
+  app.get("/media/assets/:assetId/view", async (c) => {
+    const assetId = c.req.param("assetId");
+    const userId = c.req.query("u") ?? "";
+    const exp = c.req.query("exp");
+    const sig = c.req.query("sig") ?? "";
+    if (!userId || !verifyMediaViewSig(userId, assetId, exp, sig)) {
+      return c.json({ error: "UNAUTHORIZED" }, 401);
+    }
+    try {
+      const target = await getService().signedRedirectTarget(userId, assetId);
+      return c.redirect(target, 302);
     } catch (error) {
       const result = mapped(error);
       return c.json(result.body, result.status);

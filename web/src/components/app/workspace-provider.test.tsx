@@ -9,6 +9,7 @@ import {
   type TurnResponse,
 } from "@/lib/product-api";
 import { useWorkspace, WorkspaceProvider } from "./workspace-provider";
+import { ToastProvider } from "./toast-provider";
 
 const navigation = vi.hoisted(() => {
   const replace = vi.fn();
@@ -118,9 +119,11 @@ function Harness() {
 
 function renderProvider() {
   return render(
-    <WorkspaceProvider>
-      <Harness />
-    </WorkspaceProvider>,
+    <ToastProvider>
+      <WorkspaceProvider>
+        <Harness />
+      </WorkspaceProvider>
+    </ToastProvider>,
   );
 }
 
@@ -203,7 +206,11 @@ describe("WorkspaceProvider", () => {
     await screen.findByText("person@example.com");
 
     await user.click(screen.getByRole("button", { name: "Send message" }));
-    expect(await screen.findByText("The connection was interrupted. You can retry safely.")).toBeInTheDocument();
+    expect(
+      await screen.findAllByText(
+        "The connection was interrupted. You can retry safely.",
+      ),
+    ).not.toHaveLength(0);
     await user.click(screen.getByRole("button", { name: "Retry message" }));
 
     await waitFor(() => expect(postAttempts).toBe(2));

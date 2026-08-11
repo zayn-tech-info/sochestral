@@ -20,6 +20,7 @@ primary_region = "lhr"
 [env]
   NODE_ENV = "production"
   PORT = "8080"
+  PUBLIC_API_URL = "https://api.sochestral.shop"
   # CORS_ORIGIN / DATABASE_URL / JWT_SECRET / SOCIALMCP_* as secrets
 
 [http_service]

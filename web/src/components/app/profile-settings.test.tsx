@@ -7,6 +7,7 @@ import {
   type BusinessProfileResponse,
 } from "@/lib/product-api";
 import { ProfileSettings } from "./profile-settings";
+import { ToastProvider } from "./toast-provider";
 
 vi.mock("@/lib/product-api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/product-api")>();
@@ -75,7 +76,11 @@ beforeEach(() => {
 
 describe("ProfileSettings", () => {
   it("loads identity, compiled note, and category sections (AC-5)", async () => {
-    render(<ProfileSettings />);
+    render(
+      <ToastProvider>
+        <ProfileSettings />
+      </ToastProvider>,
+    );
 
     expect(
       await screen.findByRole("heading", { name: "Business profile" }),
@@ -90,7 +95,11 @@ describe("ProfileSettings", () => {
 
   it("saves identity through the profile API (AC-5)", async () => {
     const user = userEvent.setup();
-    render(<ProfileSettings />);
+    render(
+      <ToastProvider>
+        <ProfileSettings />
+      </ToastProvider>,
+    );
 
     await screen.findByDisplayValue("Verify Brand Co");
     const name = screen.getByLabelText(/Business name/i);
@@ -103,5 +112,6 @@ describe("ProfileSettings", () => {
         expect.objectContaining({ businessName: "Updated Co" }),
       );
     });
+    expect(await screen.findByText("Profile saved.")).toBeInTheDocument();
   });
 });

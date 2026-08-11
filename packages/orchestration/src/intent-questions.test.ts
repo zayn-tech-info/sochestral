@@ -21,7 +21,10 @@ describe("buildIntentQuestions", () => {
       id: "custom",
       custom: true,
     });
-    expect(questions[0]?.options.length).toBeLessThanOrEqual(5);
+    expect(questions[0]?.options.length).toBeLessThanOrEqual(6);
+    expect(questions[0]?.options.map((option) => option.id)).toContain(
+      "decide_schedule",
+    );
   });
 
   it("asks for a platform when none are resolved yet", () => {
@@ -48,12 +51,18 @@ describe("resolveIntentFromAnswers", () => {
     ).toBe("schedule");
     expect(
       resolveIntentFromAnswers([
+        { questionId: "goal", optionId: "decide_schedule" },
+      ]),
+    ).toMatchObject({ kind: "schedule", autonomous: true });
+    expect(
+      resolveIntentFromAnswers([
         { questionId: "goal", optionId: "publish_now" },
         { questionId: "media", optionId: "this_message" },
       ]),
     ).toMatchObject({
       kind: "live",
       useCurrentMedia: true,
+      autonomous: false,
     });
   });
 
@@ -79,5 +88,29 @@ describe("resolveIntentFromAnswers", () => {
         },
       ]).kind,
     ).toBe("schedule");
+  });
+
+  it("maps suggest/caption custom text before the for-me autonomy heuristic", () => {
+    expect(
+      resolveIntentFromAnswers([
+        {
+          questionId: "goal",
+          optionId: "custom",
+          customText: "just suggest captions for me",
+        },
+      ]),
+    ).toMatchObject({ kind: "suggest", autonomous: false });
+  });
+
+  it("still treats decide-for-me custom text as autonomous schedule", () => {
+    expect(
+      resolveIntentFromAnswers([
+        {
+          questionId: "goal",
+          optionId: "custom",
+          customText: "decide the schedule for me",
+        },
+      ]),
+    ).toMatchObject({ kind: "schedule", autonomous: true });
   });
 });

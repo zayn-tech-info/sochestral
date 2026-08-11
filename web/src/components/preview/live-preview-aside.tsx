@@ -22,8 +22,10 @@ import {
   type ReviewDraft,
   type ReviewGroup as ReviewGroupValue,
 } from "@/lib/product-api";
+import { userFacingError } from "@/lib/user-facing-error";
 import { SelectChip } from "@/components/workspace/select-chip";
 import { productMotion } from "@/components/app/product-motion-provider";
+import { useToast } from "@/components/app/toast-provider";
 import {
   InstagramIcon,
   LinkedInIcon,
@@ -90,6 +92,7 @@ export function LivePreviewAside({
   onClose?: () => void;
   mediaPreviews?: Record<string, string>;
 }) {
+  const { toast } = useToast();
   const reduceMotion = useReducedMotion();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [connectors, setConnectors] = useState<ConnectorSummary[] | null>(null);
@@ -98,7 +101,6 @@ export function LivePreviewAside({
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [groupBusy, setGroupBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
   const [localPreviews, setLocalPreviews] = useState<Record<string, string>>({});
   const requestId = useRef<string | null>(null);
   const [activePlatform, setActivePlatform] = useState<ConnectorPlatform>(
@@ -239,7 +241,6 @@ export function LivePreviewAside({
     const nextEdit = edits[target.id];
     if (!nextEdit) return;
     setBusy((current) => ({ ...current, [target.id]: true }));
-    setNotice(null);
     try {
       await apiRequest(`/review/drafts/${target.id}`, {
         method: "PATCH",
@@ -252,14 +253,21 @@ export function LivePreviewAside({
           ),
         }),
       });
-      setNotice(`${platformNames[target.platform]} draft saved.`);
+      toast({
+        tone: "success",
+        title: `${platformNames[target.platform]} draft saved.`,
+      });
       await onRefresh();
     } catch (error) {
-      setNotice(
-        error instanceof ApiError && error.code === "STALE_REVISION"
-          ? "This draft changed elsewhere. The latest version has been restored."
-          : "The draft could not be saved safely.",
-      );
+      toast({
+        tone: "error",
+        title:
+          error instanceof ApiError && error.code === "STALE_REVISION"
+            ? "This draft changed elsewhere. The latest version has been restored."
+            : userFacingError(error, {
+                fallback: "The draft could not be saved safely.",
+              }),
+      });
       if (error instanceof ApiError && error.code === "STALE_REVISION") {
         await onRefresh();
       }
@@ -270,7 +278,6 @@ export function LivePreviewAside({
 
   async function publish() {
     setGroupBusy(true);
-    setNotice("Publishing the approved review set.");
     requestId.current ??= crypto.randomUUID();
     try {
       await apiRequest(`/review/groups/${group.id}/publish`, {
@@ -285,16 +292,19 @@ export function LivePreviewAside({
         }),
       });
       requestId.current = null;
-      setNotice("Published. Live preview is ready in this panel.");
+      toast({
+        tone: "success",
+        title: "Published. Live preview is ready in this panel.",
+      });
       await onRefresh();
     } catch (error) {
-      setNotice(
-        error instanceof ApiError && error.code === "PREFLIGHT_FAILED"
-          ? "Fix the blocking draft errors before publishing. No platform call was made."
-          : error instanceof ApiError && error.code === "PUBLISH_RATE_LIMIT"
-            ? "The hourly publish limit is reached. No platform call was made."
-            : "The publish result is not available yet. Retry this action safely.",
-      );
+      toast({
+        tone: "error",
+        title: userFacingError(error, {
+          fallback:
+            "The publish result is not available yet. Retry this action safely.",
+        }),
+      });
       await onRefresh();
     } finally {
       setGroupBusy(false);
@@ -304,7 +314,6 @@ export function LivePreviewAside({
   async function check(target: ReviewDraft) {
     if (!target.latestAttempt) return;
     setBusy((current) => ({ ...current, [target.id]: true }));
-    setNotice("Checking the reserved platform execution.");
     try {
       await apiRequest(`/review/attempts/${target.latestAttempt.id}/check`, {
         method: "POST",
@@ -312,9 +321,15 @@ export function LivePreviewAside({
         body: "{}",
       });
       await onRefresh();
-      setNotice("The platform status has been refreshed.");
+      toast({
+        tone: "success",
+        title: "The platform status has been refreshed.",
+      });
     } catch {
-      setNotice("The status is still unavailable. No new post was created.");
+      toast({
+        tone: "error",
+        title: "The status is still unavailable. No new post was created.",
+      });
     } finally {
       setBusy((current) => ({ ...current, [target.id]: false }));
     }
@@ -324,11 +339,13 @@ export function LivePreviewAside({
     const images = files.filter(isImageFile).slice(0, Math.max(0, 5 - edit.mediaItems.length));
     const rejected = files.some((file) => !isImageFile(file));
     if (rejected) {
-      setNotice("Videos are not supported yet. Add images only.");
+      toast({
+        tone: "error",
+        title: "Videos are not supported yet. Add images only.",
+      });
     }
     if (!images.length || locked) return;
     setUploading(true);
-    setNotice(null);
     try {
       const tickets = await apiRequest<{
         uploads: Array<{ assetId: string; uploadUrl: string }>;
@@ -367,7 +384,10 @@ export function LivePreviewAside({
       }
       setDraft(draft.id, { mediaItems: [...edit.mediaItems, ...added] });
     } catch {
-      setNotice("Image upload failed. Try again.");
+      toast({
+        tone: "error",
+        title: "Image upload failed. Try again.",
+      });
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -642,7 +662,7 @@ export function LivePreviewAside({
             {draft.validation.errors.map((error) => (
               <li key={error}>
                 <CircleAlert aria-hidden="true" />
-                {error}
+                {userFacingError(error)}
               </li>
             ))}
           </ul>
@@ -656,23 +676,9 @@ export function LivePreviewAside({
         ) : null}
         {!previewOnly && draft.latestAttempt?.error ? (
           <p className="review-result-error" role="alert">
-            {draft.latestAttempt.error.message}
+            {userFacingError(draft.latestAttempt.error.message)}
           </p>
         ) : null}
-
-        <AnimatePresence initial={false}>
-          {notice ? (
-            <motion.p
-              className="review-notice"
-              role="status"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              {notice}
-            </motion.p>
-          ) : null}
-        </AnimatePresence>
       </div>
 
       <footer className="live-preview-footer">

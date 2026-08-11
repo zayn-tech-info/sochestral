@@ -7,6 +7,7 @@ import {
   type ConnectorSummary,
 } from "@/lib/product-api";
 import { ConnectorsSettings } from "./connectors-settings";
+import { ToastProvider } from "./toast-provider";
 
 vi.mock("@/lib/product-api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/product-api")>();
@@ -43,6 +44,12 @@ const connectors: ConnectorSummary[] = [
         displayName: "Zayn",
         state: "connected",
       },
+      {
+        id: "acct_2",
+        username: "zayn.work",
+        displayName: "Zayn Work",
+        state: "connected",
+      },
     ],
   },
   {
@@ -58,10 +65,18 @@ beforeEach(() => {
   vi.mocked(apiRequest).mockResolvedValue({ connectors });
 });
 
+function renderConnectors() {
+  return render(
+    <ToastProvider>
+      <ConnectorsSettings />
+    </ToastProvider>,
+  );
+}
+
 describe("ConnectorsSettings", () => {
   it("shows every platform on All with a Content type column (AC 4)", async () => {
     const user = userEvent.setup();
-    render(<ConnectorsSettings />);
+    renderConnectors();
 
     expect(await screen.findByRole("tab", { name: /^All/ })).toHaveAttribute(
       "aria-selected",
@@ -83,7 +98,8 @@ describe("ConnectorsSettings", () => {
     await user.click(screen.getByRole("tab", { name: /^Connected/ }));
     const connectedPanel = screen.getByRole("tabpanel");
     expect(within(connectedPanel).getByText("LinkedIn")).toBeInTheDocument();
-    expect(within(connectedPanel).getByText(/@zayn/)).toBeInTheDocument();
+    expect(within(connectedPanel).getByText(/Zayn · @zayn$/)).toBeInTheDocument();
+    expect(within(connectedPanel).getByText(/Zayn Work · @zayn\.work/)).toBeInTheDocument();
     expect(within(connectedPanel).queryByText("Threads")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: /^Not connected/ }));
@@ -96,7 +112,7 @@ describe("ConnectorsSettings", () => {
   it("reports an unavailable service but still lists every platform (AC 4, AC 6)", async () => {
     const user = userEvent.setup();
     vi.mocked(apiRequest).mockRejectedValue(new Error("offline"));
-    render(<ConnectorsSettings />);
+    renderConnectors();
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Connector status is unavailable");
@@ -114,12 +130,12 @@ describe("ConnectorsSettings", () => {
 
   it("keeps last known connected accounts when a refresh fails (AC 6)", async () => {
     const user = userEvent.setup();
-    render(<ConnectorsSettings />);
+    renderConnectors();
     await screen.findByRole("table");
 
     await user.click(screen.getByRole("tab", { name: /^Connected/ }));
     expect(
-      within(screen.getByRole("tabpanel")).getByText(/@zayn/),
+      within(screen.getByRole("tabpanel")).getByText(/Zayn · @zayn$/),
     ).toBeInTheDocument();
 
     vi.mocked(apiRequest).mockRejectedValue(new Error("offline"));
@@ -128,13 +144,13 @@ describe("ConnectorsSettings", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Connector status is unavailable");
     expect(
-      within(screen.getByRole("tabpanel")).getByText(/@zayn/),
+      within(screen.getByRole("tabpanel")).getByText(/Zayn · @zayn$/),
     ).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Connect another" }).length).toBeGreaterThan(0);
   });
 
   it("refreshes connector status when the window regains focus (AC 6)", async () => {
-    render(<ConnectorsSettings />);
+    renderConnectors();
     await screen.findByRole("table");
 
     window.dispatchEvent(new Event("focus"));
@@ -150,11 +166,9 @@ describe("ConnectorsSettings", () => {
       "",
       "/app/settings/connectors?result=connected&platform=threads",
     );
-    render(<ConnectorsSettings />);
+    renderConnectors();
 
-    expect(await screen.findByRole("status")).toHaveTextContent(
-      "Threads is connected.",
-    );
+    expect(await screen.findByText("Threads is connected.")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /^Connected/ })).toHaveAttribute(
       "aria-selected",
       "true",
@@ -167,11 +181,12 @@ describe("ConnectorsSettings", () => {
       "",
       "/app/settings/connectors?result=error&code=%3Cscript%3E",
     );
-    render(<ConnectorsSettings />);
+    renderConnectors();
 
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("Connection was not completed. Try again when ready.");
-    expect(alert).not.toHaveTextContent("script");
+    expect(
+      await screen.findByText("Connection was not completed. Try again when ready."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/script/i)).not.toBeInTheDocument();
   });
 
   it("shows a stable safe error when SocialMCP cannot start OAuth (AC 5, AC 6)", async () => {
@@ -180,14 +195,14 @@ describe("ConnectorsSettings", () => {
       if (path === "/connectors") return Promise.resolve({ connectors });
       return Promise.reject(new ApiError(502, "SOCIALMCP_UNAVAILABLE", {}));
     });
-    render(<ConnectorsSettings />);
+    renderConnectors();
     await screen.findByRole("table");
 
     await user.click(screen.getAllByRole("button", { name: "Connect" })[0]!);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "The connector service is unavailable. Nothing changed.",
-    );
+    expect(
+      await screen.findByText("The connector service is unavailable. Nothing changed."),
+    ).toBeInTheDocument();
     expect(apiRequest).toHaveBeenLastCalledWith("/connectors/threads/connect", {
       method: "POST",
     });
