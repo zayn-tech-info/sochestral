@@ -446,7 +446,8 @@ export function ScheduleCalendar() {
   useEffect(() => {
     if (!draggingId) return;
 
-    function onDocumentDragOver(event: DragEvent) {
+    // Native DOM DragEvent (not React.DragEvent) for document listeners.
+    function onDocumentDragOver(event: globalThis.DragEvent) {
       if (!draggingIdRef.current) return;
       event.preventDefault();
       updateDropFromPoint(event.clientX, event.clientY);

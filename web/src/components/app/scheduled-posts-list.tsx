@@ -21,7 +21,6 @@ import {
   forwardListWindow,
   PLATFORM_LABELS,
   resolveTimeZone,
-  rollingListWindow,
   shiftListWindow,
 } from "@/lib/calendar-week";
 import { userFacingError } from "@/lib/user-facing-error";
