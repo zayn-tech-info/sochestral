@@ -1,7 +1,7 @@
 # 0009. Setup agent and business profile
 
 **Date**: 2026-08-08
-**Status**: Accepted
+**Status**: Superseded by [0014](../0014-onboarding-wizard-settings/index.md) for onboarding path and settings surface; profile tables, entries, and compile-note injection remain in force under 0014
 
 ## Summary
 

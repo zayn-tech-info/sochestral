@@ -1865,17 +1865,25 @@ export class DefaultOrchestrationService implements OrchestrationService {
                 message: summary.message,
               });
             }
-            await finishOrchestrationToolCall(this.db, pending.id, {
-              status: toolFailed ? "failed" : "succeeded",
-              result: summary,
-              safeError: toolFailed
-                ? typeof summary.code === "string"
-                  ? summary.code
-                  : "MCP_TOOL_ERROR"
-                : undefined,
-              attemptCount: result.attempts,
-              durationMs: Math.round(performance.now() - toolStarted),
-            });
+            const toolDurationMs = Math.round(performance.now() - toolStarted);
+            if (toolFailed) {
+              await finishOrchestrationToolCall(this.db, pending.id, {
+                status: "failed",
+                safeError:
+                  typeof summary.code === "string"
+                    ? summary.code
+                    : "MCP_TOOL_ERROR",
+                attemptCount: result.attempts,
+                durationMs: toolDurationMs,
+              });
+            } else {
+              await finishOrchestrationToolCall(this.db, pending.id, {
+                status: "succeeded",
+                result: summary,
+                attemptCount: result.attempts,
+                durationMs: toolDurationMs,
+              });
+            }
             if (validated.name === "validate_post") {
               this.emit({ type: "step_completed", step: "validating" });
             }
@@ -2258,7 +2266,15 @@ export class DefaultOrchestrationService implements OrchestrationService {
         compiled.profile.setupStatus,
       )
     ) {
-      return this.startSetupTurn(userId, conversationId, input);
+      throw new OrchestrationError(
+        "PROFILE_INCOMPLETE",
+        422,
+        "Finish onboarding before using operator chat.",
+        {
+          setupStatus: compiled.profile.setupStatus,
+          setupStep: compiled.profile.setupStep,
+        },
+      );
     }
 
     if (input.intentAnswers.some((answer) => answer.questionId === "profile_update")) {

@@ -57,4 +57,15 @@ describe("preview media layouts", () => {
       4,
     );
   });
+
+  it("renders a single LinkedIn image without collage crop chrome", () => {
+    const { container } = render(
+      <LinkedInMediaCollage images={["https://cdn.example/solo.jpg"]} />,
+    );
+    expect(container.querySelector(".pp-media-linkedin-single")).toBeTruthy();
+    expect(imgSrcs(container)).toEqual(["https://cdn.example/solo.jpg"]);
+    expect(
+      screen.queryByRole("button", { name: /View image/i }),
+    ).not.toBeInTheDocument();
+  });
 });

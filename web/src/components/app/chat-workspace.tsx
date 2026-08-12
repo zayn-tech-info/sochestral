@@ -22,6 +22,7 @@ import {
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import {
+  ApiError,
   apiRequest,
   STREAM_STEP_LABELS,
   type IntentAnswer,
@@ -505,7 +506,9 @@ export function ChatWorkspace({
         fallback: "This conversation could not be deleted right now.",
       });
       setDeleteError(messageText);
-      toast({ tone: "error", title: messageText });
+      const busy =
+        error instanceof ApiError && error.code === "RUN_IN_PROGRESS";
+      toast({ tone: busy ? "info" : "error", title: messageText });
     }
   }
 

@@ -27,6 +27,29 @@ import { DefaultOrchestrationService } from "./service.js";
 import { PublishingPreferenceService } from "./publishing.js";
 import type { ReviewService } from "./review.js";
 
+const WIZARD_DESCRIPTION = Array.from({ length: 32 }, (_, i) => `word${i}`).join(
+  " ",
+);
+
+async function seedCompleteWizardProfile(
+  db: Database["db"],
+  userId: string,
+  overrides: Parameters<typeof patchBusinessProfile>[2] = {},
+) {
+  await patchBusinessProfile(db, userId, {
+    businessName: "Acme Tools",
+    businessDescription: WIZARD_DESCRIPTION,
+    personaRole: "business_owner",
+    primaryPlatforms: ["threads"],
+    attributionSource: "friend",
+    skills: ["Content writing"],
+    setupStatus: "complete",
+    setupStep: "done",
+    competitorsSkipped: true,
+    ...overrides,
+  });
+}
+
 const config: OrchestrationConfig = {
   theseanApiKey: "unused",
   theseanModel: "contract-model",
@@ -235,13 +258,7 @@ describe("DefaultOrchestrationService", () => {
   });
 
   it("autonomy mode schedules from a context brief without plan acceptance", async () => {
-    await patchBusinessProfile(database.db, userId, {
-      businessName: "Acme Tools",
-      businessDescription: "Hand tools for makers",
-      setupStatus: "complete",
-      setupStep: "done",
-      competitorsSkipped: true,
-    });
+    await seedCompleteWizardProfile(database.db, userId);
     await createProfileEntry(database.db, {
       userId,
       category: "tone",
@@ -290,7 +307,7 @@ describe("DefaultOrchestrationService", () => {
             toolCall("call_auto_1", "schedule_post", {
               platforms: ["threads"],
               text: "Maker tip: sharpen once a week.",
-              publishAt: "2026-08-11T12:00:00.000Z",
+              publishAt: "2026-08-15T15:00:00.000Z",
             }),
           ],
         }),
@@ -306,7 +323,7 @@ describe("DefaultOrchestrationService", () => {
       value: {
         ok: true,
         id: "sched_auto",
-        publishAt: "2026-08-11T12:00:00.000Z",
+        publishAt: "2026-08-15T15:00:00.000Z",
         platforms: ["threads"],
       },
     });
@@ -376,13 +393,7 @@ describe("DefaultOrchestrationService", () => {
   });
 
   it("rejects a prior autonomy plan, cancels those schedules, and reschedules", async () => {
-    await patchBusinessProfile(database.db, userId, {
-      businessName: "Acme Tools",
-      businessDescription: "Hand tools for makers",
-      setupStatus: "complete",
-      setupStep: "done",
-      competitorsSkipped: true,
-    });
+    await seedCompleteWizardProfile(database.db, userId);
     await createProfileEntry(database.db, {
       userId,
       category: "tone",
@@ -439,7 +450,7 @@ describe("DefaultOrchestrationService", () => {
             toolCall("call_auto_1", "schedule_post", {
               platforms: ["threads"],
               text: "First plan tip",
-              publishAt: "2026-08-11T12:00:00.000Z",
+              publishAt: "2026-08-15T15:00:00.000Z",
             }),
           ],
         }),
@@ -455,7 +466,7 @@ describe("DefaultOrchestrationService", () => {
             toolCall("call_auto_2", "schedule_post", {
               platforms: ["threads"],
               text: "Revised tip with a wider spread",
-              publishAt: "2026-08-13T12:00:00.000Z",
+              publishAt: "2026-08-17T15:00:00.000Z",
             }),
           ],
         }),
@@ -471,7 +482,7 @@ describe("DefaultOrchestrationService", () => {
         value: {
           ok: true,
           id: "sched_auto",
-          publishAt: "2026-08-11T12:00:00.000Z",
+          publishAt: "2026-08-15T15:00:00.000Z",
           platforms: ["threads"],
         },
       })
@@ -480,7 +491,7 @@ describe("DefaultOrchestrationService", () => {
         value: {
           ok: true,
           id: "sched_redo",
-          publishAt: "2026-08-13T12:00:00.000Z",
+          publishAt: "2026-08-17T15:00:00.000Z",
           platforms: ["threads"],
         },
       });
@@ -503,7 +514,7 @@ describe("DefaultOrchestrationService", () => {
       expect.objectContaining({
         name: "schedule_post",
         arguments: expect.objectContaining({
-          scheduledAt: "2026-08-13T12:00:00.000Z",
+          scheduledAt: "2026-08-17T15:00:00.000Z",
         }),
       }),
     );
@@ -511,7 +522,7 @@ describe("DefaultOrchestrationService", () => {
       vi.mocked(model.complete).mock.calls[2]?.[0]?.system ?? "",
     );
     expect(redoSystem).toMatch(/Redo feedback/i);
-    expect(redoSystem).toMatch(/2026-08-11T12:00:00.000Z/);
+    expect(redoSystem).toMatch(/2026-08-15T15:00:00.000Z/);
     expect(redo.run).toMatchObject({
       status: "completed",
       liveIntentKind: "schedule",
@@ -521,13 +532,7 @@ describe("DefaultOrchestrationService", () => {
   });
 
   it("refuses an autonomy redo without canceling prior schedules when setup is incomplete", async () => {
-    await patchBusinessProfile(database.db, userId, {
-      businessName: "Acme Tools",
-      businessDescription: "Hand tools for makers",
-      setupStatus: "complete",
-      setupStep: "done",
-      competitorsSkipped: true,
-    });
+    await seedCompleteWizardProfile(database.db, userId);
     await createProfileEntry(database.db, {
       userId,
       category: "tone",
@@ -583,7 +588,7 @@ describe("DefaultOrchestrationService", () => {
             toolCall("call_auto_1", "schedule_post", {
               platforms: ["threads"],
               text: "First plan tip",
-              publishAt: "2026-08-11T12:00:00.000Z",
+              publishAt: "2026-08-15T15:00:00.000Z",
             }),
           ],
         }),
@@ -598,7 +603,7 @@ describe("DefaultOrchestrationService", () => {
       value: {
         ok: true,
         id: "sched_auto",
-        publishAt: "2026-08-11T12:00:00.000Z",
+        publishAt: "2026-08-15T15:00:00.000Z",
         platforms: ["threads"],
       },
     });
@@ -629,13 +634,7 @@ describe("DefaultOrchestrationService", () => {
   });
 
   it("does not enter autonomy mode for ordinary schedule-plan rejection", async () => {
-    await patchBusinessProfile(database.db, userId, {
-      businessName: "Acme Tools",
-      businessDescription: "Hand tools for makers",
-      setupStatus: "complete",
-      setupStep: "done",
-      competitorsSkipped: true,
-    });
+    await seedCompleteWizardProfile(database.db, userId);
 
     const cancel = vi.fn().mockResolvedValue({ ok: true, scheduleId: "sched_plan" });
     service = new DefaultOrchestrationService(
@@ -2293,36 +2292,31 @@ describe("DefaultOrchestrationService setup agent", () => {
     );
   });
 
-  it("routes incomplete profiles to the setup model (AC-2)", async () => {
-    vi.mocked(model.complete).mockResolvedValueOnce(
-      modelCompletion({
-        content: "What is your business name?",
+  it("refuses incomplete profiles instead of routing to setup chat (AC-5)", async () => {
+    await expect(
+      service.createConversation(userId, {
+        message: "Hello",
+        requestId: "00000000-0000-4000-8000-00000000f701",
       }),
-    );
-
-    const result = await service.createConversation(userId, {
-      message: "Hello",
-      requestId: "00000000-0000-4000-8000-00000000f701",
+    ).rejects.toMatchObject({
+      code: "PROFILE_INCOMPLETE",
+      status: 422,
     });
-
-    expect(result.conversation.title).toBe("Business setup");
-    expect(result.run?.model).toBe("setup-model");
-    expect(model.complete).toHaveBeenCalledWith(
-      expect.objectContaining({
-        model: "setup-model",
-        tools: expect.arrayContaining([
-          expect.objectContaining({ name: "update_business_identity" }),
-        ]),
-      }),
-    );
+    expect(model.complete).not.toHaveBeenCalled();
     expect(mcp.callTool).not.toHaveBeenCalled();
   });
 
   it("injects the compiled profile note after setup is complete (AC-6)", async () => {
+    const description = Array.from({ length: 32 }, (_, i) => `word${i}`).join(
+      " ",
+    );
     await patchBusinessProfile(database.db, userId, {
       businessName: "Orch Tools",
-      businessDescription: "Hand tools for makers",
-      competitorsSkipped: true,
+      businessDescription: description,
+      personaRole: "business_owner",
+      primaryPlatforms: ["threads"],
+      attributionSource: "friend",
+      skills: ["Content writing"],
       setupStatus: "in_progress",
     });
     await createProfileEntry(database.db, {
@@ -2353,9 +2347,16 @@ describe("DefaultOrchestrationService setup agent", () => {
   });
 
   it("asks for confirm before mid chat profile pivots (AC-7)", async () => {
+    const description = Array.from({ length: 32 }, (_, i) => `word${i}`).join(
+      " ",
+    );
     await patchBusinessProfile(database.db, userId, {
       businessName: "Pivot Co",
-      businessDescription: "Hardware",
+      businessDescription: description,
+      personaRole: "entrepreneur",
+      primaryPlatforms: ["linkedin_personal"],
+      attributionSource: "linkedin",
+      skills: ["Product marketing"],
       competitorsSkipped: true,
       setupStatus: "in_progress",
     });
@@ -2379,9 +2380,16 @@ describe("DefaultOrchestrationService setup agent", () => {
   });
 
   it("writes operator_confirm entries after profile_update yes (AC-7)", async () => {
+    const description = Array.from({ length: 32 }, (_, i) => `word${i}`).join(
+      " ",
+    );
     await patchBusinessProfile(database.db, userId, {
       businessName: "Pivot Co",
-      businessDescription: "Hardware",
+      businessDescription: description,
+      personaRole: "entrepreneur",
+      primaryPlatforms: ["linkedin_personal"],
+      attributionSource: "linkedin",
+      skills: ["Product marketing"],
       competitorsSkipped: true,
       setupStatus: "in_progress",
     });

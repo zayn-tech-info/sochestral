@@ -52,8 +52,91 @@ const ENTRY_SOURCES = new Set<ProfileEntrySource>([
   "research",
 ]);
 
+export const PERSONA_ROLES = [
+  "student",
+  "content_creator",
+  "business_owner",
+  "entrepreneur",
+  "freelancer",
+  "other",
+] as const;
+export type PersonaRole = (typeof PERSONA_ROLES)[number];
+
+export const ATTRIBUTION_SOURCES = [
+  "twitter",
+  "instagram",
+  "linkedin",
+  "friend",
+  "other",
+] as const;
+export type AttributionSource = (typeof ATTRIBUTION_SOURCES)[number];
+
+export const PRIMARY_PLATFORM_OPTIONS = [
+  "threads",
+  "linkedin_personal",
+  "instagram",
+] as const;
+export type PrimaryPlatformOption = (typeof PRIMARY_PLATFORM_OPTIONS)[number];
+
+export const SETUP_SKILL_OPTIONS = [
+  "Content writing",
+  "Brand design",
+  "Product marketing",
+  "Community",
+  "Ads",
+  "Founder storytelling",
+  "Short-form video",
+  "SEO content",
+] as const;
+
+export const ONBOARDING_STEPS = [
+  "business_details",
+  "who_you_are",
+  "skills",
+  "platforms",
+  "attribution",
+  "done",
+] as const;
+export type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
+
+export const MIN_DESCRIPTION_WORDS = 30;
+const SETUP_SKILLS = new Set<string>(SETUP_SKILL_OPTIONS);
+
 const SECRET_SHAPED =
   /\b(?:sk|pk|api[_-]?key|secret|token|bearer)\s*[:=]\s*\S+/gi;
+
+export function countWords(value: string): number {
+  const trimmed = value.trim();
+  if (!trimmed) return 0;
+  return trimmed.split(/\s+/).length;
+}
+
+export function isPersonaRole(value: string): value is PersonaRole {
+  return (PERSONA_ROLES as readonly string[]).includes(value);
+}
+
+export function isAttributionSource(value: string): value is AttributionSource {
+  return (ATTRIBUTION_SOURCES as readonly string[]).includes(value);
+}
+
+export function isPrimaryPlatformOption(
+  value: string,
+): value is PrimaryPlatformOption {
+  return (PRIMARY_PLATFORM_OPTIONS as readonly string[]).includes(value);
+}
+
+export function isOnboardingStep(value: string): value is OnboardingStep {
+  return (ONBOARDING_STEPS as readonly string[]).includes(value);
+}
+
+export function normalizePrimaryPlatforms(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const next = value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => isPrimaryPlatformOption(item));
+  return Array.from(new Set(next));
+}
 
 export function redactProfileBody(body: string): string {
   return body.replace(SECRET_SHAPED, "[redacted]");
@@ -85,6 +168,11 @@ function emptyProfile(userId: string): BusinessProfile {
     websiteUrl: null,
     targetAudience: null,
     industry: null,
+    personaRole: null,
+    personaRoleOther: null,
+    primaryPlatforms: [],
+    attributionSource: null,
+    attributionOther: null,
     setupStatus: "not_started",
     setupStep: null,
     competitorsSkipped: false,
@@ -143,11 +231,18 @@ export type ProfileIdentityPatch = {
   websiteUrl?: string | null;
   targetAudience?: string | null;
   industry?: string | null;
+  personaRole?: string | null;
+  personaRoleOther?: string | null;
+  primaryPlatforms?: string[] | null;
+  attributionSource?: string | null;
+  attributionOther?: string | null;
+  skills?: string[] | null;
   setupStatus?: SetupStatus;
   setupStep?: string | null;
   competitorsSkipped?: boolean;
   redoSetup?: boolean;
   confirmReset?: boolean;
+  completeSetup?: boolean;
 };
 
 export async function patchBusinessProfile(
@@ -155,12 +250,27 @@ export async function patchBusinessProfile(
   userId: string,
   patch: ProfileIdentityPatch,
 ): Promise<BusinessProfile> {
+  return db.transaction(async (tx) => {
+    return patchBusinessProfileInTransaction(
+      tx as unknown as Database["db"],
+      userId,
+      patch,
+    );
+  });
+}
+
+async function patchBusinessProfileInTransaction(
+  db: Database["db"],
+  userId: string,
+  patch: ProfileIdentityPatch,
+): Promise<BusinessProfile> {
+  validateProfilePatch(patch);
   const current = await ensureBusinessProfile(db, userId);
   const next: Partial<BusinessProfile> = { updatedAt: new Date() };
 
   if (patch.redoSetup) {
     next.setupStatus = "in_progress";
-    next.setupStep = "name";
+    next.setupStep = "business_details";
     if (patch.confirmReset) {
       await db
         .delete(profileEntries)
@@ -170,6 +280,11 @@ export async function patchBusinessProfile(
       next.websiteUrl = null;
       next.targetAudience = null;
       next.industry = null;
+      next.personaRole = null;
+      next.personaRoleOther = null;
+      next.primaryPlatforms = [];
+      next.attributionSource = null;
+      next.attributionOther = null;
       next.competitorsSkipped = false;
     }
   }
@@ -189,11 +304,39 @@ export async function patchBusinessProfile(
   if (patch.industry !== undefined) {
     next.industry = patch.industry?.trim() || null;
   }
+  if (patch.personaRole !== undefined) {
+    const role = patch.personaRole?.trim() || null;
+    if (role && !isPersonaRole(role)) {
+      throw new ProfileDatabaseError("INVALID_INPUT");
+    }
+    next.personaRole = role;
+    if (role !== "other") next.personaRoleOther = null;
+  }
+  if (patch.personaRoleOther !== undefined) {
+    next.personaRoleOther = patch.personaRoleOther?.trim() || null;
+  }
+  if (patch.primaryPlatforms !== undefined) {
+    next.primaryPlatforms = normalizePrimaryPlatforms(patch.primaryPlatforms);
+  }
+  if (patch.attributionSource !== undefined) {
+    const source = patch.attributionSource?.trim() || null;
+    if (source && !isAttributionSource(source)) {
+      throw new ProfileDatabaseError("INVALID_INPUT");
+    }
+    next.attributionSource = source;
+    if (source !== "other") next.attributionOther = null;
+  }
+  if (patch.attributionOther !== undefined) {
+    next.attributionOther = patch.attributionOther?.trim() || null;
+  }
   if (patch.setupStep !== undefined) {
     next.setupStep = patch.setupStep;
   }
   if (patch.competitorsSkipped !== undefined) {
     next.competitorsSkipped = patch.competitorsSkipped;
+  }
+  if (Array.isArray(patch.skills)) {
+    await replaceSetupSkills(db, userId, patch.skills);
   }
   if (patch.setupStatus !== undefined) {
     const from = (next.setupStatus ?? current.setupStatus) as SetupStatus;
@@ -210,7 +353,102 @@ export async function patchBusinessProfile(
     .where(eq(businessProfiles.userId, userId))
     .returning();
   if (!updated) throw new ProfileDatabaseError("PROFILE_NOT_FOUND");
+
+  if (patch.completeSetup) {
+    return tryCompleteSetupIfReady(db, userId);
+  }
+
+  if (shouldRecheckReadiness(patch) && updated.setupStatus === "complete") {
+    const activeEntries = await listActiveProfileEntries(db, userId);
+    if (!hasMinimumProfileFields(updated, activeEntries)) {
+      const [demoted] = await db
+        .update(businessProfiles)
+        .set({
+          setupStatus: "in_progress",
+          setupStep: firstIncompleteSetupStep(updated, activeEntries),
+          updatedAt: new Date(),
+        })
+        .where(eq(businessProfiles.userId, userId))
+        .returning();
+      if (!demoted) throw new ProfileDatabaseError("PROFILE_NOT_FOUND");
+      return demoted;
+    }
+  }
   return updated;
+}
+
+function validateProfilePatch(patch: ProfileIdentityPatch): void {
+  if (patch.setupStep !== undefined && patch.setupStep !== null) {
+    const step = patch.setupStep.trim();
+    if (!step || !isOnboardingStep(step)) {
+      throw new ProfileDatabaseError("INVALID_INPUT");
+    }
+    patch.setupStep = step;
+  }
+  if (patch.skills !== undefined && patch.skills !== null) {
+    if (
+      !Array.isArray(patch.skills) ||
+      patch.skills.length > SETUP_SKILL_OPTIONS.length
+    ) {
+      throw new ProfileDatabaseError("INVALID_INPUT");
+    }
+    for (const skill of patch.skills) {
+      if (typeof skill !== "string") {
+        throw new ProfileDatabaseError("INVALID_INPUT");
+      }
+      const trimmed = skill.trim();
+      if (!trimmed || !SETUP_SKILLS.has(trimmed)) {
+        throw new ProfileDatabaseError("INVALID_INPUT");
+      }
+    }
+  }
+}
+
+function shouldRecheckReadiness(patch: ProfileIdentityPatch): boolean {
+  return (
+    patch.businessName !== undefined ||
+    patch.businessDescription !== undefined ||
+    patch.personaRole !== undefined ||
+    patch.personaRoleOther !== undefined ||
+    patch.primaryPlatforms !== undefined ||
+    patch.attributionSource !== undefined ||
+    patch.attributionOther !== undefined ||
+    patch.skills !== undefined
+  );
+}
+
+async function replaceSetupSkills(
+  db: Database["db"],
+  userId: string,
+  skills: string[],
+): Promise<void> {
+  const cleaned = Array.from(
+    new Set(
+      skills
+        .map((skill) => skill.trim())
+        .filter((skill) => skill.length > 0)
+        .slice(0, 20),
+    ),
+  );
+  await db
+    .delete(profileEntries)
+    .where(
+      and(
+        eq(profileEntries.userId, userId),
+        eq(profileEntries.category, "skill"),
+        eq(profileEntries.source, "setup"),
+      ),
+    );
+  for (const [index, skill] of cleaned.entries()) {
+    await createProfileEntry(db, {
+      userId,
+      category: "skill",
+      body: skill,
+      status: "active",
+      source: "setup",
+      sortOrder: index,
+    });
+  }
 }
 
 function isValidSetupTransition(from: SetupStatus, to: SetupStatus): boolean {
@@ -420,14 +658,68 @@ export function isMinimumProfileComplete(
   profile: BusinessProfile,
   activeEntries: ProfileEntry[],
 ): boolean {
+  if (profile.setupStatus === "complete") return true;
+  return hasMinimumProfileFields(profile, activeEntries);
+}
+
+function hasMinimumProfileFields(
+  profile: BusinessProfile,
+  activeEntries: ProfileEntry[],
+): boolean {
   const name = profile.businessName?.trim();
-  const description = profile.businessDescription?.trim();
-  if (!name || !description) return false;
-  const hasCompetitor =
-    profile.competitorsSkipped ||
-    activeEntries.some((e) => e.category === "competitor");
-  const hasTone = activeEntries.some((e) => e.category === "tone");
-  return hasCompetitor && hasTone;
+  const description = profile.businessDescription?.trim() ?? "";
+  if (!name || countWords(description) < MIN_DESCRIPTION_WORDS) return false;
+
+  const persona = profile.personaRole?.trim() ?? "";
+  if (!isPersonaRole(persona)) return false;
+  if (persona === "other" && !(profile.personaRoleOther?.trim())) return false;
+
+  const platforms = normalizePrimaryPlatforms(profile.primaryPlatforms);
+  if (platforms.length === 0) return false;
+
+  const attribution = profile.attributionSource?.trim() ?? "";
+  if (!isAttributionSource(attribution)) return false;
+  if (attribution === "other" && !(profile.attributionOther?.trim())) return false;
+
+  const hasSkill = activeEntries.some((entry) => entry.category === "skill");
+  return hasSkill;
+}
+
+function firstIncompleteSetupStep(
+  profile: BusinessProfile,
+  activeEntries: ProfileEntry[],
+): OnboardingStep {
+  const name = profile.businessName?.trim();
+  const description = profile.businessDescription?.trim() ?? "";
+  if (!name || countWords(description) < MIN_DESCRIPTION_WORDS) {
+    return "business_details";
+  }
+
+  const persona = profile.personaRole?.trim() ?? "";
+  if (
+    !isPersonaRole(persona) ||
+    (persona === "other" && !(profile.personaRoleOther?.trim()))
+  ) {
+    return "who_you_are";
+  }
+
+  if (!activeEntries.some((entry) => entry.category === "skill")) {
+    return "skills";
+  }
+
+  if (normalizePrimaryPlatforms(profile.primaryPlatforms).length === 0) {
+    return "platforms";
+  }
+
+  const attribution = profile.attributionSource?.trim() ?? "";
+  if (
+    !isAttributionSource(attribution) ||
+    (attribution === "other" && !(profile.attributionOther?.trim()))
+  ) {
+    return "attribution";
+  }
+
+  return "done";
 }
 
 export function compileProfileNote(
@@ -443,6 +735,26 @@ export function compileProfileNote(
   if (profile.industry) lines.push(`Industry: ${profile.industry}`);
   if (profile.targetAudience) {
     lines.push(`Target audience: ${profile.targetAudience}`);
+  }
+  if (profile.personaRole) {
+    const personaLabel =
+      profile.personaRole === "other" && profile.personaRoleOther
+        ? profile.personaRoleOther
+        : profile.personaRole.replace(/_/g, " ");
+    lines.push(`Who they are: ${personaLabel}`);
+  }
+  const platforms = normalizePrimaryPlatforms(profile.primaryPlatforms);
+  if (platforms.length > 0) {
+    lines.push(`Primary platforms: ${platforms.join(", ")}`);
+  }
+  if (profile.attributionSource) {
+    lines.push(
+      `Heard about us: ${
+        profile.attributionSource === "other" && profile.attributionOther
+          ? profile.attributionOther
+          : profile.attributionSource
+      }`,
+    );
   }
   const byCategory = new Map<string, ProfileEntry[]>();
   for (const entry of activeEntries) {
@@ -496,12 +808,34 @@ export async function tryCompleteSetupIfReady(
   userId: string,
 ): Promise<BusinessProfile> {
   const compiled = await getCompiledProfile(db, userId);
-  if (!compiled.minimumComplete) return compiled.profile;
+  if (!hasMinimumProfileFields(compiled.profile, compiled.activeEntries)) {
+    const [updated] = await db
+      .update(businessProfiles)
+      .set({
+        setupStatus: "in_progress",
+        setupStep: firstIncompleteSetupStep(
+          compiled.profile,
+          compiled.activeEntries,
+        ),
+        updatedAt: new Date(),
+      })
+      .where(eq(businessProfiles.userId, userId))
+      .returning();
+    if (!updated) throw new ProfileDatabaseError("PROFILE_NOT_FOUND");
+    return updated;
+  }
   if (compiled.profile.setupStatus === "complete") return compiled.profile;
-  return patchBusinessProfile(db, userId, {
-    setupStatus: "complete",
-    setupStep: "done",
-  });
+  const [updated] = await db
+    .update(businessProfiles)
+    .set({
+      setupStatus: "complete",
+      setupStep: "done",
+      updatedAt: new Date(),
+    })
+    .where(eq(businessProfiles.userId, userId))
+    .returning();
+  if (!updated) throw new ProfileDatabaseError("PROFILE_NOT_FOUND");
+  return updated;
 }
 
 export async function countActiveEntriesByCategory(

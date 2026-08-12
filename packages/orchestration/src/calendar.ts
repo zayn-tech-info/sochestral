@@ -9,6 +9,7 @@ import {
   type ConnectorService,
   type PublicConnectorAccount,
 } from "./connectors.js";
+import { platformImageLimits } from "./platform-media-limits.js";
 
 export type CalendarStatusBucket =
   | "Scheduled"
@@ -81,11 +82,25 @@ export type MirrorTarget = {
   platform: ConnectorPlatform;
   accountId: string;
   scheduledAt: string;
+  media?: string[];
 };
 
 export type MirrorInput = {
   targets: MirrorTarget[];
   caption?: string;
+  media?: string[];
+};
+
+export type CreateScheduleInput = {
+  platform: ConnectorPlatform;
+  accountId: string;
+  scheduledAt: string;
+  caption: string;
+  media?: string[];
+};
+
+export type CreateSchedulesInput = {
+  targets: CreateScheduleInput[];
   media?: string[];
 };
 
@@ -95,6 +110,33 @@ export interface CalendarGateway {
     name: CalendarToolName;
     arguments: Record<string, unknown>;
   }): Promise<unknown>;
+}
+
+function mcpErrorDetails(
+  record: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const message =
+    typeof record.message === "string"
+      ? safeProviderValidationMessage(record.message)
+      : undefined;
+  return message ? { message } : undefined;
+}
+
+function safeProviderValidationMessage(value: string): string | undefined {
+  const message = value.trim();
+  if (!message || message.length > 240) return undefined;
+  if (/https?:\/\/\S+/i.test(message)) return undefined;
+  if (/(token|secret|password|authorization|cookie|stack|trace)/i.test(message)) {
+    return undefined;
+  }
+  if (
+    /(thread|instagram|linkedin|media|url|caption|text|schedule|time|account|platform|required|invalid|must|too\s+(?:long|many|short)|unsupported)/i.test(
+      message,
+    )
+  ) {
+    return message;
+  }
+  return undefined;
 }
 
 function parseToolResult(result: unknown): unknown {
@@ -121,6 +163,8 @@ function parseToolResult(result: unknown): unknown {
         if (isUnsupportedMcpToolText(text.text)) {
           throw new CalendarError("SOCIALMCP_UNAVAILABLE", 502);
         }
+        const plain = text.text.trim();
+        if (plain) throw new CalendarError("SOCIALMCP_UNAVAILABLE", 502);
         throw new CalendarError("INVALID_SCHEDULE_RESPONSE", 502);
       }
     }
@@ -156,35 +200,154 @@ function assertMcpToolOk(payload: unknown, fallbackCode = "INVALID_SCHEDULE_RESP
   const record = payload as Record<string, unknown>;
   if (record.ok === false) {
     const code = typeof record.code === "string" ? record.code : fallbackCode;
+    const details = mcpErrorDetails(record);
     if (
       code === "SCHEDULE_TIME_MUST_BE_FUTURE" ||
       code === "INVALID_SCHEDULE_TIME"
     ) {
-      throw new CalendarError("SCHEDULE_TIME_MUST_BE_FUTURE", 422);
+      throw new CalendarError("SCHEDULE_TIME_MUST_BE_FUTURE", 422, details);
     }
     if (code === "SCHEDULED_POST_NOT_FOUND") {
-      throw new CalendarError("SCHEDULE_NOT_FOUND", 404);
+      throw new CalendarError("SCHEDULE_NOT_FOUND", 404, details);
     }
     if (
       code === "SCHEDULED_POST_NOT_RESCHEDULABLE" ||
       code === "SCHEDULED_POST_NOT_EDITABLE"
     ) {
-      throw new CalendarError("MUTATION_UNSUPPORTED", 409);
+      throw new CalendarError("MUTATION_UNSUPPORTED", 409, details);
     }
-    if (code === "SCHEDULED_CONTENT_UPDATE_REQUIRED") {
-      throw new CalendarError("INVALID_CONTENT_UPDATE", 422);
+    if (
+      code === "SCHEDULED_CONTENT_UPDATE_REQUIRED" ||
+      code === "POST_CONTENT_REQUIRED" ||
+      code === "VALIDATION_FAILED" ||
+      code === "INVALID_CONTENT_UPDATE"
+    ) {
+      throw new CalendarError("INVALID_CONTENT_UPDATE", 422, details);
     }
-    if (code === "ACCOUNT_REQUIRED" || code === "POST_CONTENT_REQUIRED") {
-      throw new CalendarError(
-        code === "ACCOUNT_REQUIRED" ? "ACCOUNT_REQUIRED" : "INVALID_CONTENT_UPDATE",
-        422,
-      );
+    if (
+      code === "ACCOUNT_REQUIRED" ||
+      code === "ACCOUNT_AMBIGUOUS" ||
+      code === "CONNECTED_ACCOUNT_ID_AMBIGUOUS"
+    ) {
+      throw new CalendarError("ACCOUNT_REQUIRED", 422, details);
     }
-    if (code === "MCP_TOOL_ERROR" || code === "CONFIRMATION_REQUIRED") {
+    if (
+      code === "MCP_TOOL_ERROR" ||
+      code === "CONFIRMATION_REQUIRED" ||
+      code === "PLATFORM_NOT_AVAILABLE"
+    ) {
       throw new CalendarError("SOCIALMCP_UNAVAILABLE", 502);
     }
-    throw new CalendarError("INVALID_SCHEDULE_RESPONSE", 502);
+    throw new CalendarError("INVALID_SCHEDULE_RESPONSE", 502, details);
   }
+}
+
+/** Collect schedule ids from schedule_post success payloads. */
+function collectCreatedScheduleIds(payload: unknown): string[] {
+  const root = asRecord(payload);
+  if (!root) return [];
+  const ids: string[] = [];
+  const scheduled = Array.isArray(root.scheduled) ? root.scheduled : [];
+  for (const item of scheduled) {
+    const row = asRecord(item);
+    if (row && typeof row.id === "string" && row.id.trim()) {
+      ids.push(row.id);
+    }
+  }
+  if (ids.length > 0) return ids;
+  if (typeof root.id === "string" && root.id.trim()) return [root.id];
+  if (typeof root.scheduledPostId === "string" && root.scheduledPostId.trim()) {
+    return [root.scheduledPostId];
+  }
+  return [];
+}
+
+/** Product durable view proxy: `/media/assets/:assetId/view`. */
+export function extractProductMediaAssetId(url: string): string | null {
+  try {
+    const match = new URL(url).pathname.match(/\/media\/assets\/([^/]+)\/view$/);
+    return match?.[1] ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
+export type CalendarMediaService = {
+  publishUrl(userId: string, assetId: string): Promise<string>;
+  viewUrl?(userId: string, assetId: string): Promise<string> | string;
+};
+
+/**
+ * SocialMCP requires https mediaUrls. Product view proxies (often http://localhost)
+ * are resolved to signed R2 HTTPS publish URLs when a media service is available.
+ */
+async function mediaUrlsForMcp(
+  userId: string,
+  urls: string[],
+  media: CalendarMediaService | undefined,
+  options: { strict: boolean },
+): Promise<string[]> {
+  const out: string[] = [];
+  for (const url of urls) {
+    const assetId = extractProductMediaAssetId(url);
+    if (assetId) {
+      if (!media) {
+        try {
+          if (new URL(url).protocol === "https:") {
+            out.push(url);
+            continue;
+          }
+        } catch {
+          // fall through to strict handling
+        }
+        if (options.strict) {
+          throw new CalendarError("INVALID_CONTENT_UPDATE", 422, {
+            message: "mediaUrls must be https URLs",
+          });
+        }
+        continue;
+      }
+      try {
+        const durable = media.viewUrl ? await media.viewUrl(userId, assetId) : null;
+        if (durable && new URL(durable).protocol === "https:") {
+          out.push(durable);
+          continue;
+        }
+        const published = await media.publishUrl(userId, assetId);
+        if (new URL(published).protocol !== "https:") {
+          if (options.strict) {
+            throw new CalendarError("INVALID_CONTENT_UPDATE", 422, {
+              message: "mediaUrls must be https URLs",
+            });
+          }
+          continue;
+        }
+        out.push(published);
+      } catch (error) {
+        if (error instanceof CalendarError) throw error;
+        if (options.strict) {
+          throw new CalendarError("INVALID_CONTENT_UPDATE", 422, {
+            message: "mediaUrls must be https URLs",
+          });
+        }
+      }
+      continue;
+    }
+    try {
+      if (new URL(url).protocol === "https:") {
+        out.push(url);
+        continue;
+      }
+    } catch {
+      // fall through
+    }
+    if (options.strict) {
+      throw new CalendarError("INVALID_CONTENT_UPDATE", 422, {
+        message: "mediaUrls must be https URLs",
+      });
+    }
+  }
+  return out;
 }
 
 export class StreamableHttpCalendarGateway implements CalendarGateway {
@@ -275,6 +438,14 @@ export interface CalendarService {
     scheduleId: string,
     input: { caption?: string; media?: string[] },
   ): Promise<ScheduleDetail>;
+  createSchedule(
+    userId: string,
+    input: CreateScheduleInput,
+  ): Promise<ScheduleDetail>;
+  createSchedules(
+    userId: string,
+    input: CreateSchedulesInput,
+  ): Promise<{ created: ScheduleDetail[] }>;
   mirrorToPlatforms(
     userId: string,
     sourceScheduleId: string,
@@ -458,6 +629,36 @@ function mediaList(value: unknown): string[] {
     .filter((url): url is string => isSafeMediaUrl(url));
 }
 
+type PreparedCreateTarget = {
+  platform: ConnectorPlatform;
+  accountId: string;
+  scheduledAt: string;
+  caption: string;
+  media: string[];
+};
+
+function fallbackCreatedRows(
+  payload: unknown,
+  target: PreparedCreateTarget,
+): RawSchedule[] {
+  const root = asRecord(payload);
+  const scheduled = root && Array.isArray(root.scheduled) ? root.scheduled : [];
+  if (scheduled.length > 0) {
+    const rows = readSchedules({ scheduled });
+    if (rows.length > 0) return rows;
+  }
+  return collectCreatedScheduleIds(payload).map((id) => ({
+    id,
+    platform: target.platform,
+    connectedAccountId: target.accountId,
+    publishAt: target.scheduledAt,
+    status: "scheduled",
+    captionPreview: target.caption,
+    contentText: target.caption,
+    mediaUrls: target.media,
+  }));
+}
+
 function toSlot(
   row: RawSchedule,
   labels: Map<string, string>,
@@ -498,6 +699,7 @@ export class DefaultCalendarService implements CalendarService {
   constructor(
     private readonly gateway: CalendarGateway,
     private readonly connectors: ConnectorService,
+    private readonly media?: CalendarMediaService,
   ) {}
 
   async listAccounts(userId: string): Promise<{ accounts: CalendarAccount[] }> {
@@ -728,7 +930,15 @@ export class DefaultCalendarService implements CalendarService {
       confirm: true,
     };
     if (hasCaption) argumentsPayload.text = caption;
-    if (hasMedia) argumentsPayload.mediaUrls = input.media;
+    if (hasMedia) {
+      // Never forward product http://localhost view proxies to SocialMCP.
+      argumentsPayload.mediaUrls = await mediaUrlsForMcp(
+        userId,
+        input.media!,
+        this.media,
+        { strict: true },
+      );
+    }
 
     try {
       const payload = await this.gateway.callTool({
@@ -743,6 +953,180 @@ export class DefaultCalendarService implements CalendarService {
     }
 
     return this.getSlot(userId, scheduleId);
+  }
+
+  async createSchedule(
+    userId: string,
+    input: CreateScheduleInput,
+  ): Promise<ScheduleDetail> {
+    const { created } = await this.createSchedules(userId, {
+      targets: [input],
+      media: input.media,
+    });
+    const first = created[0];
+    if (!first) {
+      throw new CalendarError("INVALID_SCHEDULE_RESPONSE", 502);
+    }
+    return first;
+  }
+
+  async createSchedules(
+    userId: string,
+    input: CreateSchedulesInput,
+  ): Promise<{ created: ScheduleDetail[] }> {
+    if (!Array.isArray(input.targets) || input.targets.length === 0) {
+      throw new CalendarError("INVALID_CONTENT_UPDATE", 422);
+    }
+
+    if (
+      Array.isArray(input.media) &&
+      input.media.some((url) => !isSafeMediaUrl(url))
+    ) {
+      throw new CalendarError("INVALID_CONTENT_UPDATE", 422);
+    }
+    const sharedMedia = Array.isArray(input.media) ? input.media : undefined;
+
+    const accounts = await this.listAccounts(userId);
+    const accountById = new Map(
+      accounts.accounts.map((account) => [account.id, account]),
+    );
+    const seenAccountIds = new Set<string>();
+    const prepared: PreparedCreateTarget[] = [];
+    for (const target of input.targets) {
+      if (!isPlatform(target.platform)) {
+        throw new CalendarError("INVALID_CONTENT_UPDATE", 422);
+      }
+      const caption = target.caption.trim();
+      if (!caption) {
+        throw new CalendarError("INVALID_CONTENT_UPDATE", 422);
+      }
+      if (seenAccountIds.has(target.accountId)) {
+        throw new CalendarError("INVALID_CONTENT_UPDATE", 422);
+      }
+      seenAccountIds.add(target.accountId);
+
+      if (Number.isNaN(Date.parse(target.scheduledAt))) {
+        throw new CalendarError("INVALID_RANGE", 422);
+      }
+      if (Date.parse(target.scheduledAt) <= Date.now()) {
+        throw new CalendarError("SCHEDULE_TIME_MUST_BE_FUTURE", 422);
+      }
+
+      if (
+        Array.isArray(target.media) &&
+        target.media.some((url) => !isSafeMediaUrl(url))
+      ) {
+        throw new CalendarError("INVALID_CONTENT_UPDATE", 422);
+      }
+
+      const account = accountById.get(target.accountId);
+      if (!account || account.platform !== target.platform) {
+        throw new CalendarError("ACCOUNT_REQUIRED", 422);
+      }
+
+      const mediaRaw = Array.isArray(target.media)
+        ? target.media
+        : sharedMedia !== undefined
+          ? sharedMedia
+          : [];
+      const media = await mediaUrlsForMcp(userId, mediaRaw, this.media, {
+        strict: mediaRaw.length > 0,
+      });
+      const limits = platformImageLimits(target.platform);
+      if (media.length < limits.min || media.length > limits.max) {
+        throw new CalendarError("INVALID_CONTENT_UPDATE", 422, {
+          platform: target.platform,
+          mediaMin: limits.min,
+          mediaMax: limits.max,
+          mediaCount: media.length,
+        });
+      }
+      prepared.push({
+        platform: target.platform,
+        accountId: target.accountId,
+        scheduledAt: target.scheduledAt,
+        caption,
+        media,
+      });
+    }
+
+    const createdIds: string[] = [];
+    const createdRows = new Map<string, RawSchedule>();
+
+    const rollbackCreated = async () => {
+      for (const id of createdIds) {
+        try {
+          await this.cancel(userId, id);
+        } catch {
+          // Best-effort rollback.
+        }
+      }
+    };
+
+    for (const target of prepared) {
+      const argumentsPayload: Record<string, unknown> = {
+        platforms: [target.platform],
+        text: target.caption,
+        connectedAccountId: target.accountId,
+        scheduledAt: target.scheduledAt,
+        confirm: true,
+      };
+      if (target.media.length > 0) {
+        argumentsPayload.options = { mediaUrls: target.media };
+      }
+
+      try {
+        const payload = await this.gateway.callTool({
+          userId,
+          name: "schedule_post",
+          arguments: argumentsPayload,
+        });
+        assertMcpToolOk(payload);
+        const createdFromPayload = fallbackCreatedRows(payload, target);
+        if (createdFromPayload.length === 0) {
+          await rollbackCreated();
+          throw new CalendarError("INVALID_SCHEDULE_RESPONSE", 502, {
+            message: "SocialMCP scheduled the post but returned no schedule id.",
+            rolledBackIds: [...createdIds],
+          });
+        }
+        for (const row of createdFromPayload) {
+          createdIds.push(row.id);
+          createdRows.set(row.id, row);
+        }
+      } catch (error) {
+        if (!(error instanceof CalendarError) || !error.details?.rolledBackIds) {
+          await rollbackCreated();
+        }
+        if (error instanceof CalendarError) throw error;
+        throw new CalendarError("SOCIALMCP_UNAVAILABLE", 502, {
+          rolledBackIds: [...createdIds],
+        });
+      }
+    }
+
+    const [rows, labels] = await Promise.all([
+      this.loadRaw(userId),
+      this.labelMap(userId),
+    ]);
+    const byId = new Map(createdRows);
+    for (const row of rows) {
+      if (createdRows.has(row.id)) byId.set(row.id, row);
+    }
+    const created: ScheduleDetail[] = [];
+    for (const id of createdIds) {
+      const row = byId.get(id);
+      if (!row) {
+        await rollbackCreated();
+        throw new CalendarError("INVALID_SCHEDULE_RESPONSE", 502, {
+          message:
+            "SocialMCP scheduled the post but it was not returned in list.",
+          rolledBackIds: [...createdIds],
+        });
+      }
+      created.push(toDetail(row, labels));
+    }
+    return { created };
   }
 
   async mirrorToPlatforms(
@@ -764,16 +1148,19 @@ export class DefaultCalendarService implements CalendarService {
 
     const caption =
       typeof input.caption === "string" ? input.caption.trim() : source.caption;
-    const media = Array.isArray(input.media)
-      ? input.media.filter((url) => isSafeMediaUrl(url))
-      : source.media;
+    const sharedMediaRaw = Array.isArray(input.media) ? input.media : undefined;
     if (Array.isArray(input.media) && input.media.some((url) => !isSafeMediaUrl(url))) {
       throw new CalendarError("INVALID_CONTENT_UPDATE", 422);
     }
+    const sharedMedia =
+      sharedMediaRaw !== undefined
+        ? await mediaUrlsForMcp(userId, sharedMediaRaw, this.media, {
+            strict: sharedMediaRaw.length > 0,
+          })
+        : await mediaUrlsForMcp(userId, source.media, this.media, {
+            strict: source.media.length > 0,
+          });
     if (typeof input.caption === "string" && !caption) {
-      throw new CalendarError("INVALID_CONTENT_UPDATE", 422);
-    }
-    if (!caption.trim() && media.length === 0) {
       throw new CalendarError("INVALID_CONTENT_UPDATE", 422);
     }
 
@@ -783,6 +1170,7 @@ export class DefaultCalendarService implements CalendarService {
     );
     const seenAccountIds = new Set<string>();
     const createdIds: string[] = [];
+    const createdRows = new Map<string, RawSchedule>();
 
     const rollbackCreated = async () => {
       for (const id of createdIds) {
@@ -836,7 +1224,31 @@ export class DefaultCalendarService implements CalendarService {
         });
       }
 
-      if (target.platform === "instagram" && media.length === 0) {
+      const mediaRaw = Array.isArray(target.media) ? target.media : sharedMedia;
+      if (
+        Array.isArray(target.media) &&
+        target.media.some((url) => !isSafeMediaUrl(url))
+      ) {
+        await rollbackCreated();
+        throw new CalendarError("INVALID_CONTENT_UPDATE", 422, {
+          rolledBackIds: [...createdIds],
+        });
+      }
+      const media = await mediaUrlsForMcp(userId, mediaRaw, this.media, {
+        strict: mediaRaw.length > 0,
+      });
+      const limits = platformImageLimits(target.platform);
+      if (media.length < limits.min || media.length > limits.max) {
+        await rollbackCreated();
+        throw new CalendarError("INVALID_CONTENT_UPDATE", 422, {
+          rolledBackIds: [...createdIds],
+          platform: target.platform,
+          mediaMin: limits.min,
+          mediaMax: limits.max,
+          mediaCount: media.length,
+        });
+      }
+      if (!caption.trim() && media.length === 0) {
         await rollbackCreated();
         throw new CalendarError("INVALID_CONTENT_UPDATE", 422, {
           rolledBackIds: [...createdIds],
@@ -861,11 +1273,21 @@ export class DefaultCalendarService implements CalendarService {
           arguments: argumentsPayload,
         });
         assertMcpToolOk(payload);
-        const root = asRecord(payload);
-        const scheduled = Array.isArray(root?.scheduled) ? root.scheduled : [];
-        for (const item of scheduled) {
-          const row = asRecord(item);
-          if (row && typeof row.id === "string") createdIds.push(row.id);
+        const createdFromPayload = fallbackCreatedRows(payload, {
+          platform: target.platform,
+          accountId: target.accountId,
+          scheduledAt: target.scheduledAt,
+          caption,
+          media,
+        });
+        if (createdFromPayload.length === 0) {
+          throw new CalendarError("INVALID_SCHEDULE_RESPONSE", 502, {
+            message: "SocialMCP scheduled the post but returned no schedule id.",
+          });
+        }
+        for (const row of createdFromPayload) {
+          createdIds.push(row.id);
+          createdRows.set(row.id, row);
         }
       } catch (error) {
         await rollbackCreated();
@@ -890,12 +1312,17 @@ export class DefaultCalendarService implements CalendarService {
       this.loadRaw(userId),
       this.labelMap(userId),
     ]);
-    const created = createdIds
-      .map((id) => {
-        const row = rows.find((item) => item.id === id);
-        return row ? toDetail(row, labels) : null;
-      })
-      .filter((item): item is ScheduleDetail => item !== null);
+    const byId = new Map(createdRows);
+    for (const row of rows) {
+      if (createdRows.has(row.id)) byId.set(row.id, row);
+    }
+    const created = createdIds.map((id) => {
+      const row = byId.get(id);
+      if (!row) {
+        throw new CalendarError("INVALID_SCHEDULE_RESPONSE", 502);
+      }
+      return toDetail(row, labels);
+    });
 
     return { created };
   }
@@ -958,6 +1385,7 @@ export class DefaultCalendarService implements CalendarService {
 export function createCalendarService(
   connectors?: ConnectorService,
   gateway?: CalendarGateway,
+  media?: CalendarMediaService,
 ): CalendarService {
   const url = process.env.SOCIALMCP_MCP_URL?.trim();
   if (!url && !gateway) {
@@ -971,5 +1399,6 @@ export function createCalendarService(
         Number.isFinite(timeout) && timeout > 0 ? timeout : 15000,
       ),
     connectors ?? createConnectorService(),
+    media,
   );
 }

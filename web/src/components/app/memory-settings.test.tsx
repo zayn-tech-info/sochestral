@@ -1,12 +1,13 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import {
+  createProfileEntry,
   getBusinessProfile,
-  patchBusinessProfile,
   type BusinessProfileResponse,
 } from "@/lib/product-api";
-import { ProfileSettings } from "./profile-settings";
+import { MemorySettings } from "./memory-settings";
 import { ToastProvider } from "./toast-provider";
 
 vi.mock("@/lib/product-api", async (importOriginal) => {
@@ -14,7 +15,6 @@ vi.mock("@/lib/product-api", async (importOriginal) => {
   return {
     ...actual,
     getBusinessProfile: vi.fn(),
-    patchBusinessProfile: vi.fn(),
     createProfileEntry: vi.fn(),
     patchProfileEntry: vi.fn(),
     deleteProfileEntry: vi.fn(),
@@ -31,6 +31,7 @@ vi.mock("./product-motion-provider", () => ({
   productMotion: {
     duration: 0.2,
     ease: "easeOut",
+    enter: { duration: 0.2, ease: "easeOut" },
   },
 }));
 
@@ -41,11 +42,16 @@ const profile: BusinessProfileResponse = {
   websiteUrl: null,
   targetAudience: null,
   industry: null,
-  setupStatus: "in_progress",
-  setupStep: "tone",
+  personaRole: "business_owner",
+  personaRoleOther: null,
+  primaryPlatforms: ["threads"],
+  attributionSource: "friend",
+  attributionOther: null,
+  setupStatus: "complete",
+  setupStep: "done",
   competitorsSkipped: false,
   compiledNote: "# Business profile\nVerify Brand Co",
-  minimumComplete: false,
+  minimumComplete: true,
   sections: {
     brand_fact: [
       {
@@ -66,52 +72,54 @@ const profile: BusinessProfileResponse = {
 
 beforeEach(() => {
   vi.mocked(getBusinessProfile).mockReset();
-  vi.mocked(patchBusinessProfile).mockReset();
+  vi.mocked(createProfileEntry).mockReset();
   vi.mocked(getBusinessProfile).mockResolvedValue(profile);
-  vi.mocked(patchBusinessProfile).mockResolvedValue({
-    ...profile,
-    businessName: "Updated Co",
+  vi.mocked(createProfileEntry).mockResolvedValue({
+    id: "pentry_2",
+    category: "tone",
+    title: null,
+    body: "Direct",
+    status: "active",
+    source: "settings",
+    sortOrder: 0,
+    createdAt: "2026-08-11T00:00:00.000Z",
+    updatedAt: "2026-08-11T00:00:00.000Z",
   });
 });
 
-describe("ProfileSettings", () => {
-  it("loads identity, compiled note, and category sections (AC-5)", async () => {
+describe("MemorySettings", () => {
+  it("shows compiled note and memory categories", async () => {
     render(
       <ToastProvider>
-        <ProfileSettings />
+        <MemorySettings />
       </ToastProvider>,
     );
 
-    expect(
-      await screen.findByRole("heading", { name: "Business profile" }),
-    ).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Verify Brand Co")).toBeInTheDocument();
-    expect(screen.getByText(/Use warm short sentences/)).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Compiled note" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Tone" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Brand facts" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Redo setup (keep entries)" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Memory" })).toBeTruthy();
+    expect(screen.getByText(/Verify Brand Co/)).toBeTruthy();
+    expect(screen.getByText("Use warm short sentences")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Tone" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Skills" })).toBeNull();
   });
 
-  it("saves identity through the profile API (AC-5)", async () => {
+  it("adds a memory entry", async () => {
     const user = userEvent.setup();
     render(
       <ToastProvider>
-        <ProfileSettings />
+        <MemorySettings />
       </ToastProvider>,
     );
 
-    await screen.findByDisplayValue("Verify Brand Co");
-    const name = screen.getByLabelText(/Business name/i);
-    await user.clear(name);
-    await user.type(name, "Updated Co");
-    await user.click(screen.getByRole("button", { name: "Save identity" }));
+    await screen.findByRole("heading", { name: "Memory" });
+    await user.selectOptions(screen.getByRole("combobox"), "tone");
+    await user.type(screen.getByPlaceholderText(/Write a rule/i), "Direct");
+    await user.click(screen.getByRole("button", { name: /Add entry/i }));
 
     await waitFor(() => {
-      expect(patchBusinessProfile).toHaveBeenCalledWith(
-        expect.objectContaining({ businessName: "Updated Co" }),
-      );
+      expect(createProfileEntry).toHaveBeenCalledWith({
+        category: "tone",
+        body: "Direct",
+      });
     });
-    expect(await screen.findByText("Profile saved.")).toBeInTheDocument();
   });
 });

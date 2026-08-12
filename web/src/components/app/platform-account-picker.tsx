@@ -139,8 +139,13 @@ export function PlatformAccountPicker({
   function toggleAccount(accountId: string) {
     if (locked.has(accountId) && selected.has(accountId)) return;
     const next = new Set(selected);
-    if (next.has(accountId)) next.delete(accountId);
-    else next.add(accountId);
+    if (next.has(accountId)) {
+      // Target mode must keep at least one account for preview/save.
+      if (mode === "target" && next.size <= 1) return;
+      next.delete(accountId);
+    } else {
+      next.add(accountId);
+    }
     onChange(Array.from(next));
   }
 
@@ -220,6 +225,10 @@ export function PlatformAccountPicker({
                   {rows.map((account) => {
                     const checked = selected.has(account.id);
                     const isLocked = locked.has(account.id);
+                    const isLastSelected =
+                      mode === "target" && checked && selected.size <= 1;
+                    const cannotUncheck =
+                      (isLocked && checked) || isLastSelected;
                     const handle = account.username
                       ? `@${account.username.replace(/^@/, "")}`
                       : null;
@@ -229,14 +238,14 @@ export function PlatformAccountPicker({
                           className={cn(
                             "pap-account-row",
                             checked && "pap-account-row-checked",
-                            isLocked && "pap-account-row-locked",
+                            cannotUncheck && "pap-account-row-locked",
                           )}
                         >
                           <input
                             type="checkbox"
                             className="pap-checkbox"
                             checked={checked}
-                            disabled={isLocked && checked}
+                            disabled={cannotUncheck}
                             onChange={() => toggleAccount(account.id)}
                           />
                           <AccountRowAvatar account={account} />
@@ -244,6 +253,9 @@ export function PlatformAccountPicker({
                             <span className="pap-account-label">
                               {account.label}
                               {isLocked ? " · this schedule" : ""}
+                              {isLastSelected && !isLocked
+                                ? " · keep one selected"
+                                : ""}
                             </span>
                             {handle ? (
                               <span className="pap-account-meta">{handle}</span>

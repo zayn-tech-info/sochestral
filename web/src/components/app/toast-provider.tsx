@@ -11,11 +11,11 @@ import {
   type ReactNode,
 } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { X } from "lucide-react";
+import { AlertCircle, CheckCircle2, Info, X } from "lucide-react";
 
 import { productMotion } from "@/components/app/product-motion-provider";
 
-export type ToastTone = "success" | "error";
+export type ToastTone = "success" | "error" | "info";
 
 export type ToastInput = {
   tone: ToastTone;
@@ -39,13 +39,24 @@ const ToastContext = createContext<ToastContextValue | null>(null);
 const MAX_TOASTS = 3;
 const DEFAULT_DURATION: Record<ToastTone, number> = {
   success: 4000,
-  error: 6000,
+  error: 6500,
+  info: 5000,
 };
 
 let toastId = 0;
 function nextId() {
   toastId += 1;
   return `toast_${toastId}`;
+}
+
+function ToastIcon({ tone }: { tone: ToastTone }) {
+  const Icon =
+    tone === "success" ? CheckCircle2 : tone === "error" ? AlertCircle : Info;
+  return (
+    <span className={`app-toast-icon app-toast-icon-${tone}`} aria-hidden="true">
+      <Icon className="size-4" strokeWidth={2.25} />
+    </span>
+  );
 }
 
 export function ToastProvider({ children }: { children: ReactNode }) {
@@ -57,8 +68,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     const timer = timers.current.get(id);
     if (timer) {
       clearTimeout(timer);
-      timers.current.delete(id);
     }
+    timers.current.delete(id);
     setItems((current) => current.filter((item) => item.id !== id));
   }, []);
 
@@ -99,9 +110,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
+    const activeTimers = timers.current;
     return () => {
-      for (const timer of timers.current.values()) clearTimeout(timer);
-      timers.current.clear();
+      for (const timer of activeTimers.values()) clearTimeout(timer);
+      activeTimers.clear();
     };
   }, []);
 
@@ -110,7 +122,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className="app-toast-viewport" aria-live="polite" aria-relevant="additions text">
+      <div
+        className="app-toast-viewport"
+        aria-live="polite"
+        aria-relevant="additions text"
+      >
         <AnimatePresence initial={false}>
           {items.map((item) => (
             <motion.div
@@ -120,17 +136,17 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               aria-live={item.tone === "error" ? "assertive" : "polite"}
               layout={reduceMotion ? undefined : true}
               initial={
-                reduceMotion ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.98 }
+                reduceMotion ? { opacity: 0 } : { opacity: 0, y: -10, scale: 0.98 }
               }
               animate={
                 reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }
               }
               exit={
-                reduceMotion ? { opacity: 0 } : { opacity: 0, y: 8, scale: 0.98 }
+                reduceMotion ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.98 }
               }
               transition={reduceMotion ? { duration: 0 } : productMotion.enter}
-              onClick={() => dismiss(item.id)}
             >
+              <ToastIcon tone={item.tone} />
               <div className="app-toast-body">
                 <p className="app-toast-title">{item.title}</p>
                 {item.description ? (
@@ -141,10 +157,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 type="button"
                 className="app-toast-dismiss"
                 aria-label="Dismiss notification"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  dismiss(item.id);
-                }}
+                onClick={() => dismiss(item.id)}
               >
                 <X className="size-3.5" aria-hidden="true" />
               </button>

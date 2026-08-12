@@ -12,7 +12,7 @@ import {
 } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, RefreshCw } from "lucide-react";
 
 import {
   InstagramIcon,
@@ -48,6 +48,7 @@ import {
 import { AppShell } from "./app-shell";
 import { PlatformAccountPicker } from "./platform-account-picker";
 import { ScheduleDetailModal } from "./schedule-detail-modal";
+import { CreateScheduleModal } from "./create-schedule-modal";
 import { useToast } from "./toast-provider";
 import { cn } from "@/lib/utils";
 
@@ -187,6 +188,13 @@ export function ScheduleCalendar() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropDayKey, setDropDayKey] = useState<string | null>(null);
   const [dropMinutes, setDropMinutes] = useState<number | null>(null);
+  const [createHover, setCreateHover] = useState<{
+    dayKey: string;
+    minutes: number;
+  } | null>(null);
+  const [createDraft, setCreateDraft] = useState<{
+    scheduledAt: string;
+  } | null>(null);
   const [busyScheduleId, setBusyScheduleId] = useState<string | null>(null);
   const dragMoved = useRef(false);
   const weekBodyScrollRef = useRef<HTMLDivElement | null>(null);
@@ -292,6 +300,26 @@ export function ScheduleCalendar() {
     return map;
   }, [range.days, slots, timeZone]);
 
+  const selectedRelatedScheduleIds = useMemo(() => {
+    if (!selectedScheduleId) return [];
+    const selected = slots.find((slot) => slot.scheduleId === selectedScheduleId);
+    if (!selected) return [selectedScheduleId];
+    const dayKey = dayKeyForInstant(selected.scheduledAt, timeZone);
+    const minute = minutesFromMidnight(selected.scheduledAt, timeZone);
+    const sameMinute = (slotsByDay.get(dayKey) ?? [])
+      .filter(
+        (slot) => minutesFromMidnight(slot.scheduledAt, timeZone) === minute,
+      );
+    const seenAccountIds = new Set<string>();
+    return [selected, ...sameMinute.filter((slot) => slot !== selected)]
+      .filter((slot) => {
+        if (seenAccountIds.has(slot.accountId)) return false;
+        seenAccountIds.add(slot.accountId);
+        return true;
+      })
+      .map((slot) => slot.scheduleId);
+  }, [selectedScheduleId, slots, slotsByDay, timeZone]);
+
   const emptyAccounts = !loading && accounts.length === 0 && !error;
 
   function columnWidthFor(dayKey: string) {
@@ -343,6 +371,68 @@ export function ScheduleCalendar() {
     // (Do not add canvas.scrollTop; the canvas itself does not scroll.)
     const y = event.clientY - rect.top;
     return snapMinutes(pxToMinutes(Math.max(0, Math.min(DAY_TIMELINE_HEIGHT, y))));
+  }
+
+  function onCanvasPointerMove(
+    dayKey: string,
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) {
+    if (draggingIdRef.current || resizeSession.current) {
+      setCreateHover(null);
+      return;
+    }
+    const target = event.target as HTMLElement | null;
+    if (target?.closest(".cal-slot")) {
+      setCreateHover(null);
+      return;
+    }
+    const canvas = event.currentTarget;
+    const rawMinutes = minutesFromDayEvent(event, canvas);
+    const minutes = clampDropMinutes(dayKey, rawMinutes, timeZone);
+    if (minutes == null) {
+      setCreateHover(null);
+      return;
+    }
+    setCreateHover({ dayKey, minutes });
+  }
+
+  function onCanvasPointerLeave() {
+    if (draggingIdRef.current) return;
+    setCreateHover(null);
+  }
+
+  function onCanvasClick(
+    dayKey: string,
+    event: ReactPointerEvent<HTMLDivElement> | React.MouseEvent<HTMLDivElement>,
+  ) {
+    if (draggingIdRef.current || resizeSession.current || dragMoved.current) {
+      return;
+    }
+    const target = event.target as HTMLElement | null;
+    if (target?.closest(".cal-slot, .cal-col-resize, button, a, input")) {
+      return;
+    }
+    if (accounts.length === 0) {
+      toast({
+        tone: "error",
+        title: "Connect an account before scheduling from the calendar.",
+      });
+      return;
+    }
+    const canvas = event.currentTarget as HTMLDivElement;
+    const rawMinutes = minutesFromDayEvent(event, canvas);
+    const minutes = clampDropMinutes(dayKey, rawMinutes, timeZone);
+    if (minutes == null) {
+      toast({
+        tone: "error",
+        title: "Pick a future time to schedule a post.",
+      });
+      return;
+    }
+    setCreateHover(null);
+    setCreateDraft({
+      scheduledAt: instantAtDayMinutes(dayKey, minutes, timeZone),
+    });
   }
 
   function autoScrollWhileDragging(clientY: number) {
@@ -410,6 +500,7 @@ export function ScheduleCalendar() {
     dragMoved.current = false;
     draggingIdRef.current = slot.scheduleId;
     setDraggingId(slot.scheduleId);
+    setCreateHover(null);
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", slot.scheduleId);
     // Transparent drag image so the timeline guide is the primary feedback.
@@ -727,7 +818,9 @@ export function ScheduleCalendar() {
                         {dropMinutes != null ? (
                           <div
                             className="cal-drop-guide-chip"
-                            style={{ top: minutesToPx(dropMinutes) }}
+                            style={{
+                              top: minutesToPx(dropMinutes),
+                            }}
                             data-testid="cal-drop-guide-time"
                           >
                             {formatGuideTime(dropMinutes)}
@@ -739,8 +832,16 @@ export function ScheduleCalendar() {
                     {range.days.map((day) => {
                       const daySlots = slotsByDay.get(day.key) ?? [];
                       const width = columnWidthFor(day.key);
-                      const showGuide =
-                        dropDayKey === day.key && dropMinutes != null;
+                      const guideMinutes =
+                        dropDayKey === day.key && dropMinutes != null
+                          ? dropMinutes
+                          : createHover?.dayKey === day.key
+                            ? createHover.minutes
+                            : null;
+                      const showCreatePlus =
+                        !draggingId &&
+                        createHover?.dayKey === day.key &&
+                        createHover.minutes != null;
 
                       return (
                         <div
@@ -749,6 +850,8 @@ export function ScheduleCalendar() {
                             "cal-day",
                             day.isToday && "cal-day-today",
                             dropDayKey === day.key && "cal-day-drop-target",
+                            createHover?.dayKey === day.key &&
+                              "cal-day-create-target",
                           )}
                           data-day-key={day.key}
                           role="gridcell"
@@ -760,6 +863,11 @@ export function ScheduleCalendar() {
                           <div
                             className="cal-day-canvas"
                             style={{ height: DAY_TIMELINE_HEIGHT }}
+                            onPointerMove={(event) =>
+                              onCanvasPointerMove(day.key, event)
+                            }
+                            onPointerLeave={onCanvasPointerLeave}
+                            onClick={(event) => onCanvasClick(day.key, event)}
                           >
                             {HOUR_MARKS.map((hour) => (
                               <div
@@ -769,12 +877,59 @@ export function ScheduleCalendar() {
                               />
                             ))}
 
-                            {showGuide ? (
+                            {guideMinutes != null ? (
                               <div
-                                className="cal-drop-guide"
-                                style={{ top: minutesToPx(dropMinutes) }}
-                                data-testid="cal-drop-guide"
-                              />
+                                className={cn(
+                                  "cal-drop-guide",
+                                  showCreatePlus && "cal-create-guide",
+                                )}
+                                style={{ top: minutesToPx(guideMinutes) }}
+                                data-testid={
+                                  showCreatePlus
+                                    ? "cal-create-guide"
+                                    : "cal-drop-guide"
+                                }
+                              >
+                                {showCreatePlus ? (
+                                  <>
+                                    <span
+                                      className="cal-day-guide-chip"
+                                      data-testid="cal-create-guide-time"
+                                    >
+                                      {formatGuideTime(guideMinutes)}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      className="cal-create-plus"
+                                      aria-label={`Add schedule at ${formatGuideTime(guideMinutes)}`}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        if (accounts.length === 0) {
+                                          toast({
+                                            tone: "error",
+                                            title:
+                                              "Connect an account before scheduling from the calendar.",
+                                          });
+                                          return;
+                                        }
+                                        setCreateHover(null);
+                                        setCreateDraft({
+                                          scheduledAt: instantAtDayMinutes(
+                                            day.key,
+                                            guideMinutes,
+                                            timeZone,
+                                          ),
+                                        });
+                                      }}
+                                    >
+                                      <Plus
+                                        className="size-3.5"
+                                        aria-hidden="true"
+                                      />
+                                    </button>
+                                  </>
+                                ) : null}
+                              </div>
                             ) : null}
 
                             {loading ? (
@@ -979,6 +1134,7 @@ export function ScheduleCalendar() {
 
       <ScheduleDetailModal
         scheduleId={selectedScheduleId}
+        relatedScheduleIds={selectedRelatedScheduleIds}
         open={Boolean(selectedScheduleId)}
         accounts={accounts}
         onClose={() => {
@@ -986,6 +1142,20 @@ export function ScheduleCalendar() {
         }}
         onChanged={() => {
           void load();
+        }}
+      />
+      <CreateScheduleModal
+        open={Boolean(createDraft)}
+        accounts={accounts}
+        initialScheduledAt={createDraft?.scheduledAt ?? null}
+        onClose={() => setCreateDraft(null)}
+        onCreated={(scheduleId) => {
+          setCreateDraft(null);
+          void load();
+          router.push(
+            `/app/calendar?schedule=${encodeURIComponent(scheduleId)}`,
+            { scroll: false },
+          );
         }}
       />
     </AppShell>

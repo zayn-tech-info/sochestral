@@ -343,6 +343,11 @@ export type BusinessProfileResponse = {
   websiteUrl: string | null;
   targetAudience: string | null;
   industry: string | null;
+  personaRole: string | null;
+  personaRoleOther: string | null;
+  primaryPlatforms: string[];
+  attributionSource: string | null;
+  attributionOther: string | null;
   setupStatus: "not_started" | "in_progress" | "complete";
   setupStep: string | null;
   competitorsSkipped: boolean;
@@ -363,9 +368,17 @@ export function patchBusinessProfile(
     websiteUrl: string | null;
     targetAudience: string | null;
     industry: string | null;
+    personaRole: string | null;
+    personaRoleOther: string | null;
+    primaryPlatforms: string[];
+    attributionSource: string | null;
+    attributionOther: string | null;
+    skills: string[];
+    setupStep: string | null;
     competitorsSkipped: boolean;
     redoSetup: boolean;
     confirmReset: boolean;
+    completeSetup: boolean;
   }>,
 ) {
   return apiRequest<BusinessProfileResponse>("/profile", {
@@ -469,6 +482,67 @@ export function getCalendarSlot(scheduleId: string) {
   );
 }
 
+export function createCalendarSlot(input: {
+  platform: ConnectorPlatform;
+  accountId: string;
+  scheduledAt: string;
+  caption: string;
+  media?: string[];
+}) {
+  return createCalendarSlots({
+    targets: [
+      {
+        platform: input.platform,
+        accountId: input.accountId,
+        scheduledAt: input.scheduledAt,
+        caption: input.caption,
+        ...(input.media ? { media: input.media } : {}),
+      },
+    ],
+  }).then((result) => {
+    const first = result.created[0];
+    if (!first) {
+      throw new ApiError(502, "INVALID_SCHEDULE_RESPONSE", {});
+    }
+    return first;
+  });
+}
+
+export function createCalendarSlots(input: {
+  targets: Array<{
+    platform: ConnectorPlatform;
+    accountId: string;
+    scheduledAt: string;
+    caption: string;
+    media?: string[];
+  }>;
+  /** @deprecated Prefer per-target `media`. Shared media applies only when a target omits `media`. */
+  media?: string[];
+}) {
+  return apiRequest<{ created: ScheduleDetail[] }>("/calendar/slots", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function composeCalendarCaptions(input: {
+  message?: string;
+  targets: Array<{
+    accountId: string;
+    platform: ConnectorPlatform;
+    caption?: string;
+  }>;
+  focusAccountId?: string | null;
+}) {
+  return apiRequest<{
+    assistantText: string;
+    updates: Array<{ accountId: string; caption: string }>;
+  }>("/calendar/compose-assist", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export function rescheduleCalendarSlot(
   scheduleId: string,
   scheduledAt: string,
@@ -502,6 +576,7 @@ export type MirrorCalendarTarget = {
   platform: ConnectorPlatform;
   accountId: string;
   scheduledAt: string;
+  media?: string[];
 };
 
 export function mirrorCalendarSlot(
@@ -522,6 +597,18 @@ export function mirrorCalendarSlot(
 }
 
 export type ScheduleRewriteAction = "regenerate" | "tweak" | "comment";
+
+/** Selection rewrite without an existing schedule (create-board captions). */
+export function rewriteCaptionSelection(input: {
+  selection: string;
+  action: ScheduleRewriteAction;
+  instruction?: string;
+}) {
+  return apiRequest<{ suggestion: string }>("/calendar/rewrite-selection", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
 
 export function rewriteCalendarSelection(
   scheduleId: string,

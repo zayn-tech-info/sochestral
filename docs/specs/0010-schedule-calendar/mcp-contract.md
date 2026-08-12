@@ -11,7 +11,7 @@ Recorded 2026-08-09 against SocialMCP (`all-social-mcp` MCP server tools). Updat
 | Reschedule | `reschedule_scheduled_post` | yes | Requires `confirm: true` (or `dryRun: true`). Args: `scheduledPostId`, `publishAt` (future ISO). Allowed for `status=scheduled` or `cancelled` (cancelled reactivates to `scheduled`). |
 | Update caption/media | `update_scheduled_post_content` | yes | Requires `confirm: true` (or `dryRun: true`). Args: `scheduledPostId`, optional `text`, optional HTTPS `mediaUrls` (at least one of text/mediaUrls). Allowed for `status=scheduled` or `cancelled`. |
 | Cancel | `cancel_scheduled_post` | yes | Requires `confirm: true` (or `dryRun: true`). Args: `scheduledPostId`. |
-| Create schedule | `schedule_post` | yes | Modal mirror only: `POST /calendar/slots/:id/mirror` calls once per **account** target (same platform allowed when `accountId`s differ). Chat/orchestration still owns planner create. |
+| Create schedule | `schedule_post` | yes | Blank create: `POST /calendar/slots`. Modal mirror: `POST /calendar/slots/:id/mirror` (one call per account target). Chat/orchestration still own planner create. |
 
 Also used for sidebar accounts: `list_connected_accounts` (existing connectors path).
 
@@ -62,7 +62,9 @@ Rescheduling a canceled post reactivates it to Scheduled at the new time (drag o
 |---|---|---|
 | List week slots | `GET /calendar/slots` | Query: `from`, `to`, `timeZone`, optional `platform`, optional `accountId` and/or comma-separated `accountIds`. Empty filter = all accounts. |
 | List scheduled posts | `GET /scheduled/posts` | Same account filter params as slots. |
+| Blank create | `POST /calendar/slots` | Single body `{ platform, accountId, scheduledAt, caption, media? }` or batch `{ targets: [{ platform, accountId, scheduledAt, caption, media? }], media? }` → `{ created: ScheduleDetail[] }`. One SocialMCP `schedule_post` per target. Per-target `media` preferred; shared body `media` is fallback. Future `scheduledAt` required; Instagram requires media per Instagram target. |
+| Compose assist | `POST /calendar/compose-assist` | Body `{ message?, targets: [{ accountId, platform, caption? }], focusAccountId? }` → `{ assistantText, updates: [{ accountId, caption }] }`. Thesean drafts/reshapes into create-board captions (profile/tone aware). Soft-fails `REWRITE_UNAVAILABLE`; does not mutate MCP. |
 | Patch time | `PATCH /calendar/slots/:id` | Body: `{ scheduledAt }` (UTC ISO). Time only — no caption/media. |
 | Patch content | `PATCH /calendar/slots/:id/content` | Body: `{ caption? }` and/or `{ media? }` (HTTPS). Content only — rejects `scheduledAt`. |
-| Mirror to accounts | `POST /calendar/slots/:id/mirror` | Body `{ targets: [{ platform, accountId, scheduledAt }], caption?, media? }` → `{ created: ScheduleDetail[] }`. One SocialMCP `schedule_post` per target account. Same platform allowed when account ids differ; source `accountId` rejected. |
-| Selection rewrite chips | `POST /calendar/slots/:id/rewrite-selection` | Body `{ selection, action: "regenerate"\|"tweak"\|"comment", instruction? }` → `{ suggestion }`. `regenerate` needs no instruction; tweak/comment ≤40 words. Soft-fails `REWRITE_UNAVAILABLE` when Thesean is down; does not mutate MCP. |
+| Mirror to accounts | `POST /calendar/slots/:id/mirror` | Body `{ targets: [{ platform, accountId, scheduledAt, media? }], caption?, media? }` → `{ created: ScheduleDetail[] }`. One SocialMCP `schedule_post` per target account. Same platform allowed when account ids differ; source `accountId` rejected. Per-target `media` preferred; shared body `media` / source media is fallback. Shared caption (unlike create-board per-account captions). |
+| Selection rewrite chips | `POST /calendar/slots/:id/rewrite-selection` or `POST /calendar/rewrite-selection` | Body `{ selection, action: "regenerate"\|"tweak"\|"comment", instruction? }` → `{ suggestion }`. Schedule-less route is for the create board. `regenerate` needs no instruction; tweak/comment ≤40 words. Soft-fails `REWRITE_UNAVAILABLE` when Thesean is down; does not mutate MCP. |

@@ -181,7 +181,7 @@ describe("private media storage", () => {
     await deleteUser(database.db, user.id);
   });
 
-  it("rejects MIME spoofing after reading the actual object bytes", async () => {
+  it("accepts a ticket MIME that disagrees with the real image bytes", async () => {
     const user = await provisionUser(database.db, `spoof-${crypto.randomUUID()}@example.com`);
     const store = new MemoryMediaStore();
     const service = new MediaService(database.db, store);
@@ -195,13 +195,9 @@ describe("private media storage", () => {
     }]);
     store.objects.set(store.lastUploadKey!, new Uint8Array(png));
 
-    await expect(
-      service.complete(user.id, ticket.uploads[0]!.assetId),
-    ).rejects.toMatchObject({
-      code: "UNSUPPORTED_MEDIA",
-      status: 415,
-    } satisfies Partial<MediaError>);
-    await service.delete(user.id, ticket.uploads[0]!.assetId);
+    const completed = await service.complete(user.id, ticket.uploads[0]!.assetId);
+    expect(completed.mimeType).toBe("image/png");
+    await service.delete(user.id, completed.id);
     await deleteUser(database.db, user.id);
   });
 

@@ -35,6 +35,17 @@ describe("userFacingError", () => {
     ).toBe("The media host rejected this file type.");
   });
 
+  it("prefers details.message over generic mapped copy", () => {
+    expect(
+      userFacingError(
+        new ApiError(422, "INVALID_CONTENT_UPDATE", {
+          error: "INVALID_CONTENT_UPDATE",
+          message: "[threads] Threads media URLs must use secure HTTPS",
+        }),
+      ),
+    ).toBe("[threads] Threads media URLs must use secure HTTPS");
+  });
+
   it("falls back for unknown codes without leaking them", () => {
     const message = userFacingError("SOME_NEW_CODE_XYZ");
     expect(message).not.toContain("SOME_NEW_CODE_XYZ");

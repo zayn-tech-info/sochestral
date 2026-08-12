@@ -86,6 +86,13 @@ export function buildMediaViewUrl(userId: string, assetId: string, base = public
 }
 
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+function normalizeDeclaredMime(mimeType: string): string | null {
+  const value = mimeType.trim().toLowerCase();
+  if (value === "image/jpg" || value === "image/jpeg") return "image/jpeg";
+  if (value === "image/png" || value === "image/webp") return value;
+  return null;
+}
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_IMAGE_PIXELS = 40_000_000;
 
@@ -273,9 +280,11 @@ export class MediaService {
       throw new MediaError("INVALID_MEDIA", 422);
     }
     for (const descriptor of descriptors) {
-      if (!descriptor.name.trim() || !ALLOWED_MIME.has(descriptor.mimeType)) {
+      const mimeType = normalizeDeclaredMime(descriptor.mimeType);
+      if (!descriptor.name.trim() || !mimeType) {
         throw new MediaError("UNSUPPORTED_MEDIA", 415);
       }
+      descriptor.mimeType = mimeType;
       if (!Number.isInteger(descriptor.byteSize) || descriptor.byteSize < 1) {
         throw new MediaError("INVALID_MEDIA", 422);
       }
@@ -363,7 +372,9 @@ export class MediaService {
     }
     try {
       const sanitized = await sanitizeImage(await this.store.get(asset.storageKey));
-      if (asset.mimeType !== sanitized.mimeType) {
+      // Trust bytes after sanitize; declared ticket MIME can disagree with the
+      // real image (common browser/OS quirks) but still be a safe jpeg/png/webp.
+      if (!ALLOWED_MIME.has(sanitized.mimeType)) {
         throw new MediaError("UNSUPPORTED_MEDIA", 415);
       }
       await this.store.put(asset.storageKey, sanitized.bytes, sanitized.mimeType);

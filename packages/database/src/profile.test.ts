@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { createDb, type Database } from "./client.js";
 import { requireTestDatabaseUrl } from "./env.js";
+import { businessProfiles } from "./schema.js";
 import {
   compileProfileNote,
   createProfileEntry,
@@ -53,10 +54,13 @@ describe("business profile database", () => {
     expect(gone.items).toHaveLength(0);
   });
 
-  it("compiles active entries only and gates minimum complete (AC-5, AC-9)", async () => {
+  it("compiles active entries only and gates minimum complete (AC-5, AC-7)", async () => {
+    const description = Array.from({ length: 32 }, (_, i) => `word${i}`).join(
+      " ",
+    );
     await patchBusinessProfile(database.db, ownerId, {
       businessName: "Acme Tools",
-      businessDescription: "We sell hand tools",
+      businessDescription: description,
       setupStatus: "in_progress",
     });
     await createProfileEntry(database.db, {
@@ -81,7 +85,10 @@ describe("business profile database", () => {
     expect(compiled.compiledNote).not.toContain("Rival Co");
 
     await patchBusinessProfile(database.db, ownerId, {
-      competitorsSkipped: true,
+      personaRole: "business_owner",
+      primaryPlatforms: ["threads"],
+      attributionSource: "friend",
+      skills: ["Content writing"],
     });
     compiled = await getCompiledProfile(database.db, ownerId);
     expect(isMinimumProfileComplete(compiled.profile, compiled.activeEntries)).toBe(
@@ -123,6 +130,11 @@ describe("business profile database", () => {
         websiteUrl: null,
         targetAudience: null,
         industry: null,
+        personaRole: "business_owner",
+        personaRoleOther: null,
+        primaryPlatforms: ["threads"],
+        attributionSource: "friend",
+        attributionOther: null,
         setupStatus: "complete",
         setupStep: "done",
         competitorsSkipped: false,
@@ -147,6 +159,8 @@ describe("business profile database", () => {
     expect(note).toContain("# Business profile");
     expect(note).toContain("## tone");
     expect(note).toContain("Warm");
+    expect(note).toContain("Who they are: business owner");
+    expect(note).toContain("Primary platforms: threads");
   });
 
   it("redacts secret shaped strings in entry bodies (AC-8)", async () => {
@@ -184,5 +198,80 @@ describe("business profile database", () => {
     expect(redone.businessName).toBe("Acme");
     const entries = await listProfileEntries(database.db, { userId: ownerId });
     expect(entries.items.some((item) => item.body === "Warm")).toBe(true);
+  });
+
+  it("treats legacy complete profiles as ready", async () => {
+    await ensureBusinessProfile(database.db, ownerId);
+    await database.db
+      .update(businessProfiles)
+      .set({
+        businessName: "Legacy Co",
+        businessDescription: "Short legacy description",
+        setupStatus: "complete",
+        setupStep: "done",
+      })
+      .where(sql`${businessProfiles.userId} = ${ownerId}`);
+
+    const compiled = await getCompiledProfile(database.db, ownerId);
+
+    expect(compiled.profile.setupStatus).toBe("complete");
+    expect(compiled.minimumComplete).toBe(true);
+  });
+
+  it("marks complete profiles in progress when required values are removed", async () => {
+    const description = Array.from({ length: 32 }, (_, i) => `word${i}`).join(
+      " ",
+    );
+    await patchBusinessProfile(database.db, ownerId, {
+      businessName: "Acme Tools",
+      businessDescription: description,
+      personaRole: "business_owner",
+      primaryPlatforms: ["threads"],
+      attributionSource: "friend",
+      skills: ["Content writing"],
+      setupStatus: "complete",
+      setupStep: "done",
+    });
+
+    const updated = await patchBusinessProfile(database.db, ownerId, {
+      businessName: null,
+    });
+    const compiled = await getCompiledProfile(database.db, ownerId);
+
+    expect(updated.setupStatus).toBe("in_progress");
+    expect(compiled.minimumComplete).toBe(false);
+  });
+
+  it("rejects undeclared setup steps and skills", async () => {
+    await expect(
+      patchBusinessProfile(database.db, ownerId, {
+        setupStep: "unsupported_step",
+      }),
+    ).rejects.toBeInstanceOf(ProfileDatabaseError);
+
+    await expect(
+      patchBusinessProfile(database.db, ownerId, {
+        skills: ["Content writing", "Definitely not a client option"],
+      }),
+    ).rejects.toBeInstanceOf(ProfileDatabaseError);
+  });
+
+  it("rolls back skill replacement when the profile update fails", async () => {
+    await patchBusinessProfile(database.db, ownerId, {
+      skills: ["Content writing"],
+    });
+
+    await expect(
+      patchBusinessProfile(database.db, ownerId, {
+        skills: ["Brand design"],
+        setupStatus: "unsupported_status" as never,
+      }),
+    ).rejects.toThrow();
+
+    const entries = await listProfileEntries(database.db, {
+      userId: ownerId,
+      category: "skill",
+    });
+    expect(entries.items.map((item) => item.body)).toEqual(["Content writing"]);
   });
 });

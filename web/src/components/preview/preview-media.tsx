@@ -151,6 +151,16 @@ export function LinkedInMediaCollage({ images }: { images: string[] }) {
 
   if (!clipped.length) return null;
 
+  // Single image: natural height (no collage tile crop). Parent can scroll.
+  if (clipped.length === 1) {
+    return (
+      <div className="pp-media pp-media-linkedin pp-media-linkedin-single">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={clipped[0]} alt="" />
+      </div>
+    );
+  }
+
   if (focusIndex != null) {
     const src = clipped[focusIndex]!;
     return (

@@ -341,7 +341,7 @@ export function buildAutonomyBrief(input: AutonomyBriefInput): AutonomyBrief {
 
   if (!input.minimumComplete) {
     const refuseReason =
-      "Business profile setup is incomplete. Finish setup (name, description, tone, and competitors or skip) before autonomous scheduling.";
+      "Business profile setup is incomplete. Finish the onboarding wizard (name, description, who you are, skills, platforms, and attribution) before autonomous scheduling.";
     return { ok: false, refuseReason, text: refuseReason };
   }
 

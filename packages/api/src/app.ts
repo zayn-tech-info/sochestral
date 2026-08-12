@@ -200,7 +200,10 @@ export function createApp(
   registerMediaRoutes(app, db, getMediaService);
   registerProfileRoutes(app, db);
   registerCalendarRoutes(app, db, () => {
-    resolvedCalendar ??= createCalendarService(resolvedConnectors);
+    resolvedCalendar ??= createCalendarService(resolvedConnectors, undefined, {
+      publishUrl: (userId, assetId) => getMediaService().publishUrl(userId, assetId),
+      viewUrl: (userId, assetId) => getMediaService().viewUrl(userId, assetId),
+    });
     return resolvedCalendar;
   });
 

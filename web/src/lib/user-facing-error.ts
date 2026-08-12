@@ -34,6 +34,14 @@ const ERROR_COPY: Record<string, string> = {
     "This canceled schedule could not be reactivated. Refresh and try again, or pick a new future time.",
   ACCOUNT_REQUIRED: "Choose a connected account before continuing.",
   MEDIA_UPLOAD_FAILED: "We could not upload that image. Try again.",
+  UNSUPPORTED_MEDIA:
+    "That image type is not supported. Use JPEG, PNG, or WebP.",
+  MEDIA_TOO_LARGE: "That image is too large. Use a file under 10 MB.",
+  MEDIA_QUOTA_EXCEEDED:
+    "You have uploaded too many images recently. Try again later.",
+  STORAGE_UNAVAILABLE:
+    "Image storage is temporarily unavailable. Try again shortly.",
+  INVALID_MEDIA: "That image could not be accepted. Try a different file.",
   REWRITE_UNAVAILABLE:
     "Rewrite suggestions are unavailable right now. Try again shortly.",
   INVALID_REWRITE: "That rewrite request was not valid. Try a shorter instruction.",
@@ -59,6 +67,8 @@ const ERROR_COPY: Record<string, string> = {
 
   // Profile
   INVALID_INPUT: "Check the fields and try again.",
+  PROFILE_INCOMPLETE:
+    "Finish onboarding before using chat. Open the setup wizard to continue.",
 
   // Publishing / review
   STALE_REVISION:
@@ -117,23 +127,35 @@ export function userFacingError(
   const raw = codeFromUnknown(error);
   if (!raw) return fallback;
 
-  if (ERROR_COPY[raw]) return ERROR_COPY[raw]!;
-
   // Prefer a details.message from ApiError-shaped objects when it is prose.
   if (
     error &&
     typeof error === "object" &&
     "details" in error &&
     error.details &&
-    typeof error.details === "object" &&
-    "message" in error.details &&
-    typeof (error.details as { message: unknown }).message === "string"
+    typeof error.details === "object"
   ) {
-    const detail = (error.details as { message: string }).message.trim();
-    if (detail && detail !== raw && !looksLikeErrorCode(detail)) {
-      return detail;
+    const details = error.details as Record<string, unknown>;
+    const nested =
+      details.details &&
+      typeof details.details === "object" &&
+      !Array.isArray(details.details)
+        ? (details.details as Record<string, unknown>)
+        : null;
+    for (const candidate of [
+      details.message,
+      nested && "message" in nested ? nested.message : null,
+    ]) {
+      if (typeof candidate === "string") {
+        const detail = candidate.trim();
+        if (detail && detail !== raw && !looksLikeErrorCode(detail)) {
+          return detail;
+        }
+      }
     }
   }
+
+  if (ERROR_COPY[raw]) return ERROR_COPY[raw]!;
 
   if (!looksLikeErrorCode(raw)) return raw;
 

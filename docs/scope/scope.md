@@ -32,7 +32,7 @@ Implementation stays professional and conservative: official APIs only, validate
 | Foundation (1 to 2) | Shipped: product schema on **Neon** Postgres, sessions, MCP JWT minting |
 | Slice 1 core (3 to 5) | **Done.** Tracer Bullet path proven on the product URL (`https://app.sochestral.shop`): connect → chat → draft → preview aside → approve → SocialMCP publish → live result. Linear SOC-5 / SOC-6 / SOC-18 / SOC-19 Done |
 | Slice 3 early (12 to 14) | Feature 14 **Done** (SOC-7). Feature 12 live smoke **Done** (SOC-9). Feature 13 intent clarify + action labels **Done**; Thesean Thinking smoke **Canceled** (SOC-8) — model has no extended thinking; think-stream UI removed |
-| Slice 2 (6 to 10) | Feature 7 **Done** ([0009](../specs/0009-setup-agent-business-profile/index.md), SOC-12 / SOC-13). Feature 6 tiers **deferred** (SOC-10 / SOC-11 Backlog). Channels (8/9) wait until the main web app is further along. Feature 10 calendar + scheduled posts list **build landed** ([0010](../specs/0010-schedule-calendar/index.md), [0011](../specs/0011-scheduled-posts-list/index.md)); next `/check verify` then `/test`. Feature 15 chat schedule loop **build + tests landed** ([0012](../specs/0012-chat-schedule-loop/index.md)); live SocialMCP smoke still open in verify.md. Feature 16 autonomous schedule planner **build landed** ([0013](../specs/0013-autonomous-schedule-planner/index.md)); verify/test open. Brand kit (SOC-40) stays a strong parallel Settings deepen |
+| Slice 2 (6 to 10) | Feature 7 **Done** ([0009](../specs/0009-setup-agent-business-profile/index.md); onboarding path superseded by [0014](../specs/0014-onboarding-wizard-settings/index.md) wizard + Personal/Memory settings). Feature 6 tiers **deferred** (SOC-10 / SOC-11 Backlog). Channels (8/9) wait until the main web app is further along. Feature 10 calendar + scheduled posts list **build landed** ([0010](../specs/0010-schedule-calendar/index.md), [0011](../specs/0011-scheduled-posts-list/index.md)); next `/check verify` then `/test`. Feature 15 chat schedule loop **build + tests landed** ([0012](../specs/0012-chat-schedule-loop/index.md)); live SocialMCP smoke still open in verify.md. Feature 16 autonomous schedule planner **build landed** ([0013](../specs/0013-autonomous-schedule-planner/index.md)); verify/test open. Brand kit (SOC-40) stays a strong parallel Settings deepen |
 | Hosting | Fly apps `sochestral` (web) + `sochestral-api` (Hono); cloud SocialMCP; Neon as primary product DB. Local Docker Postgres on 5433 is for agent/dev only |
 
 **Next:** `/check verify chat schedule loop` (Feature 15, [0012](../specs/0012-chat-schedule-loop/index.md)), then `/test`. Feature 10 calendar verify can run in parallel. WhatsApp/Telegram after the web operator loop feels complete. Feature 6 tiers still deferred. Free beta access; billing is parallel and not a beta gate.
@@ -187,14 +187,16 @@ Define tiers and what each tier gates (platforms, post volume, channels, autonom
 
 Separate setup agent turns plain language onboarding into structured profile data (tone, rules, cadence, skills, approval mode). Distinct from the operator agent that runs day to day. Profile lives in product Postgres, categorized — not one blob.
 **Done when:** a new user can complete onboarding and the persisted structured profile drives content generation; sample post correction flow captures tone; profile categories are queryable, not a single opaque document.
-**Spec:** [0009](../specs/0009-setup-agent-business-profile/index.md)
-**Code:** `packages/database/src/profile.ts`, `packages/api/src/profile-routes.ts`, `packages/orchestration/src/setup-agent.ts`, `packages/orchestration/src/service.ts`, `web/src/components/app/profile-settings.tsx`, `web/src/app/app/settings/profile/page.tsx`
+**Spec:** [0009](../specs/0009-setup-agent-business-profile/index.md) (onboarding/settings superseded by [0014](../specs/0014-onboarding-wizard-settings/index.md))
+**Code:** `packages/database/src/profile.ts`, `packages/api/src/profile-routes.ts`, `packages/orchestration/src/setup-agent.ts`, `packages/orchestration/src/service.ts`, `web/src/app/app/onboarding/page.tsx`, `web/src/components/app/onboarding-wizard.tsx`, `web/src/components/app/personal-settings.tsx`, `web/src/components/app/memory-settings.tsx`
+**Progress:** Chat setup agent is no longer the default incomplete path. Users finish `/app/onboarding` (hard gate); Settings splits Personal information + Memory; operator turns refuse until `setup_status=complete`.
 - [x] Design it (spec): `/architect setup agent and business profile`
 - [x] Build it: `/develop setup agent and business profile`
   - [x] Persist `business_profiles` / `profile_entries` and profile REST + compile helper (AC-1, AC-5, AC-8)
   - [x] Setup gate + setup agent writes + minimum complete rules (AC-2, AC-3, AC-9)
   - [x] DeepSeek research confirm + sample tone path (AC-3, AC-4)
   - [x] Operator note injection, profile level confirm, Profile settings and chat gate UX (AC-5, AC-6, AC-7, AC-9)
+  - [x] Onboarding wizard + Personal/Memory settings split ([0014](../specs/0014-onboarding-wizard-settings/index.md))
 - [x] Verify it: `/check verify setup agent and business profile`
 - [x] Test it: `/test setup agent and business profile`
 
@@ -214,7 +216,7 @@ Telegram as a second messaging add-on. Same channel abstraction as WhatsApp wher
 
 Chat workspace, connectors, review/preview aside, login, and the marketing landing already ship under Features 4, 5, 14 and `web/src/app/page.tsx`. This feature is no longer a greenfield web app. It covers the remaining operator surfaces that Slice 1 did not build.
 **Done when:** a signed in user can manage a schedule view, business profile settings, and any standalone approval queue needed beyond the conversation scoped preview aside, without being forced onto messaging channels.
-**Progress:** Profile settings already ship under Feature 7. Preview aside covers review. Spec 0010 calendar build landed (week grid, detail + live preview). Spec 0011 locks the Scheduled Posts list (`/app/scheduled`, sort/filter, 30 day windows, shared detail). Channels are out of this feature. Standalone approval queue stays out unless the aside proves insufficient later. Manual create form is deferred (from 0011).
+**Progress:** Personal information + Memory settings ship under Feature 7 / [0014](../specs/0014-onboarding-wizard-settings/index.md). Preview aside covers review. Spec 0010 calendar build landed (week grid, detail + live preview, multi-account blank create from hover/`POST /calendar/slots`, Soc compose-assist). Spec 0011 locks the Scheduled Posts list (`/app/scheduled`, sort/filter, 30 day windows, shared detail). Channels are out of this feature. Standalone approval queue stays out unless the aside proves insufficient later. List-view and Quick-create top-bar manual compose stay deferred (from 0011); calendar blank create + Soc drafting ship.
 **Spec:** [0010](../specs/0010-schedule-calendar/index.md) · [0011](../specs/0011-scheduled-posts-list/index.md)
 - [x] Design it (spec): `/architect remaining web product surfaces`
 - [x] Build it: `/develop remaining web product surfaces`
@@ -227,7 +229,7 @@ Chat workspace, connectors, review/preview aside, login, and the marketing landi
 - [ ] Verify it: `/check verify remaining web product surfaces`
 - [ ] Test it: `/test remaining web product surfaces`
 
-**Code:** `packages/orchestration/src/calendar.ts`, `packages/api/src/calendar-routes.ts`, `web/src/app/app/calendar/`, `web/src/app/app/scheduled/`, `web/src/components/app/schedule-calendar.tsx`, `web/src/components/app/schedule-detail.tsx`, `web/src/components/app/scheduled-posts-list.tsx`
+**Code:** `packages/orchestration/src/calendar.ts`, `packages/api/src/calendar-routes.ts`, `web/src/app/app/calendar/`, `web/src/app/app/scheduled/`, `web/src/components/app/schedule-calendar.tsx`, `web/src/components/app/create-schedule-modal.tsx`, `web/src/components/app/schedule-detail.tsx`, `web/src/components/app/scheduled-posts-list.tsx`
 
 ## Slice 3: Memory and autonomy
 

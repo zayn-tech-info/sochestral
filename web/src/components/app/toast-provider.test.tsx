@@ -65,6 +65,29 @@ describe("ToastProvider", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Could not save.");
   });
 
+  it("shows an info toast as a polite status", () => {
+    let api: ReturnType<typeof useToast> | null = null;
+    render(
+      <ToastProvider>
+        <Probe onReady={(value) => {
+          api = value;
+        }}
+        />
+      </ToastProvider>,
+    );
+
+    act(() => {
+      api!.toast({
+        tone: "info",
+        title: "Sochestral is still finishing work in this conversation.",
+      });
+    });
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Sochestral is still finishing work in this conversation.",
+    );
+  });
+
   it("keeps only the latest three toasts", () => {
     let api: ReturnType<typeof useToast> | null = null;
     render(

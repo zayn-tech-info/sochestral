@@ -1,4 +1,5 @@
 import { CTA } from "@/components/sections/cta";
+import { Navbar } from "@/components/layout/navbar";
 import { FeatureAlwaysOn } from "@/components/sections/feature-always-on";
 import { FeatureStrategic } from "@/components/sections/feature-strategic";
 import { Footer } from "@/components/sections/footer";
@@ -11,17 +12,20 @@ import { Trust } from "@/components/sections/trust";
 
 export default function Home() {
   return (
-    <main>
-      <Hero />
-      <LogoStrip />
-      <HowItWorks />
-      <Integrations />
-      <FeatureStrategic />
-      <FeatureAlwaysOn />
-      <Testimonials />
-      <Trust />
-      <CTA />
-      <Footer />
-    </main>
+    <>
+      <Navbar />
+      <main>
+        <Hero />
+        <LogoStrip />
+        <HowItWorks />
+        <Integrations />
+        <FeatureStrategic />
+        <FeatureAlwaysOn />
+        <Testimonials />
+        <Trust />
+        <CTA />
+        <Footer />
+      </main>
+    </>
   );
 }

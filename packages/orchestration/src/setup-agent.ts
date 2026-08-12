@@ -550,6 +550,10 @@ export async function applyCompetitorAnswers(
   };
 }
 
+/**
+ * Soft-deprecated chat setup-agent gate: when enabled, incomplete profiles
+ * block operator turns until the onboarding wizard sets setup_status=complete.
+ */
 export function isSetupGateActive(
   setupAgentEnabled: boolean,
   setupStatus: string,

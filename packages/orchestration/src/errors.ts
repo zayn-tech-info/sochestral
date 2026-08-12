@@ -7,6 +7,7 @@ export class OrchestrationError extends Error {
       | "INVALID_MESSAGE"
       | "INVALID_CURSOR"
       | "INVALID_TOOL_ARGUMENTS"
+      | "PROFILE_INCOMPLETE"
       | "DAILY_RUN_LIMIT"
       | "SOCIALMCP_UNAVAILABLE"
       | "MEDIA_STORAGE_UNAVAILABLE"

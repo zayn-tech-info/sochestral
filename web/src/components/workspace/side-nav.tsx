@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
+  Brain,
   CalendarDays,
   ChevronDown,
   FileText,
@@ -14,6 +15,7 @@ import {
   MessageSquare,
   Settings,
   Sparkles,
+  UserRound,
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
@@ -79,10 +81,18 @@ const items = [
 
 const settingsLinks = [
   {
-    href: "/app/settings/profile",
-    label: "Business profile",
-    icon: FileText,
-    match: (p: string) => p.startsWith("/app/settings/profile"),
+    href: "/app/settings/personal",
+    label: "Personal information",
+    icon: UserRound,
+    match: (p: string) =>
+      p.startsWith("/app/settings/personal") ||
+      p.startsWith("/app/settings/profile"),
+  },
+  {
+    href: "/app/settings/memory",
+    label: "Memory",
+    icon: Brain,
+    match: (p: string) => p.startsWith("/app/settings/memory"),
   },
   {
     href: "/app/settings/connectors",

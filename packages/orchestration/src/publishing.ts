@@ -409,6 +409,8 @@ type IntentLogReason =
   | "local_live"
   | "local_schedule"
   | "local_schedule_accept"
+  | "local_schedule_reject_redo"
+  | "local_autonomous_schedule"
   | "llm_live"
   | "llm_draft"
   | "llm_schedule"

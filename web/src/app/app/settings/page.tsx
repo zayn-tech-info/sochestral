@@ -1,14 +1,20 @@
 import Link from "next/link";
-import { FileText, ImageIcon, Link2 } from "lucide-react";
+import { Brain, ImageIcon, Link2, UserRound } from "lucide-react";
 
 import { AppShell } from "@/components/app/app-shell";
 
 const SETTINGS_LINKS = [
   {
-    href: "/app/settings/profile",
-    label: "Business profile",
-    description: "Brand facts, tone, audience, and operator notes.",
-    icon: FileText,
+    href: "/app/settings/personal",
+    label: "Personal information",
+    description: "Business details, role, skills, and platforms from onboarding.",
+    icon: UserRound,
+  },
+  {
+    href: "/app/settings/memory",
+    label: "Memory",
+    description: "Tone, competitors, and other facts the agent learned.",
+    icon: Brain,
   },
   {
     href: "/app/settings/connectors",
@@ -28,7 +34,7 @@ export default function SettingsPage() {
   return (
     <AppShell
       title="Settings"
-      description="Manage your business profile and connected accounts."
+      description="Manage personal information, memory, and connected accounts."
     >
       <section className="settings-hub" aria-labelledby="settings-hub-title">
         <h1 id="settings-hub-title" className="sr-only">

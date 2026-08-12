@@ -15,6 +15,7 @@ import {
   ApiError,
   apiRequest,
   apiStreamTurn,
+  getBusinessProfile,
   type Conversation,
   type ConversationDetail,
   type IntentAnswer,
@@ -157,9 +158,35 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
     apiRequest<ProductUser>("/auth/me")
-      .then((currentUser) => {
+      .then(async (currentUser) => {
         if (!active) return;
         setUser(currentUser);
+
+        const onOnboarding = pathname.startsWith("/app/onboarding");
+        try {
+          const profile = await getBusinessProfile();
+          if (!active) return;
+          if (profile.setupStatus !== "complete") {
+            if (!onOnboarding) {
+              router.replace("/app/onboarding");
+            }
+            return;
+          }
+          if (onOnboarding) {
+            router.replace("/app/workspace");
+            return;
+          }
+        } catch {
+          if (!active) return;
+          if (!onOnboarding) {
+            toast({
+              tone: "error",
+              title: "Could not load your profile. Refresh and try again.",
+            });
+            return;
+          }
+        }
+
         void refreshConversations().catch(() => {
           if (active) {
             const messageText = "Conversation history is unavailable.";
@@ -407,7 +434,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
                   })
             : "The connection was interrupted. You can retry safely.";
         setErrors((current) => ({ ...current, [key]: messageText }));
-        toast({ tone: "error", title: messageText });
+        toast({
+          tone: busy ? "info" : "error",
+          title: messageText,
+        });
         setRetries((current) => ({
           ...current,
           [key]: {

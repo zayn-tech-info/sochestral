@@ -1,5 +1,5 @@
-import { ProfileSettings } from "@/components/app/profile-settings";
+import { redirect } from "next/navigation";
 
-export default function ProfileSettingsPage() {
-  return <ProfileSettings />;
+export default function LegacyProfileSettingsPage() {
+  redirect("/app/settings/personal");
 }

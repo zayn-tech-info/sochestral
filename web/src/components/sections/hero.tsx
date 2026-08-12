@@ -1,91 +1,276 @@
-import { Play } from "lucide-react";
+"use client";
+
+import Link from "next/link";
+import {
+  ArrowRight,
+  RotateCcw,
+  ShieldCheck,
+  Sparkles,
+} from "lucide-react";
+import {
+  type CSSProperties,
+  type DragEvent,
+  type KeyboardEvent,
+  useState,
+} from "react";
+
+import {
+  InstagramIcon,
+  LinkedInIcon,
+  ThreadsIcon,
+} from "@/components/auth/platform-icons";
+
+const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"] as const;
+
+type Platform = "instagram" | "linkedin" | "threads";
+
+type DemoCard = {
+  id: string;
+  title: string;
+  detail: string;
+  platform: Platform;
+  day: number;
+  slot: number;
+  time: string;
+};
+
+const initialCards: DemoCard[] = [
+  {
+    id: "launch",
+    title: "Launch progress",
+    detail: "What shipped this week",
+    platform: "linkedin",
+    day: 1,
+    slot: 0,
+    time: "9:30",
+  },
+  {
+    id: "build",
+    title: "Behind the build",
+    detail: "A quick founder note",
+    platform: "threads",
+    day: 2,
+    slot: 1,
+    time: "12:00",
+  },
+  {
+    id: "spotlight",
+    title: "Product spotlight",
+    detail: "Review before publish",
+    platform: "instagram",
+    day: 4,
+    slot: 2,
+    time: "16:15",
+  },
+];
+
+const platformMeta = {
+  instagram: { label: "Instagram", Icon: InstagramIcon },
+  linkedin: { label: "LinkedIn", Icon: LinkedInIcon },
+  threads: { label: "Threads", Icon: ThreadsIcon },
+} as const;
 
 export function Hero() {
-  return (
-    <section
-      id="hero"
-      aria-labelledby="hero-title"
-      className="relative overflow-hidden bg-[#0a0a0a] pt-28 md:pt-36"
-    >
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-0 h-[42rem] bg-[radial-gradient(circle_at_50%_20%,rgba(255,255,255,0.065),transparent_52%)]"
-      />
+  const [cards, setCards] = useState(initialCards);
+  const [announcement, setAnnouncement] = useState(
+    "Schedule preview ready. Use arrow keys or drag a post to move it.",
+  );
 
-      <div className="content-container relative z-10">
-        <header className="mx-auto max-w-4xl text-center">
-          <p className="eyebrow">AI social media department</p>
-          <h1
-            id="hero-title"
-            className="display-heading mx-auto mt-6 max-w-4xl text-[2.25rem] sm:text-5xl lg:text-[4rem]"
-          >
-            The always-on AI social media department for your brand
+  function moveCard(id: string, day: number, slot?: number) {
+    const nextDay = Math.max(0, Math.min(days.length - 1, day));
+    setCards((current) =>
+      current.map((card) =>
+        card.id === id
+          ? {
+              ...card,
+              day: nextDay,
+              slot:
+                slot === undefined
+                  ? card.slot
+                  : Math.max(0, Math.min(2, slot)),
+            }
+          : card,
+      ),
+    );
+
+    const card = cards.find((item) => item.id === id);
+    if (card) {
+      setAnnouncement(`${card.title} moved to ${days[nextDay]}.`);
+    }
+  }
+
+  function handleDrop(event: DragEvent<HTMLDivElement>, day: number) {
+    event.preventDefault();
+    const id = event.dataTransfer.getData("text/plain");
+    if (id) moveCard(id, day);
+  }
+
+  function handleCardKeyDown(
+    event: KeyboardEvent<HTMLButtonElement>,
+    card: DemoCard,
+  ) {
+    const dayDelta =
+      event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+    const slotDelta =
+      event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+
+    if (dayDelta === 0 && slotDelta === 0) return;
+    event.preventDefault();
+    moveCard(card.id, card.day + dayDelta, card.slot + slotDelta);
+  }
+
+  function resetSchedule() {
+    setCards(initialCards);
+    setAnnouncement("Schedule preview reset.");
+  }
+
+  return (
+    <section id="hero" aria-labelledby="hero-title" className="marketing-hero">
+      <div className="marketing-hero-grid" aria-hidden="true" />
+      <div className="marketing-hero-glow" aria-hidden="true" />
+
+      <div className="content-container marketing-hero-content">
+        <header className="marketing-hero-copy">
+          <p className="marketing-hero-eyebrow">
+            <Sparkles aria-hidden="true" />
+            AI social operator for people who ship
+          </p>
+          <h1 id="hero-title">
+            Your business moves fast.
+            <span>Your social presence can keep up.</span>
           </h1>
-          <p className="body-copy mx-auto mt-7 max-w-2xl">
-            Turns your business knowledge into a consistent, strategic,
-            authentic online presence. Stay relevant and active without
-            running social media yourself.
+          <p className="marketing-hero-lede">
+            Tell Sochestral what you sell or ship. It turns your knowledge into
+            drafts, schedules, and approved posts for Threads, LinkedIn, and
+            Instagram.
           </p>
 
-          <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <a
-              href="#cta"
-              className="inline-flex h-12 items-center justify-center rounded-full bg-white px-7 text-base font-medium text-black transition-colors hover:bg-white/90 focus-visible:ring-3 focus-visible:ring-white/30 focus-visible:outline-none"
-            >
-              Start for Free
-            </a>
-            <a
-              href="#how-it-works-title"
-              className="inline-flex h-12 items-center justify-center rounded-full border border-white/10 bg-transparent px-7 text-base font-medium text-white transition-colors hover:bg-white/5 focus-visible:ring-3 focus-visible:ring-white/20 focus-visible:outline-none"
-            >
+          <div className="marketing-hero-actions">
+            <Link className="marketing-hero-primary" href="/login">
+              Start free beta
+              <ArrowRight aria-hidden="true" />
+            </Link>
+            <a className="marketing-hero-secondary" href="#how-it-works-title">
               See how it works
             </a>
           </div>
+
+          <ul className="marketing-proof-list" aria-label="Product safeguards">
+            <li>Plain language in</li>
+            <li>Review before publish</li>
+            <li>Official APIs out</li>
+          </ul>
         </header>
 
-        <div className="relative mx-auto mt-20 max-w-5xl md:mt-24">
-          <div className="relative min-h-[19rem] overflow-hidden rounded-2xl border border-white/10 bg-[#161616] shadow-[0_30px_90px_rgba(0,0,0,0.55)] sm:min-h-[27rem] lg:min-h-[32rem]">
-            <div
-              aria-hidden="true"
-              className="absolute inset-0 bg-[radial-gradient(circle_at_25%_20%,rgba(20,184,166,0.16),transparent_33%),radial-gradient(circle_at_78%_24%,rgba(217,70,239,0.14),transparent_32%),radial-gradient(circle_at_50%_100%,rgba(59,130,246,0.12),transparent_38%)]"
-            />
-            <div
-              aria-hidden="true"
-              className="absolute inset-x-0 top-0 flex h-12 items-center gap-2 border-b border-white/[0.08] px-5"
-            >
-              <span className="size-2 rounded-full bg-white/20" />
-              <span className="size-2 rounded-full bg-white/15" />
-              <span className="size-2 rounded-full bg-white/10" />
-            </div>
-
-            <div className="absolute inset-0 grid place-items-center px-6 pt-12 text-center">
+        <div className="marketing-product-stage">
+          <div className="marketing-stage-aura" aria-hidden="true" />
+          <div className="marketing-calendar-shell">
+            <div className="marketing-calendar-topbar">
               <div>
-                <button
-                  type="button"
-                  aria-label="Play Sochestral product demo"
-                  className="mx-auto grid size-16 place-items-center rounded-full border border-white/15 bg-white text-black shadow-2xl transition-transform hover:scale-105 focus-visible:ring-4 focus-visible:ring-white/25 focus-visible:outline-none sm:size-20"
-                >
-                  <Play
-                    aria-hidden="true"
-                    className="ml-1 size-5 fill-current sm:size-6"
-                  />
+                <p className="marketing-calendar-kicker">Sochestral workspace</p>
+                <h2>Content schedule</h2>
+              </div>
+              <div className="marketing-calendar-controls">
+                <span>
+                  <ShieldCheck aria-hidden="true" />
+                  Review mode on
+                </span>
+                <button type="button" onClick={resetSchedule}>
+                  <RotateCcw aria-hidden="true" />
+                  Reset
                 </button>
-                <p className="mt-5 text-sm font-medium text-white/75">
-                  Product demo preview
-                </p>
-                <p className="mt-1 text-xs text-white/35">
-                  See Sochestral turn brand knowledge into daily content
-                </p>
               </div>
             </div>
+
+            <p id="schedule-instructions" className="sr-only">
+              Drag posts between weekdays. With a post focused, use left and
+              right arrow keys to change day, or up and down arrow keys to
+              change time.
+            </p>
+            <p className="sr-only" aria-live="polite">
+              {announcement}
+            </p>
+
+            <div
+              className="marketing-calendar-grid"
+              aria-label="Interactive weekly content schedule"
+            >
+              {days.map((day, dayIndex) => (
+                <div
+                  key={day}
+                  className="marketing-calendar-day"
+                  data-day-index={dayIndex}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => handleDrop(event, dayIndex)}
+                >
+                  <div className="marketing-calendar-day-head">
+                    <span>{day.slice(0, 3)}</span>
+                    <span>{12 + dayIndex}</span>
+                  </div>
+                  <div className="marketing-calendar-lanes" aria-hidden="true">
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+
+                  {cards
+                    .filter((card) => card.day === dayIndex)
+                    .map((card) => {
+                      const { Icon, label } = platformMeta[card.platform];
+                      return (
+                        <button
+                          key={card.id}
+                          type="button"
+                          draggable
+                          className={`marketing-schedule-card marketing-schedule-card-${card.platform}`}
+                          style={{ "--slot": card.slot } as CSSProperties}
+                          aria-describedby="schedule-instructions"
+                          aria-label={`${card.title}, ${label}, ${day} at ${card.time}`}
+                          onDragStart={(event) => {
+                            event.dataTransfer.setData("text/plain", card.id);
+                            event.dataTransfer.effectAllowed = "move";
+                          }}
+                          onKeyDown={(event) =>
+                            handleCardKeyDown(event, card)
+                          }
+                        >
+                          <span className="marketing-card-platform">
+                            <Icon aria-hidden="true" />
+                            {label}
+                          </span>
+                          <strong>{card.title}</strong>
+                          <span>{card.detail}</span>
+                          <time>{card.time}</time>
+                        </button>
+                      );
+                    })}
+                </div>
+              ))}
+            </div>
+
+            <div className="marketing-calendar-footer">
+              <span>
+                <span className="marketing-live-dot" aria-hidden="true" />
+                3 connected accounts
+              </span>
+              <p>Drag a post to try the schedule</p>
+            </div>
+          </div>
+
+          <div className="marketing-float-card marketing-float-card-left">
+            <span>Next up</span>
+            <strong>Launch progress</strong>
+            <small>Ready for review</small>
+          </div>
+          <div className="marketing-float-card marketing-float-card-right">
+            <ShieldCheck aria-hidden="true" />
+            <span>
+              <strong>You stay in control</strong>
+              <small>Nothing publishes without approval</small>
+            </span>
           </div>
         </div>
       </div>
-
-      <div
-        aria-hidden="true"
-        className="mt-16 h-3 w-full bg-[linear-gradient(90deg,#14b8a6_0%,#3b82f6_30%,#d946ef_66%,#f97316_100%)] sm:h-4"
-      />
     </section>
   );
 }

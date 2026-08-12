@@ -89,6 +89,10 @@ export {
   type PublicConnectorAccount,
 } from "./connectors.js";
 export {
+  PLATFORM_IMAGE_LIMITS,
+  platformImageLimits,
+} from "./platform-media-limits.js";
+export {
   CalendarError,
   DefaultCalendarService,
   StreamableHttpCalendarGateway,
@@ -99,11 +103,14 @@ export {
   STATUS_BUCKETS,
   type CalendarAccount,
   type CalendarGateway,
+  type CalendarMediaService,
   type CalendarService,
   type CalendarSlot,
   type CalendarStatusBucket,
   type CalendarToolName,
   type MirrorInput,
+  type CreateScheduleInput,
+  type CreateSchedulesInput,
   type MirrorTarget,
   type ScheduleDetail,
   type ScheduledPostsSort,
@@ -113,6 +120,15 @@ export {
   type ScheduleRewriteAction,
   type ScheduleRewriteInput,
 } from "./schedule-rewrite.js";
+export {
+  composeScheduleCaptions,
+  platformsMentionedInMessage,
+  resolveComposeTargets,
+  type ComposeAssistInput,
+  type ComposeAssistResult,
+  type ComposeAssistTarget,
+  type ComposeAssistUpdate,
+} from "./schedule-compose.js";
 export {
   createReviewService,
   DefaultReviewService,

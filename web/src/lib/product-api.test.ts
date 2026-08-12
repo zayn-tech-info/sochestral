@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, apiBase, apiRequest, apiStreamTurn } from "./product-api";
+import {
+  ApiError,
+  apiBase,
+  apiRequest,
+  apiStreamTurn,
+  createCalendarSlot,
+} from "./product-api";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -83,6 +89,24 @@ describe("apiRequest", () => {
       code: "REQUEST_FAILED",
       details: {},
     });
+  });
+});
+
+describe("createCalendarSlot", () => {
+  it("throws a complete API error when create returns no schedules", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse({ created: [] })),
+    );
+
+    await expect(
+      createCalendarSlot({
+        platform: "threads",
+        accountId: "acct_1",
+        scheduledAt: "2099-01-01T00:00:00.000Z",
+        caption: "Hello",
+      }),
+    ).rejects.toEqual(new ApiError(502, "INVALID_SCHEDULE_RESPONSE", {}));
   });
 });
 

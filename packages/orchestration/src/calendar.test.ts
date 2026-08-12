@@ -504,6 +504,119 @@ describe("DefaultCalendarService", () => {
     });
   });
 
+  it("resolves product media view URLs to https publish URLs on content update", async () => {
+    const gateway = gatewayMock([row]);
+    const media = {
+      publishUrl: vi.fn(async () => "https://r2.example/signed/media_abc.jpg"),
+    };
+    const service = new DefaultCalendarService(gateway, connectorsMock(), media);
+    await service.updateContent("user_1", "sched_1", {
+      media: [
+        "http://localhost:8787/media/assets/media_abc/view?u=user_1&sig=abc",
+      ],
+    });
+    expect(media.publishUrl).toHaveBeenCalledWith("user_1", "media_abc");
+    expect(gateway.callTool).toHaveBeenCalledWith({
+      userId: "user_1",
+      name: "update_scheduled_post_content",
+      arguments: {
+        scheduledPostId: "sched_1",
+        mediaUrls: ["https://r2.example/signed/media_abc.jpg"],
+        confirm: true,
+      },
+    });
+  });
+
+  it("uses durable https product media view URLs for scheduled creates", async () => {
+    const gateway = gatewayMock([]);
+    const media = {
+      publishUrl: vi.fn(async () => "https://r2.example/signed/media_abc.jpg"),
+      viewUrl: vi.fn(
+        async () =>
+          "https://api.example/media/assets/media_abc/view?u=user_1&exp=2000000000&sig=abc",
+      ),
+    };
+    const service = new DefaultCalendarService(gateway, connectorsMock(), media);
+    const future = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+
+    await service.createSchedule("user_1", {
+      platform: "threads",
+      accountId: "acct_1",
+      scheduledAt: future,
+      caption: "Launch note",
+      media: [
+        "https://api.example/media/assets/media_abc/view?u=user_1&exp=2000000000&sig=abc",
+      ],
+    });
+
+    expect(media.viewUrl).toHaveBeenCalledWith("user_1", "media_abc");
+    expect(media.publishUrl).not.toHaveBeenCalled();
+    expect(gateway.callTool).toHaveBeenCalledWith({
+      userId: "user_1",
+      name: "schedule_post",
+      arguments: expect.objectContaining({
+        options: {
+          mediaUrls: [
+            "https://api.example/media/assets/media_abc/view?u=user_1&exp=2000000000&sig=abc",
+          ],
+        },
+      }),
+    });
+  });
+
+  it("falls back to a publish URL for local product media view URLs", async () => {
+    const gateway = gatewayMock([]);
+    const media = {
+      publishUrl: vi.fn(async () => "https://r2.example/signed/media_abc.jpg"),
+      viewUrl: vi.fn(
+        async () =>
+          "http://localhost:8787/media/assets/media_abc/view?u=user_1&exp=2000000000&sig=abc",
+      ),
+    };
+    const service = new DefaultCalendarService(gateway, connectorsMock(), media);
+    const future = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+
+    await service.createSchedule("user_1", {
+      platform: "threads",
+      accountId: "acct_1",
+      scheduledAt: future,
+      caption: "Local launch note",
+      media: [
+        "http://localhost:8787/media/assets/media_abc/view?u=user_1&exp=2000000000&sig=abc",
+      ],
+    });
+
+    expect(media.viewUrl).toHaveBeenCalledWith("user_1", "media_abc");
+    expect(media.publishUrl).toHaveBeenCalledWith("user_1", "media_abc");
+    expect(gateway.callTool).toHaveBeenCalledWith({
+      userId: "user_1",
+      name: "schedule_post",
+      arguments: expect.objectContaining({
+        options: { mediaUrls: ["https://r2.example/signed/media_abc.jpg"] },
+      }),
+    });
+  });
+
+  it("rejects product media view URLs on content update when media cannot be resolved", async () => {
+    const gateway = gatewayMock([row]);
+    const service = new DefaultCalendarService(gateway, connectorsMock());
+    await expect(
+      service.updateContent("user_1", "sched_1", {
+        media: [
+          "http://localhost:8787/media/assets/media_abc/view?u=user_1&sig=abc",
+        ],
+      }),
+    ).rejects.toMatchObject({
+      code: "INVALID_CONTENT_UPDATE",
+      details: expect.objectContaining({
+        message: "mediaUrls must be https URLs",
+      }),
+    });
+    expect(gateway.callTool).not.toHaveBeenCalledWith(
+      expect.objectContaining({ name: "update_scheduled_post_content" }),
+    );
+  });
+
   it("rejects content updates for non-scheduled and empty patches", async () => {
     const service = new DefaultCalendarService(
       gatewayMock([{ ...row, status: "published" }]),
@@ -579,6 +692,290 @@ describe("DefaultCalendarService", () => {
         options: { mediaUrls: ["https://cdn.example/a.jpg"] },
       },
     });
+  });
+
+  it("creates a blank schedule via schedule_post (AC-7e)", async () => {
+    const gateway = gatewayMock([]);
+    const service = new DefaultCalendarService(gateway, connectorsMock());
+    const future = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+    const created = await service.createSchedule("user_1", {
+      platform: "threads",
+      accountId: "acct_1",
+      scheduledAt: future,
+      caption: "Handmade launch note",
+    });
+    expect(created.scheduleId).toMatch(/^sched_/);
+    expect(created.platform).toBe("threads");
+    expect(created.caption).toBe("Handmade launch note");
+    expect(created.scheduledAt).toBe(future);
+    expect(gateway.callTool).toHaveBeenCalledWith({
+      userId: "user_1",
+      name: "schedule_post",
+      arguments: {
+        platforms: ["threads"],
+        text: "Handmade launch note",
+        connectedAccountId: "acct_1",
+        scheduledAt: future,
+        confirm: true,
+      },
+    });
+  });
+
+  it("batch creates schedules with per-account captions", async () => {
+    const gateway = gatewayMock([]);
+    const service = new DefaultCalendarService(gateway, connectorsMock());
+    const future = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+    const result = await service.createSchedules("user_1", {
+      targets: [
+        {
+          platform: "threads",
+          accountId: "acct_1",
+          scheduledAt: future,
+          caption: "Threads copy",
+        },
+        {
+          platform: "linkedin_personal",
+          accountId: "acct_li",
+          scheduledAt: future,
+          caption: "LinkedIn copy",
+        },
+      ],
+    });
+    expect(result.created).toHaveLength(2);
+    expect(result.created.map((row) => row.caption)).toEqual([
+      "Threads copy",
+      "LinkedIn copy",
+    ]);
+    expect(
+      vi.mocked(gateway.callTool).mock.calls.filter(
+        (call) => call[0]?.name === "schedule_post",
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("rejects explicit product media on create when it cannot be resolved", async () => {
+    const gateway = gatewayMock([]);
+    const service = new DefaultCalendarService(gateway, connectorsMock());
+    const future = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+
+    await expect(
+      service.createSchedule("user_1", {
+        platform: "threads",
+        accountId: "acct_1",
+        scheduledAt: future,
+        caption: "Launch note",
+        media: [
+          "http://localhost:8787/media/assets/media_abc/view?u=user_1&exp=2000000000&sig=abc",
+        ],
+      }),
+    ).rejects.toMatchObject({
+      code: "INVALID_CONTENT_UPDATE",
+      status: 422,
+    });
+    expect(gateway.callTool).not.toHaveBeenCalledWith(
+      expect.objectContaining({ name: "schedule_post" }),
+    );
+  });
+
+  it("rejects explicit product media on mirror when it cannot be resolved", async () => {
+    const gateway = gatewayMock([row]);
+    const service = new DefaultCalendarService(gateway, connectorsMock());
+    const future = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+
+    await expect(
+      service.mirrorToPlatforms("user_1", "sched_1", {
+        targets: [
+          {
+            platform: "linkedin_personal",
+            accountId: "acct_li",
+            scheduledAt: future,
+          },
+        ],
+        media: [
+          "http://localhost:8787/media/assets/media_abc/view?u=user_1&exp=2000000000&sig=abc",
+        ],
+      }),
+    ).rejects.toMatchObject({
+      code: "INVALID_CONTENT_UPDATE",
+      status: 422,
+    });
+    expect(gateway.callTool).not.toHaveBeenCalledWith(
+      expect.objectContaining({ name: "schedule_post" }),
+    );
+  });
+
+  it("prevalidates a create batch before the first schedule_post call", async () => {
+    const gateway = gatewayMock([]);
+    const service = new DefaultCalendarService(gateway, connectorsMock());
+    const future = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+
+    await expect(
+      service.createSchedules("user_1", {
+        targets: [
+          {
+            platform: "threads",
+            accountId: "acct_1",
+            scheduledAt: future,
+            caption: "Threads copy",
+          },
+          {
+            platform: "linkedin_personal",
+            accountId: "acct_missing",
+            scheduledAt: future,
+            caption: "LinkedIn copy",
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "ACCOUNT_REQUIRED", status: 422 });
+    expect(gateway.callTool).not.toHaveBeenCalledWith(
+      expect.objectContaining({ name: "schedule_post" }),
+    );
+  });
+
+  it("returns created schedule details from the create payload when list lags", async () => {
+    const createdRows: Array<Record<string, unknown>> = [];
+    const gateway: CalendarGateway = {
+      callTool: vi.fn().mockImplementation(async (input) => {
+        if (input.name === "get_scheduled_posts") {
+          return { ok: true, scheduled: [] };
+        }
+        if (input.name === "schedule_post") {
+          const created = {
+            id: "sched_lagged",
+            platform: "threads",
+            connectedAccountId: "acct_1",
+            publishAt: input.arguments.scheduledAt,
+            status: "scheduled",
+            contentText: input.arguments.text,
+            captionPreview: input.arguments.text,
+            mediaUrls:
+              (input.arguments.options as { mediaUrls?: string[] } | undefined)
+                ?.mediaUrls ?? [],
+          };
+          createdRows.push(created);
+          return { ok: true, scheduled: [created] };
+        }
+        throw new Error(`unexpected ${input.name}`);
+      }),
+    };
+    const service = new DefaultCalendarService(gateway, connectorsMock());
+    const future = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+
+    const result = await service.createSchedule("user_1", {
+      platform: "threads",
+      accountId: "acct_1",
+      scheduledAt: future,
+      caption: "Lagged list copy",
+    });
+
+    expect(result).toMatchObject({
+      scheduleId: "sched_lagged",
+      platform: "threads",
+      accountId: "acct_1",
+      caption: "Lagged list copy",
+      scheduledAt: future,
+    });
+    expect(createdRows).toHaveLength(1);
+  });
+
+  it("maps infrastructure MCP errors without leaking raw provider details", async () => {
+    const gateway: CalendarGateway = {
+      callTool: vi.fn().mockImplementation(async (input) => {
+        if (input.name === "get_scheduled_posts") {
+          return { ok: true, scheduled: [] };
+        }
+        if (input.name === "schedule_post") {
+          return {
+            ok: false,
+            code: "MCP_TOOL_ERROR",
+            message: "database password secret leaked by provider",
+            details: { stack: "secret stack", providerResponse: "raw response" },
+          };
+        }
+        throw new Error(`unexpected ${input.name}`);
+      }),
+    };
+    const service = new DefaultCalendarService(gateway, connectorsMock());
+    const future = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+
+    await expect(
+      service.createSchedule("user_1", {
+        platform: "threads",
+        accountId: "acct_1",
+        scheduledAt: future,
+        caption: "Copy",
+      }),
+    ).rejects.toMatchObject({
+      code: "SOCIALMCP_UNAVAILABLE",
+      status: 502,
+      details: undefined,
+    });
+  });
+
+  it("rejects blank create for past times, bad accounts, and Instagram without media", async () => {
+    const service = new DefaultCalendarService(gatewayMock([]), connectorsMock());
+    await expect(
+      service.createSchedule("user_1", {
+        platform: "threads",
+        accountId: "acct_1",
+        scheduledAt: "2020-01-01T00:00:00.000Z",
+        caption: "Too late",
+      }),
+    ).rejects.toMatchObject({ code: "SCHEDULE_TIME_MUST_BE_FUTURE", status: 422 });
+
+    await expect(
+      service.createSchedule("user_1", {
+        platform: "threads",
+        accountId: "acct_missing",
+        scheduledAt: new Date(Date.now() + 86_400_000).toISOString(),
+        caption: "Nope",
+      }),
+    ).rejects.toMatchObject({ code: "ACCOUNT_REQUIRED", status: 422 });
+
+    const withIg = new DefaultCalendarService(
+      gatewayMock([]),
+      {
+        list: vi.fn().mockResolvedValue({
+          connectors: [
+            {
+              platform: "instagram",
+              state: "connected",
+              accounts: [
+                {
+                  id: "acct_ig",
+                  username: "brandig",
+                  displayName: "Brand IG",
+                  avatarUrl: null,
+                  state: "connected",
+                },
+              ],
+            },
+          ],
+        }),
+        startConnect: vi.fn(),
+      },
+    );
+    await expect(
+      withIg.createSchedule("user_1", {
+        platform: "instagram",
+        accountId: "acct_ig",
+        scheduledAt: new Date(Date.now() + 86_400_000).toISOString(),
+        caption: "No media",
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_CONTENT_UPDATE", status: 422 });
+
+    await expect(
+      withIg.createSchedule("user_1", {
+        platform: "instagram",
+        accountId: "acct_ig",
+        scheduledAt: new Date(Date.now() + 86_400_000).toISOString(),
+        caption: "Too many",
+        media: Array.from(
+          { length: 11 },
+          (_, i) => `https://cdn.example/${i}.jpg`,
+        ),
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_CONTENT_UPDATE", status: 422 });
   });
 
   it("rejects mirror onto the source account or past times", async () => {
@@ -736,6 +1133,82 @@ describe("DefaultCalendarService", () => {
       userId: "user_1",
       name: "cancel_scheduled_post",
       arguments: { scheduledPostId: "sched_li_new", confirm: true },
+    });
+  });
+
+  it("maps VALIDATION_FAILED mirror errors to INVALID_CONTENT_UPDATE with message", async () => {
+    const gateway: CalendarGateway = {
+      callTool: vi.fn().mockImplementation(async (input) => {
+        if (input.name === "get_scheduled_posts") {
+          return { ok: true, scheduled: [row] };
+        }
+        if (input.name === "schedule_post") {
+          return {
+            ok: false,
+            code: "VALIDATION_FAILED",
+            message: "[threads] Threads media URLs must use secure HTTPS",
+          };
+        }
+        throw new Error(`unexpected ${input.name}`);
+      }),
+    };
+    const service = new DefaultCalendarService(gateway, connectorsMock());
+    const future = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+    await expect(
+      service.mirrorToPlatforms("user_1", "sched_1", {
+        targets: [
+          {
+            platform: "linkedin_personal",
+            accountId: "acct_li",
+            scheduledAt: future,
+          },
+        ],
+        caption: "Hello week",
+        media: ["https://cdn.example/a.jpg"],
+      }),
+    ).rejects.toMatchObject({
+      code: "INVALID_CONTENT_UPDATE",
+      details: expect.objectContaining({
+        message: "[threads] Threads media URLs must use secure HTTPS",
+      }),
+    });
+  });
+
+  it("forwards only https media to schedule_post when mirroring", async () => {
+    const gateway = gatewayMock([
+      {
+        ...row,
+        mediaUrls: [
+          "https://cdn.example/a.jpg",
+          "http://localhost:8787/media/assets/media_abc/view?u=user_1&sig=abc",
+        ],
+      },
+    ]);
+    const media = {
+      publishUrl: vi.fn(async () => "https://r2.example/signed/media_abc.jpg"),
+    };
+    const service = new DefaultCalendarService(gateway, connectorsMock(), media);
+    const future = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+    await service.mirrorToPlatforms("user_1", "sched_1", {
+      targets: [
+        {
+          platform: "linkedin_personal",
+          accountId: "acct_li",
+          scheduledAt: future,
+        },
+      ],
+    });
+    expect(gateway.callTool).toHaveBeenCalledWith({
+      userId: "user_1",
+      name: "schedule_post",
+      arguments: expect.objectContaining({
+        options: {
+          mediaUrls: [
+            "https://cdn.example/a.jpg",
+            "https://r2.example/signed/media_abc.jpg",
+          ],
+        },
+      }),
     });
   });
 });

@@ -42,6 +42,9 @@ function projectProfile(
     list.push(entry);
     sections[entry.category] = list;
   }
+  const platforms = Array.isArray(compiled.profile.primaryPlatforms)
+    ? compiled.profile.primaryPlatforms
+    : [];
   return {
     id: compiled.profile.id || null,
     businessName: compiled.profile.businessName,
@@ -49,6 +52,11 @@ function projectProfile(
     websiteUrl: compiled.profile.websiteUrl,
     targetAudience: compiled.profile.targetAudience,
     industry: compiled.profile.industry,
+    personaRole: compiled.profile.personaRole,
+    personaRoleOther: compiled.profile.personaRoleOther,
+    primaryPlatforms: platforms,
+    attributionSource: compiled.profile.attributionSource,
+    attributionOther: compiled.profile.attributionOther,
     setupStatus: compiled.profile.setupStatus,
     setupStep: compiled.profile.setupStep,
     competitorsSkipped: compiled.profile.competitorsSkipped,
@@ -118,6 +126,16 @@ export function registerProfileRoutes(
     if (!body || typeof body !== "object") {
       return c.json({ error: "INVALID_INPUT" }, 422);
     }
+    if ("skills" in body && !Array.isArray(body.skills)) {
+      return c.json({ error: "INVALID_INPUT" }, 422);
+    }
+    if (
+      "setupStep" in body &&
+      typeof body.setupStep !== "string" &&
+      body.setupStep !== null
+    ) {
+      return c.json({ error: "INVALID_INPUT" }, 422);
+    }
     try {
       await patchBusinessProfile(db, user.id, {
         businessName:
@@ -130,12 +148,32 @@ export function registerProfileRoutes(
         targetAudience:
           body.targetAudience === undefined ? undefined : body.targetAudience,
         industry: body.industry === undefined ? undefined : body.industry,
+        personaRole:
+          body.personaRole === undefined ? undefined : body.personaRole,
+        personaRoleOther:
+          body.personaRoleOther === undefined
+            ? undefined
+            : body.personaRoleOther,
+        primaryPlatforms:
+          body.primaryPlatforms === undefined
+            ? undefined
+            : body.primaryPlatforms,
+        attributionSource:
+          body.attributionSource === undefined
+            ? undefined
+            : body.attributionSource,
+        attributionOther:
+          body.attributionOther === undefined
+            ? undefined
+            : body.attributionOther,
+        skills: Array.isArray(body.skills) ? body.skills : undefined,
         competitorsSkipped:
           typeof body.competitorsSkipped === "boolean"
             ? body.competitorsSkipped
             : undefined,
         redoSetup: body.redoSetup === true,
         confirmReset: body.confirmReset === true,
+        completeSetup: body.completeSetup === true,
         setupStep:
           typeof body.setupStep === "string" || body.setupStep === null
             ? body.setupStep

@@ -50,6 +50,25 @@ vi.mock("./schedule-detail-modal", () => ({
     ) : null,
 }));
 
+vi.mock("./create-schedule-modal", () => ({
+  CreateScheduleModal: ({
+    open,
+    initialScheduledAt,
+  }: {
+    open: boolean;
+    initialScheduledAt: string | null;
+  }) =>
+    open ? (
+      <div
+        role="dialog"
+        aria-label="Create schedule"
+        data-scheduled-at={initialScheduledAt ?? ""}
+      >
+        Create board
+      </div>
+    ) : null,
+}));
+
 const pushMock = vi.fn();
 let searchParams = new URLSearchParams();
 
@@ -108,6 +127,24 @@ describe("ScheduledPostsList", () => {
       "href",
       "/app/calendar",
     );
+  });
+
+  it("opens the create schedule board from Schedule post", async () => {
+    const user = userEvent.setup();
+    render(<ScheduledPostsList />);
+    await screen.findByText("Hello list");
+
+    expect(
+      screen.queryByRole("dialog", { name: "Create schedule" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Schedule post" }));
+
+    const dialog = await screen.findByRole("dialog", {
+      name: "Create schedule",
+    });
+    expect(dialog).toBeInTheDocument();
+    expect(dialog.getAttribute("data-scheduled-at")).toBeTruthy();
   });
 
   it("shows empty CTAs when there are no accounts (AC-11)", async () => {

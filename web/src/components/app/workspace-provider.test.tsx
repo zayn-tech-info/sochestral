@@ -5,6 +5,8 @@ import {
   ApiError,
   apiRequest,
   apiStreamTurn,
+  getBusinessProfile,
+  type BusinessProfileResponse,
   type ConversationDetail,
   type TurnResponse,
 } from "@/lib/product-api";
@@ -23,8 +25,34 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/product-api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/product-api")>();
-  return { ...actual, apiRequest: vi.fn(), apiStreamTurn: vi.fn() };
+  return {
+    ...actual,
+    apiRequest: vi.fn(),
+    apiStreamTurn: vi.fn(),
+    getBusinessProfile: vi.fn(),
+  };
 });
+
+const completeProfile: BusinessProfileResponse = {
+  id: "bprof_1",
+  businessName: "Acme",
+  businessDescription: "Tools",
+  websiteUrl: null,
+  targetAudience: null,
+  industry: null,
+  personaRole: "business_owner",
+  personaRoleOther: null,
+  primaryPlatforms: ["threads"],
+  attributionSource: "friend",
+  attributionOther: null,
+  setupStatus: "complete",
+  setupStep: "done",
+  competitorsSkipped: false,
+  compiledNote: "# Business profile",
+  minimumComplete: true,
+  sections: {},
+  updatedAt: "2026-08-11T00:00:00.000Z",
+};
 
 const conversation = {
   id: "conv_1",
@@ -131,6 +159,8 @@ beforeEach(() => {
   navigation.replace.mockReset();
   vi.mocked(apiRequest).mockReset();
   vi.mocked(apiStreamTurn).mockReset();
+  vi.mocked(getBusinessProfile).mockReset();
+  vi.mocked(getBusinessProfile).mockResolvedValue(completeProfile);
   vi.spyOn(crypto, "randomUUID").mockReturnValue(
     "10000000-0000-4000-8000-000000000001",
   );
@@ -162,6 +192,24 @@ describe("WorkspaceProvider", () => {
       expect(navigation.replace).toHaveBeenCalledWith(
         "/login?returnTo=%2Fapp%2Fchat%2Fconv_1",
       ),
+    );
+  });
+
+  it("redirects incomplete profiles to onboarding (AC-4)", async () => {
+    vi.mocked(apiRequest).mockImplementation(async (path) => {
+      if (path === "/auth/me") return { id: "user_1", email: "person@example.com" };
+      return { conversations: [], nextCursor: null };
+    });
+    vi.mocked(getBusinessProfile).mockResolvedValue({
+      ...completeProfile,
+      setupStatus: "in_progress",
+      minimumComplete: false,
+    });
+
+    renderProvider();
+
+    await waitFor(() =>
+      expect(navigation.replace).toHaveBeenCalledWith("/app/onboarding"),
     );
   });
 

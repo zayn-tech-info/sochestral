@@ -5,6 +5,7 @@ import {
   createProfileEntry,
   getCompiledProfile,
   listProfileEntries,
+  patchBusinessProfile,
   provisionUser,
   requireTestDatabaseUrl,
   type Database,
@@ -157,10 +158,18 @@ describe("setup agent trusted tools", () => {
       "update_business_identity",
       {
         businessName: "Harbor Tools",
-        businessDescription: "Hand tools for makers",
+        businessDescription: Array.from({ length: 32 }, (_, i) => `word${i}`).join(
+          " ",
+        ),
       },
       null,
     );
+    await patchBusinessProfile(database.db, userId, {
+      personaRole: "business_owner",
+      primaryPlatforms: ["threads"],
+      attributionSource: "friend",
+      skills: ["Content writing"],
+    });
     const research = await executeSetupTool(
       database.db,
       userId,

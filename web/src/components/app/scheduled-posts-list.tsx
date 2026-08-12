@@ -25,6 +25,7 @@ import {
 } from "@/lib/calendar-week";
 import { userFacingError } from "@/lib/user-facing-error";
 import { AppShell } from "./app-shell";
+import { CreateScheduleModal } from "./create-schedule-modal";
 import { PlatformAccountPicker } from "./platform-account-picker";
 import { ScheduleDetailModal } from "./schedule-detail-modal";
 
@@ -77,6 +78,15 @@ export function ScheduledPostsList() {
   const [hasNewer, setHasNewer] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createScheduledAt, setCreateScheduledAt] = useState<string | null>(
+    null,
+  );
+
+  function openCreateBoard() {
+    setCreateScheduledAt(new Date(Date.now() + 60 * 60 * 1000).toISOString());
+    setCreateOpen(true);
+  }
 
   useEffect(() => {
     if (status === "Scheduled") {
@@ -150,9 +160,18 @@ export function ScheduledPostsList() {
           <Link href="/app/calendar" className="cal-link-btn">
             Week view
           </Link>
-          <p className="cal-timezone" title="Active display timezone">
-            {timeZone}
-          </p>
+          <div className="sched-header-end">
+            <p className="cal-timezone" title="Active display timezone">
+              {timeZone}
+            </p>
+            <button
+              type="button"
+              className="cal-btn-primary"
+              onClick={openCreateBoard}
+            >
+              Schedule post
+            </button>
+          </div>
         </header>
 
         <div className="sched-toolbar" aria-label="List filters">
@@ -325,6 +344,24 @@ export function ScheduledPostsList() {
         }}
         onChanged={() => {
           void load();
+        }}
+      />
+      <CreateScheduleModal
+        open={createOpen}
+        accounts={accounts}
+        initialScheduledAt={createScheduledAt}
+        onClose={() => {
+          setCreateOpen(false);
+          setCreateScheduledAt(null);
+        }}
+        onCreated={(scheduleId) => {
+          setCreateOpen(false);
+          setCreateScheduledAt(null);
+          void load();
+          router.push(
+            `${pathname || "/app/scheduled"}?schedule=${encodeURIComponent(scheduleId)}`,
+            { scroll: false },
+          );
         }}
       />
     </AppShell>

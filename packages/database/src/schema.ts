@@ -527,6 +527,14 @@ export const businessProfiles = pgTable(
     websiteUrl: text("website_url"),
     targetAudience: text("target_audience"),
     industry: text("industry"),
+    personaRole: text("persona_role"),
+    personaRoleOther: text("persona_role_other"),
+    primaryPlatforms: jsonb("primary_platforms")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    attributionSource: text("attribution_source"),
+    attributionOther: text("attribution_other"),
     setupStatus: text("setup_status").notNull().default("not_started"),
     setupStep: text("setup_step"),
     competitorsSkipped: boolean("competitors_skipped").notNull().default(false),

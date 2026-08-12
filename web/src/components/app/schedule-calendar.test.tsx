@@ -10,6 +10,11 @@ import {
   type CalendarAccount,
   type CalendarSlot,
 } from "@/lib/product-api";
+import {
+  instantAtDayMinutes,
+  resolveTimeZone,
+  weekRange,
+} from "@/lib/calendar-week";
 import { ScheduleCalendar } from "./schedule-calendar";
 import { ToastProvider } from "./toast-provider";
 
@@ -45,14 +50,39 @@ vi.mock("./app-shell", () => ({
 vi.mock("./schedule-detail-modal", () => ({
   ScheduleDetailModal: ({
     scheduleId,
+    relatedScheduleIds,
     open,
   }: {
     scheduleId: string | null;
+    relatedScheduleIds?: string[];
     open: boolean;
   }) =>
     open && scheduleId ? (
-      <div role="dialog" aria-label={`Schedule ${scheduleId}`}>
+      <div
+        role="dialog"
+        aria-label={`Schedule ${scheduleId}`}
+        data-related-schedule-ids={(relatedScheduleIds ?? []).join(",")}
+      >
         Modal {scheduleId}
+      </div>
+    ) : null,
+}));
+
+vi.mock("./create-schedule-modal", () => ({
+  CreateScheduleModal: ({
+    open,
+    initialScheduledAt,
+  }: {
+    open: boolean;
+    initialScheduledAt: string | null;
+  }) =>
+    open ? (
+      <div
+        role="dialog"
+        aria-label="Create schedule"
+        data-scheduled-at={initialScheduledAt ?? ""}
+      >
+        Create draft {initialScheduledAt}
       </div>
     ) : null,
 }));
@@ -236,6 +266,7 @@ describe("ScheduleCalendar", () => {
 
   it("merges same-minute multi-platform slots into one card with side-by-side icons", async () => {
     const at = fixtureSlot().scheduledAt;
+    searchParams = new URLSearchParams("schedule=sched_threads");
     vi.mocked(getCalendarSlots).mockResolvedValue({
       slots: [
         fixtureSlot({
@@ -248,6 +279,14 @@ describe("ScheduleCalendar", () => {
         }),
         fixtureSlot({
           scheduleId: "sched_li",
+          platform: "linkedin_personal",
+          accountId: "acct_2",
+          accountLabel: "Abdulbasit Yakubu",
+          scheduledAt: at,
+          captionPreview: "Shared minute",
+        }),
+        fixtureSlot({
+          scheduleId: "sched_li_duplicate",
           platform: "linkedin_personal",
           accountId: "acct_2",
           accountLabel: "Abdulbasit Yakubu",
@@ -269,6 +308,12 @@ describe("ScheduleCalendar", () => {
     expect(
       screen.getByRole("button", { name: "Open LinkedIn post" }),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("dialog", { name: "Schedule sched_threads" }),
+    ).toHaveAttribute(
+      "data-related-schedule-ids",
+      "sched_threads,sched_li",
+    );
   });
 
   it("drag-drop persists a new timed schedule and shows the drop guide", async () => {
@@ -424,6 +469,99 @@ describe("ScheduleCalendar", () => {
       await screen.findByRole("dialog", { name: "Schedule sched_1" }),
     ).toBeInTheDocument();
     expect(screen.queryByText("Back to calendar")).not.toBeInTheDocument();
+  });
+
+  it("shows a create guide and plus on empty canvas hover", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-10T15:00:00.000Z")); // Monday
+
+    vi.mocked(getCalendarSlots).mockResolvedValue({
+      slots: [],
+      timeZone: "UTC",
+    });
+
+    renderCalendar(<ScheduleCalendar />);
+    await screen.findByRole("gridcell", { name: /Tue/i });
+
+    const days = Array.from(document.querySelectorAll(".cal-day"));
+    const tuesday = days[1] as HTMLElement;
+    const canvas = tuesday.querySelector(".cal-day-canvas") as HTMLElement;
+    Object.defineProperty(canvas, "getBoundingClientRect", {
+      value: () => ({
+        top: 0,
+        left: 0,
+        bottom: 1400,
+        right: 200,
+        width: 200,
+        height: 1400,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }),
+    });
+
+    const move = createEvent.pointerMove(canvas, { clientY: 56 * 17 });
+    Object.defineProperty(move, "clientY", { value: 56 * 17 });
+    fireEvent(canvas, move);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("cal-create-guide")).toBeInTheDocument();
+    });
+    expect(
+      screen.getByRole("button", { name: /Add schedule at/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("cal-create-guide-time").textContent).toMatch(
+      /5:00 PM/,
+    );
+
+    vi.useRealTimers();
+  });
+
+  it("opens create modal from empty canvas click with snapped time", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-10T15:00:00.000Z"));
+
+    vi.mocked(getCalendarSlots).mockResolvedValue({
+      slots: [],
+      timeZone: "UTC",
+    });
+
+    renderCalendar(<ScheduleCalendar />);
+    await screen.findByRole("gridcell", { name: /Tue/i });
+
+    const days = Array.from(document.querySelectorAll(".cal-day"));
+    const tuesday = days[1] as HTMLElement;
+    const canvas = tuesday.querySelector(".cal-day-canvas") as HTMLElement;
+    Object.defineProperty(canvas, "getBoundingClientRect", {
+      value: () => ({
+        top: 0,
+        left: 0,
+        bottom: 1400,
+        right: 200,
+        width: 200,
+        height: 1400,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }),
+    });
+
+    const click = createEvent.click(canvas, { clientY: 56 * 17 });
+    Object.defineProperty(click, "clientY", { value: 56 * 17 });
+    fireEvent(canvas, click);
+
+    const dialog = await screen.findByRole("dialog", {
+      name: "Create schedule",
+    });
+    const tz = resolveTimeZone();
+    const expected = instantAtDayMinutes(
+      weekRange(new Date("2026-08-10T15:00:00.000Z"), tz).days[1]!.key,
+      17 * 60,
+      tz,
+    );
+    expect(dialog.getAttribute("data-scheduled-at")).toBe(expected);
+
+    vi.useRealTimers();
   });
 
   it("sets ?schedule= when a slot is opened instead of navigating to a detail page", async () => {
