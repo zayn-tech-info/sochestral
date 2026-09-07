@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { apiRequest, type ConversationDetail } from "@/lib/product-api";
+import { apiRequest, createImageJob, getImageJob, listBrandAssets, type ConversationDetail } from "@/lib/product-api";
 import { ChatWorkspace } from "./chat-workspace";
 import { ToastProvider } from "./toast-provider";
 
@@ -18,7 +18,13 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/product-api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/product-api")>();
-  return { ...actual, apiRequest: vi.fn() };
+  return {
+    ...actual,
+    apiRequest: vi.fn(),
+    listBrandAssets: vi.fn(),
+    createImageJob: vi.fn(),
+    getImageJob: vi.fn(),
+  };
 });
 
 vi.mock("./app-shell", () => ({
@@ -108,6 +114,22 @@ beforeEach(() => {
     value: vi.fn(),
   });
   vi.mocked(apiRequest).mockReset();
+  vi.mocked(listBrandAssets).mockReset();
+  vi.mocked(listBrandAssets).mockResolvedValue({
+    items: [
+      {
+        id: "ba_logo",
+        kind: "logo",
+        name: "Mark",
+        mediaAssetId: "media_logo",
+        colorValue: null,
+        noteText: null,
+        sortOrder: 0,
+        createdAt: "2026-08-01T00:00:00.000Z",
+        updatedAt: "2026-08-01T00:00:00.000Z",
+      },
+    ],
+  });
   vi.mocked(apiRequest).mockImplementation((path) => {
     if (path === "/publishing/preferences") {
       return Promise.resolve({
@@ -143,6 +165,54 @@ beforeEach(() => {
     }
     return Promise.resolve({});
   });
+  vi.mocked(createImageJob).mockReset();
+  vi.mocked(createImageJob).mockResolvedValue({
+    job: {
+      id: "job_edit_1",
+      kind: "prompt_edit",
+      status: "pending_confirm",
+      prompt: "make it darker",
+      sizePreset: "portrait_4_5",
+      width: 1080,
+      height: 1350,
+      sourceMediaAssetId: "media_owned1",
+      resultMediaAssetId: null,
+      estimatedCostCents: 2,
+      creditsCharged: 2,
+      errorCode: null,
+      errorMessage: null,
+      conversationId: null,
+      createdAt: "2026-08-12T00:00:00.000Z",
+      startedAt: null,
+      completedAt: null,
+    },
+    remainingCredits: 20,
+    monthlyBudget: 100,
+  });
+  vi.mocked(getImageJob).mockReset();
+  vi.mocked(getImageJob).mockResolvedValue({
+    job: {
+      id: "job_edit_1",
+      kind: "prompt_edit",
+      status: "pending_confirm",
+      prompt: "make it darker",
+      sizePreset: "portrait_4_5",
+      width: 1080,
+      height: 1350,
+      sourceMediaAssetId: "media_owned1",
+      resultMediaAssetId: null,
+      estimatedCostCents: 2,
+      creditsCharged: 2,
+      errorCode: null,
+      errorMessage: null,
+      conversationId: null,
+      createdAt: "2026-08-12T00:00:00.000Z",
+      startedAt: null,
+      completedAt: null,
+    },
+    inputs: [],
+    resultPreviewUrl: null,
+  });
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 200 })));
   mocks.workspace = {
     details: {},
@@ -152,6 +222,7 @@ beforeEach(() => {
     pendingLaunch: null,
     launchOptimistic: null,
     liveStep: null,
+    liveToolName: null,
     startNewChat: vi.fn(),
     takePendingLaunch: vi.fn(() => null),
     clearLaunchOptimistic: vi.fn(),
@@ -177,6 +248,22 @@ describe("ChatWorkspace", () => {
       expect.any(Function),
     );
     expect(mocks.replace).toHaveBeenCalledWith("/app/chat/conv_1");
+  });
+
+  it("opens a Brand assets command when the user types /", async () => {
+    const user = userEvent.setup();
+    renderChat(<ChatWorkspace conversationId={null} />);
+
+    await user.type(screen.getByLabelText("Message Sochestral"), "/");
+    expect(
+      screen.getByRole("option", { name: /brand assets/i }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("option", { name: /brand assets/i }));
+    expect(
+      await screen.findByRole("dialog", { name: "Brand assets" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Mark")).toBeInTheDocument();
   });
 
   it("starts a pending launch immediately on /app/chat/new", async () => {
@@ -264,6 +351,36 @@ describe("ChatWorkspace", () => {
       ["media_owned1"],
       expect.any(Function),
     );
+    expect(screen.queryByLabelText("Selected images")).toBeNull();
+  });
+
+  it("clears the composer attachment while the turn is still in progress", async () => {
+    const user = userEvent.setup();
+    mocks.workspace.details = { conv_1: detail() };
+    mocks.workspace.sendMessage = vi.fn(
+      () => new Promise<string | null>(() => undefined),
+    );
+    const { container } = renderChat(<ChatWorkspace conversationId="conv_1" />);
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    await user.upload(input, new File([new Uint8Array([1, 2, 3, 4])], "post.png", {
+      type: "image/png",
+    }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Reframe" })).toBeInTheDocument());
+    await user.type(screen.getByLabelText("Message Sochestral"), "Make the character female{Enter}");
+
+    expect(mocks.workspace.sendMessage).toHaveBeenCalledWith(
+      "conv_1",
+      "Make the character female",
+      undefined,
+      ["media_owned1"],
+      expect.any(Function),
+    );
+    expect(screen.queryByLabelText("Selected images")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reframe" })).toBeNull();
+    expect(
+      screen.getByRole("status", { name: "Sochestral is working" }),
+    ).toBeInTheDocument();
   });
 
   it("submits a starter prompt as a normal message", async () => {
@@ -373,7 +490,7 @@ describe("ChatWorkspace", () => {
     };
     renderChat(<ChatWorkspace conversationId="conv_1" />);
 
-    expect(screen.getByLabelText("Preparing a draft")).toBeInTheDocument();
+    expect(screen.getByLabelText("Drafting")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Thinking,/i })).toBeNull();
     expect(
       screen.queryByText("Reasoning unavailable for this model."),
@@ -584,7 +701,8 @@ describe("ChatWorkspace", () => {
     expect(
       screen.getByRole("status", { name: "Sochestral is working" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Reading your message")).toBeInTheDocument();
+    expect(screen.getByText("Thinking")).toBeInTheDocument();
+    expect(screen.getByTestId("thinking-orb")).toBeInTheDocument();
     expect(screen.getByLabelText("Message Sochestral")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Attach images" })).toBeDisabled();
@@ -613,6 +731,35 @@ describe("ChatWorkspace", () => {
     );
   });
 
+  it("names the live action from the tool the agent started", async () => {
+    const user = userEvent.setup();
+    mocks.workspace.details = { conv_1: detail() };
+    mocks.workspace.sendMessage = vi.fn(
+      async (_id, _message, _retry, _media, onStreamEvent) => {
+        onStreamEvent?.({
+          type: "tool_started",
+          toolName: "propose_image_job",
+        });
+        return new Promise<string | null>(() => undefined);
+      },
+    );
+    renderChat(<ChatWorkspace conversationId="conv_1" />);
+
+    await user.type(
+      screen.getByLabelText("Message Sochestral"),
+      "Make a product photo{Enter}",
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Preparing an image")).toBeInTheDocument();
+    });
+    expect(
+      screen.getByRole("status", { name: "Sochestral is working" }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("thinking-orb")).toBeInTheDocument();
+    expect(screen.queryByText("Reading your message")).toBeNull();
+  });
+
   it("requires confirmation before deleting an idle conversation (AC 1)", async () => {
     const user = userEvent.setup();
     mocks.workspace.details = { conv_1: detail() };
@@ -626,5 +773,63 @@ describe("ChatWorkspace", () => {
 
     expect(mocks.workspace.deleteConversation).toHaveBeenCalledWith("conv_1");
     expect(mocks.push).toHaveBeenCalledWith("/app/workspace");
+  });
+
+  it("keeps image actions beside the thumbnail and edits from the chat input", async () => {
+    const user = userEvent.setup();
+    const { container } = renderChat(<ChatWorkspace conversationId={null} />);
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    await user.upload(input, new File([new Uint8Array([1, 2, 3, 4])], "post.png", {
+      type: "image/png",
+    }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Adjust" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Reframe" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Vary" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Adjust" }));
+    const composer = screen.getByLabelText("Message Sochestral");
+    expect(composer).toHaveAttribute("placeholder", "Describe the edit");
+    expect(screen.getByText("Type the change below, then send.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Reframe" })).toBeNull();
+
+    await user.type(composer, "make it darker");
+    expect(composer).toHaveValue("make it darker");
+    expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() =>
+      expect(createImageJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: "prompt_edit",
+          prompt: "make it darker",
+          sourceMediaAssetId: "media_owned1",
+        }),
+      ),
+    );
+    expect(mocks.workspace.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("shows a setup status when Reframe is clicked", async () => {
+    const user = userEvent.setup();
+    vi.mocked(createImageJob).mockImplementation(
+      () => new Promise(() => undefined),
+    );
+    const { container } = renderChat(<ChatWorkspace conversationId={null} />);
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    await user.upload(input, new File([new Uint8Array([1, 2, 3, 4])], "post.png", {
+      type: "image/png",
+    }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Reframe" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Reframe" }));
+
+    expect(screen.getByText("Setting up a reframe…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reframe" })).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
   });
 });

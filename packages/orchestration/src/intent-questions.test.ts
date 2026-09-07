@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  autonomyBriefFromAnswers,
+  buildAutonomyBriefQuestions,
   buildIntentQuestions,
   resolveIntentFromAnswers,
 } from "./intent-questions.js";
@@ -112,5 +114,41 @@ describe("resolveIntentFromAnswers", () => {
         },
       ]),
     ).toMatchObject({ kind: "schedule", autonomous: true });
+  });
+});
+
+describe("buildAutonomyBriefQuestions", () => {
+  it("asks only for missing type, direction, and platform (AC-3)", () => {
+    const questions = buildAutonomyBriefQuestions({
+      needsPlatform: true,
+      hasContentType: false,
+      hasDirection: false,
+    });
+    expect(questions.map((question) => question.id)).toEqual([
+      "content_type",
+      "direction",
+      "platform",
+    ]);
+    expect(
+      buildAutonomyBriefQuestions({
+        needsPlatform: false,
+        hasContentType: true,
+        hasDirection: true,
+      }),
+    ).toEqual([]);
+  });
+
+  it("maps brief answers for the do it all path", () => {
+    expect(
+      autonomyBriefFromAnswers([
+        { questionId: "content_type", optionId: "founder" },
+        { questionId: "direction", optionId: "customers" },
+        { questionId: "platform", optionId: "threads" },
+      ]),
+    ).toEqual({
+      contentType: "founder",
+      direction: "Win more customers",
+      platforms: ["threads"],
+    });
   });
 });

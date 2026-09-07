@@ -2,6 +2,7 @@
 
 **Date**: 2026-08-10
 **Status**: In Progress
+**Amended**: 2026-08-14 — occupancy brief and heuristic times stay here. Same turn cap 14 is no longer the volume path. Multi post runs use the campaign job in [0018](../0018-model-campaign-handoff/index.md).
 
 ## Summary
 

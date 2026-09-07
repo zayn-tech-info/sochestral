@@ -4,6 +4,7 @@ export type OrchestrationConfig = {
   theseanIntentModel: string;
   theseanVisionModel: string;
   theseanSetupModel: string;
+  theseanVoiceModel: string;
   theseanVisionEnabled: boolean;
   theseanThinkingEnabled: boolean;
   theseanThinkingBudgetTokens: number;
@@ -61,13 +62,13 @@ export function loadOrchestrationConfig(
     theseanModel:
       env.THESEAN_MODEL?.trim() || "ship-like/claude-sonnet-5",
     theseanIntentModel:
-      env.THESEAN_INTENT_MODEL?.trim() ||
-      env.THESEAN_MODEL?.trim() ||
-      "ship-like/claude-sonnet-5",
+      env.THESEAN_INTENT_MODEL?.trim() || "ship-like/gpt-5.6-luna",
     theseanVisionModel:
       env.THESEAN_VISION_MODEL?.trim() || "ship-like/gpt-5.6-luna",
     theseanSetupModel:
       env.THESEAN_SETUP_MODEL?.trim() || "ship-like/claude-opus-5",
+    theseanVoiceModel:
+      env.THESEAN_VOICE_MODEL?.trim() || "ship-like/claude-opus-5",
     theseanVisionEnabled: isTheseanVisionEnabled(env),
     theseanThinkingEnabled: env.THESEAN_THINKING_ENABLED === "true",
     theseanThinkingBudgetTokens: positiveInteger(
@@ -78,7 +79,7 @@ export function loadOrchestrationConfig(
     // Chat tool rounds often need longer than SocialMCP calls.
     theseanTimeoutMs: positiveInteger(
       env.THESEAN_TIMEOUT_MS,
-      60_000,
+      90_000,
       "THESEAN_TIMEOUT_MS",
     ),
     setupAgentEnabled: isSetupAgentEnabled(env),
@@ -89,12 +90,12 @@ export function loadOrchestrationConfig(
     socialMcpUrl: required(env.SOCIALMCP_MCP_URL, "SOCIALMCP_MCP_URL"),
     contextTokenLimit: positiveInteger(
       env.ORCHESTRATION_CONTEXT_TOKEN_LIMIT,
-      6000,
+      12_000,
       "ORCHESTRATION_CONTEXT_TOKEN_LIMIT",
     ),
     outputTokenLimit: positiveInteger(
       env.ORCHESTRATION_OUTPUT_TOKEN_LIMIT,
-      1500,
+      4096,
       "ORCHESTRATION_OUTPUT_TOKEN_LIMIT",
     ),
     maxToolSteps: positiveInteger(

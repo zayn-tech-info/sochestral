@@ -198,10 +198,14 @@ export class TheseanOpenAIModelProvider implements ModelProvider {
         const controller = new AbortController();
         const deadline = setTimeout(() => controller.abort(), this.timeoutMs);
         try {
+          // GPT-5.6 Luna rejects Thesean's injected default (`minimal` / omitted).
+          // Chat Completions wants a luna-valid effort: none | low | medium | high | xhigh | max.
+          const reasoningEffort = input.thinking?.enabled === true ? "low" : "none";
           const body = {
             model: input.model,
             messages: toOpenAIChatMessages(input.system, input.messages),
             max_completion_tokens: input.maxTokens,
+            reasoning_effort: reasoningEffort,
             stream: false,
             ...(input.tools.length > 0
               ? {
@@ -220,6 +224,10 @@ export class TheseanOpenAIModelProvider implements ModelProvider {
             signal: controller.signal,
           });
           if (!response.ok) {
+            const errBody = await response.text().catch(() => "");
+            // #region agent log
+            fetch('http://127.0.0.1:7380/ingest/bba007c1-d719-434b-a717-ab19f91562f7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ebe5c0'},body:JSON.stringify({sessionId:'ebe5c0',runId:'pre-fix',hypothesisId:'F',location:'openai-model.ts:complete',message:'luna http error',data:{attempt,model:input.model,status:response.status,body:errBody.slice(0,300),toolCount:input.tools.length,maxTokens:input.maxTokens},timestamp:Date.now()})}).catch(()=>{});
+            // #endregion
             const err = new Error(`Thesean OpenAI request failed (${response.status})`) as Error & {
               status?: number;
               headers?: Headers;
@@ -231,6 +239,9 @@ export class TheseanOpenAIModelProvider implements ModelProvider {
           const payload = (await response.json()) as OpenAIChatResponse;
           const message = payload.choices?.[0]?.message;
           const content = message?.content?.trim() ? message.content : null;
+          // #region agent log
+          fetch('http://127.0.0.1:7380/ingest/bba007c1-d719-434b-a717-ab19f91562f7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ebe5c0'},body:JSON.stringify({sessionId:'ebe5c0',runId:'post-fix',hypothesisId:'F',location:'openai-model.ts:complete',message:'luna ok',data:{attempt,model:input.model,reasoningEffort,toolCallCount:message?.tool_calls?.length??0,finishReason:payload.choices?.[0]?.finish_reason??null,maxTokens:input.maxTokens},timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
           if (content && input.stream?.onTextDelta) {
             input.stream.onTextDelta(content);
           }
@@ -247,6 +258,9 @@ export class TheseanOpenAIModelProvider implements ModelProvider {
           clearTimeout(deadline);
         }
       } catch (error) {
+        // #region agent log
+        fetch('http://127.0.0.1:7380/ingest/bba007c1-d719-434b-a717-ab19f91562f7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ebe5c0'},body:JSON.stringify({sessionId:'ebe5c0',runId:'pre-fix',hypothesisId:'F',location:'openai-model.ts:complete',message:'luna request failed',data:{attempt,model:input.model,status:typeof error==='object'&&error&&'status' in error?(error as {status:unknown}).status:null,name:error instanceof Error?error.name:null,msg:error instanceof Error?error.message.slice(0,80):null,aborted:typeof error==='object'&&error&&'name' in error&&(error as {name:string}).name==='AbortError'},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         if (attempt === 2 || !isTransientError(error)) {
           throw new OrchestrationError(
             "MODEL_UNAVAILABLE",

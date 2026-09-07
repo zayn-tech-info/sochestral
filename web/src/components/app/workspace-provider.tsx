@@ -16,6 +16,7 @@ import {
   apiRequest,
   apiStreamTurn,
   getBusinessProfile,
+  STREAM_TOOL_LABELS,
   type Conversation,
   type ConversationDetail,
   type IntentAnswer,
@@ -58,6 +59,7 @@ type WorkspaceValue = {
   pendingLaunch: PendingLaunch | null;
   launchOptimistic: PendingLaunch | null;
   liveStep: StreamStep | null;
+  liveToolName: string | null;
   startNewChat: (launch: PendingLaunch) => void;
   takePendingLaunch: () => PendingLaunch | null;
   clearLaunchOptimistic: () => void;
@@ -103,6 +105,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [launchOptimistic, setLaunchOptimistic] =
     useState<PendingLaunch | null>(null);
   const [liveStep, setLiveStep] = useState<StreamStep | null>(null);
+  const [liveToolName, setLiveToolName] = useState<string | null>(null);
   const pendingLaunchRef = useRef<PendingLaunch | null>(null);
   const launchStartedRef = useRef(false);
   const cursorRef = useRef<string | null>(null);
@@ -334,6 +337,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setErrors((current) => ({ ...current, [key]: null }));
       setRetries((current) => ({ ...current, [key]: null }));
       setLiveStep("understanding");
+      setLiveToolName(null);
 
       try {
         const effectiveMediaAssetIds = retry?.mediaAssetIds ?? mediaAssetIds;
@@ -353,6 +357,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           (event) => {
             if (event.type === "step_started" && event.step) {
               setLiveStep(event.step);
+            }
+            if (
+              event.type === "tool_started" &&
+              event.toolName &&
+              STREAM_TOOL_LABELS[event.toolName]
+            ) {
+              setLiveToolName(event.toolName);
             }
             onStreamEvent?.(event);
           },
@@ -451,6 +462,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       } finally {
         setPending((current) => ({ ...current, [key]: false }));
         setLiveStep(null);
+        setLiveToolName(null);
       }
     },
     [refreshConversations, toast, waitForIdleConversation],
@@ -496,6 +508,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pendingLaunch,
       launchOptimistic,
       liveStep,
+      liveToolName,
       startNewChat,
       takePendingLaunch,
       clearLaunchOptimistic,
@@ -517,6 +530,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pendingLaunch,
       launchOptimistic,
       liveStep,
+      liveToolName,
       startNewChat,
       takePendingLaunch,
       clearLaunchOptimistic,

@@ -92,6 +92,48 @@
       "when": 1786470000000,
       "tag": "0012_onboarding_wizard",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1786556969920,
+      "tag": "0013_curvy_miracleman",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1786564086949,
+      "tag": "0014_wise_wolfsbane",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1786564333239,
+      "tag": "0015_wonderful_sunspot",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1786569000000,
+      "tag": "0016_image_job_variants",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1786632000000,
+      "tag": "0017_content_planning",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786644000000,
+      "tag": "0018_campaign_handoff",
+      "breakpoints": true
     }
   ]
 }

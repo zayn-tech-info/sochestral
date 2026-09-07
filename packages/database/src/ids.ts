@@ -26,6 +26,18 @@ export function createMediaAssetId(): string {
   return `media_${nanoid(ID_LENGTH)}`;
 }
 
+export function createBrandAssetId(): string {
+  return `brand_${nanoid(ID_LENGTH)}`;
+}
+
+export function createImageJobId(): string {
+  return `imgjob_${nanoid(ID_LENGTH)}`;
+}
+
+export function createImageJobInputId(): string {
+  return `imgin_${nanoid(ID_LENGTH)}`;
+}
+
 export function createConversationId(): string {
   return `conv_${nanoid(ID_LENGTH)}`;
 }
@@ -48,4 +60,12 @@ export function createBusinessProfileId(): string {
 
 export function createProfileEntryId(): string {
   return `pentry_${nanoid(ID_LENGTH)}`;
+}
+
+export function createContentPlanId(): string {
+  return `cplan_${nanoid(ID_LENGTH)}`;
+}
+
+export function createCampaignJobId(): string {
+  return `camp_${nanoid(ID_LENGTH)}`;
 }

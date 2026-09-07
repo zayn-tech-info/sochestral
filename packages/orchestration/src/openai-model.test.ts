@@ -158,6 +158,7 @@ describe("TheseanOpenAIModelProvider", () => {
       (fetchMock.mock.calls[0]![1] as RequestInit).body as string,
     );
     expect(body.model).toBe("ship-like/gpt-5.6-luna");
+    expect(body.reasoning_effort).toBe("none");
     expect(body.messages[1].content).toEqual([
       { type: "text", text: "Post this" },
       {

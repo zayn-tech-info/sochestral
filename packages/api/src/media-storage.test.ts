@@ -249,4 +249,28 @@ describe("private media storage", () => {
       await deleteUser(database.db, user.id);
     }
   });
+
+  it("returns owned image bytes for a session download", async () => {
+    const user = await provisionUser(database.db, `dl-${crypto.randomUUID()}@example.com`);
+    const store = new MemoryMediaStore();
+    const service = new MediaService(database.db, store);
+    const png = await sharp({
+      create: { width: 2, height: 2, channels: 3, background: "white" },
+    }).png().toBuffer();
+    const ticket = await service.createUploads(user.id, [{
+      name: "shot.png",
+      mimeType: "image/png",
+      byteSize: png.byteLength,
+    }]);
+    store.objects.set(store.lastUploadKey!, new Uint8Array(png));
+    const completed = await service.complete(user.id, ticket.uploads[0]!.assetId);
+
+    const file = await service.download(user.id, completed.id);
+    expect(file.mimeType).toBe("image/png");
+    expect(file.filename).toBe(`sochestral-${completed.id}.png`);
+    expect(file.bytes.byteLength).toBeGreaterThan(0);
+
+    await service.delete(user.id, completed.id);
+    await deleteUser(database.db, user.id);
+  });
 });

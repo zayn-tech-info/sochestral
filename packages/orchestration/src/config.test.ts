@@ -13,20 +13,21 @@ describe("loadOrchestrationConfig", () => {
     expect(config).toEqual({
       theseanApiKey: "thesean-secret",
       theseanModel: "ship-like/claude-sonnet-5",
-      theseanIntentModel: "ship-like/claude-sonnet-5",
+      theseanIntentModel: "ship-like/gpt-5.6-luna",
       theseanVisionModel: "ship-like/gpt-5.6-luna",
       theseanSetupModel: "ship-like/claude-opus-5",
+      theseanVoiceModel: "ship-like/claude-opus-5",
       theseanVisionEnabled: true,
       theseanThinkingEnabled: false,
       theseanThinkingBudgetTokens: 2048,
-      theseanTimeoutMs: 60000,
+      theseanTimeoutMs: 90000,
       setupAgentEnabled: true,
       deepseekApiKey: null,
       deepseekBaseUrl: "https://api.deepseek.com",
       deepseekModel: "deepseek-v4-flash",
       socialMcpUrl: "https://social.example/mcp",
-      contextTokenLimit: 6000,
-      outputTokenLimit: 1500,
+      contextTokenLimit: 12000,
+      outputTokenLimit: 4096,
       maxToolSteps: 4,
       dailyRunLimit: 50,
       externalTimeoutMs: 15000,
@@ -48,8 +49,9 @@ describe("loadOrchestrationConfig", () => {
 
     expect(config).toMatchObject({
       theseanModel: "custom-model",
-      theseanIntentModel: "custom-model",
+      theseanIntentModel: "ship-like/gpt-5.6-luna",
       theseanVisionModel: "ship-like/gpt-5.6-luna",
+      theseanVoiceModel: "ship-like/claude-opus-5",
       theseanVisionEnabled: false,
       contextTokenLimit: 7000,
       outputTokenLimit: 900,
@@ -141,6 +143,15 @@ describe("loadOrchestrationConfig", () => {
 
     expect(config.theseanModel).toBe("chat-model");
     expect(config.theseanIntentModel).toBe("intent-model");
+  });
+
+  it("defaults clerk to Luna and does not fall back to the operator model (AC-13)", () => {
+    const config = loadOrchestrationConfig({
+      ...required,
+      THESEAN_MODEL: "ship-like/claude-sonnet-5",
+    });
+    expect(config.theseanIntentModel).toBe("ship-like/gpt-5.6-luna");
+    expect(config.theseanVoiceModel).toBe("ship-like/claude-opus-5");
   });
 
   it("requires the Thesean key", () => {

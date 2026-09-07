@@ -24,9 +24,13 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   ApiError,
   apiRequest,
+  createImageJob,
+  liveActionLabel,
   STREAM_STEP_LABELS,
+  STREAM_TOOL_LABELS,
   type IntentAnswer,
   type IntentQuestion,
+  type ProposeImageJobSummary,
   type StreamEvent,
   type StreamStep,
 } from "@/lib/product-api";
@@ -36,6 +40,17 @@ import {
   pickActiveReviewGroup,
 } from "@/components/preview";
 import { AppShell } from "./app-shell";
+import {
+  BrandAssetPicker,
+  SlashCommandMenu,
+  applySlashCommand,
+  detectBrandAssetSlash,
+  detectSlashQuery,
+  matchingSlashCommands,
+  stripBrandAssetSlash,
+} from "./brand-asset-picker";
+import { ImageProposalStrip } from "./image-proposal-strip";
+import { ThinkingOrb } from "./thinking-orb";
 import { IntentQuestionsCarousel } from "./intent-questions-carousel";
 import { MessageMarkdown } from "./message-markdown";
 import { productMotion } from "./product-motion-provider";
@@ -56,6 +71,7 @@ type SelectedMedia = {
   assetId: string | null;
   status: "uploading" | "ready" | "error";
   progress: number;
+  generated?: boolean;
 };
 
 type PendingIntentClarify = {
@@ -74,11 +90,12 @@ function ActionLabel({
   return (
     <div className={`action-label${live ? " action-label-live" : ""}`}>
       <span className="action-label-row" aria-label={label}>
-        <ChevronRight className="action-label-chevron size-3.5" aria-hidden="true" />
-        <span className="action-label-text">{label}</span>
         {live ? (
-          <LoaderCircle className="action-label-spinner size-3.5 animate-spin" aria-hidden="true" />
-        ) : null}
+          <ThinkingOrb />
+        ) : (
+          <ChevronRight className="action-label-chevron size-3.5" aria-hidden="true" />
+        )}
+        <span className="action-label-text">{label}</span>
       </span>
     </div>
   );
@@ -95,11 +112,13 @@ export function ChatWorkspace({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const transcriptEndRef = useRef<HTMLSpanElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const composerInputRef = useRef<HTMLTextAreaElement>(null);
   const suppressEmptyNewRedirectRef = useRef(false);
   const [message, setMessage] = useState("");
   const [optimisticMessage, setOptimisticMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [liveStep, setLiveStep] = useState<StreamStep | null>(null);
+  const [liveToolName, setLiveToolName] = useState<string | null>(null);
   const [pendingIntent, setPendingIntent] = useState<PendingIntentClarify | null>(
     null,
   );
@@ -107,6 +126,25 @@ export function ChatWorkspace({
   const [optimisticMedia, setOptimisticMedia] = useState<SelectedMedia[]>([]);
   const [previewDismissed, setPreviewDismissed] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [brandPickerOpen, setBrandPickerOpen] = useState(false);
+  const [selectedBrandAssetIds, setSelectedBrandAssetIds] = useState<string[]>(
+    [],
+  );
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  const [localImageProposal, setLocalImageProposal] =
+    useState<ProposeImageJobSummary | null>(null);
+  const [promptEditAssetId, setPromptEditAssetId] = useState<string | null>(
+    null,
+  );
+  const [imageEditBusy, setImageEditBusy] = useState<{
+    assetId: string;
+    kind: "reframe" | "vary" | "prompt_edit";
+  } | null>(null);
+  const proposalStripRef = useRef<HTMLDivElement>(null);
+  const [previewAttachRequest, setPreviewAttachRequest] = useState<{
+    assetId: string;
+    previewUrl: string;
+  } | null>(null);
   const {
     details,
     pending,
@@ -115,6 +153,7 @@ export function ChatWorkspace({
     pendingLaunch,
     launchOptimistic,
     liveStep: workspaceLiveStep,
+    liveToolName: workspaceLiveToolName,
     takePendingLaunch,
     clearLaunchOptimistic,
     loadConversation,
@@ -127,6 +166,7 @@ export function ChatWorkspace({
   const detail = activeConversationId ? details[activeConversationId] : null;
   const isPending = Boolean(pending[key]) || submitting;
   const activeLiveStep = liveStep ?? workspaceLiveStep;
+  const activeLiveTool = liveToolName ?? workspaceLiveToolName;
   const mediaBlocked = selectedMedia.some((item) => item.status !== "ready");
   const displayOptimisticMessage =
     optimisticMessage ?? (isLaunchRoute ? launchOptimistic?.message ?? null : null);
@@ -154,12 +194,18 @@ export function ChatWorkspace({
       const run = detail?.runs.find((item) => item.id === activity.runId);
       const label =
         activity.toolSummaries.some((tool) => tool.toolName === "schedule_post")
-          ? STREAM_STEP_LABELS.scheduling
+          ? STREAM_TOOL_LABELS.schedule_post
           : run?.explicitLiveIntent
             ? STREAM_STEP_LABELS.publishing
-            : activity.toolSummaries.some((tool) => tool.toolName === "prepare_review")
-              ? STREAM_STEP_LABELS.preparing_draft
-              : STREAM_STEP_LABELS.checking_intent;
+            : activity.toolSummaries.some(
+                  (tool) => tool.toolName === "propose_image_job",
+                )
+              ? STREAM_TOOL_LABELS.propose_image_job
+              : activity.toolSummaries.some(
+                    (tool) => tool.toolName === "prepare_review",
+                  )
+                ? STREAM_TOOL_LABELS.prepare_review
+                : STREAM_STEP_LABELS.checking_intent;
       return [activity.assistantMessageId, label] as const;
     }),
   );
@@ -251,6 +297,19 @@ export function ChatWorkspace({
     return () => window.cancelAnimationFrame(frame);
   }, [displayOptimisticMessage, reduceMotion]);
 
+  useEffect(() => {
+    if (!promptEditAssetId) return;
+    composerInputRef.current?.focus();
+  }, [promptEditAssetId]);
+
+  useEffect(() => {
+    if (!localImageProposal?.jobId) return;
+    proposalStripRef.current?.scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "nearest",
+    });
+  }, [localImageProposal?.jobId, reduceMotion]);
+
   async function submit(
     text: string,
     retry = retries[key] ?? undefined,
@@ -263,11 +322,16 @@ export function ChatWorkspace({
     }
     setMessage("");
     setOptimisticMessage(clean);
+    const outgoingMedia =
+      launchMediaAssetIds || intentAnswers ? [] : selectedMedia;
     if (!launchMediaAssetIds && !intentAnswers) {
-      setOptimisticMedia(selectedMedia);
+      setOptimisticMedia(outgoingMedia);
+      setSelectedMedia([]);
+      setPromptEditAssetId(null);
     }
     setSubmitting(true);
     setLiveStep("understanding");
+    setLiveToolName(null);
     if (!intentAnswers) {
       setPendingIntent(null);
     }
@@ -276,10 +340,17 @@ export function ChatWorkspace({
       launchMediaAssetIds ??
       (intentAnswers
         ? (pendingIntent?.mediaAssetIds ?? [])
-        : selectedMedia.flatMap((item) => (item.assetId ? [item.assetId] : [])));
+        : outgoingMedia.flatMap((item) => (item.assetId ? [item.assetId] : [])));
     const onStreamEvent = (event: StreamEvent) => {
       if (event.type === "step_started" && event.step) {
         setLiveStep(event.step);
+      }
+      if (
+        event.type === "tool_started" &&
+        event.toolName &&
+        STREAM_TOOL_LABELS[event.toolName]
+      ) {
+        setLiveToolName(event.toolName);
       }
       if (event.type === "intent_questions" && event.questions?.length) {
         setPendingIntent({
@@ -320,8 +391,9 @@ export function ChatWorkspace({
             onStreamEvent,
           );
       if (createdId && !intentAnswers) {
-        selectedMedia.forEach((item) => URL.revokeObjectURL(item.previewUrl));
-        setSelectedMedia([]);
+        outgoingMedia.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+      } else if (!launchMediaAssetIds && !intentAnswers) {
+        setSelectedMedia(outgoingMedia);
       }
       if (activeConversationId && createdId) {
         setOptimisticMessage(null);
@@ -336,6 +408,7 @@ export function ChatWorkspace({
     } finally {
       setSubmitting(false);
       setLiveStep(null);
+      setLiveToolName(null);
     }
   }
 
@@ -411,14 +484,21 @@ export function ChatWorkspace({
   }
 
   async function removeMedia(item: SelectedMedia) {
-    if (item.assetId) {
+    if (item.assetId && !item.generated) {
       await apiRequest(`/media/uploads/${item.assetId}`, {
         method: "DELETE",
         headers: { "X-Sochestral-Request": "publishing-action" },
       }).catch(() => undefined);
     }
     URL.revokeObjectURL(item.previewUrl);
+    if (item.assetId && item.assetId === promptEditAssetId) {
+      setPromptEditAssetId(null);
+    }
     setSelectedMedia((current) => current.filter((entry) => entry.key !== item.key));
+  }
+
+  function cancelPromptEdit() {
+    setPromptEditAssetId(null);
   }
 
   const composerTools = (
@@ -427,18 +507,104 @@ export function ChatWorkspace({
         <ul className="composer-media" aria-label="Selected images">
           {selectedMedia.map((item) => (
             <li key={item.key}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={item.previewUrl} alt={`Selected upload ${item.file.name}`} />
-              {item.status === "uploading" ? (
-                <progress value={item.progress} max={100} aria-label={`Uploading ${item.file.name}`} />
-              ) : item.status === "error" ? (
-                <button type="button" onClick={() => {
-                  void removeMedia(item).then(() => uploadFiles([item.file]));
-                }}>Retry</button>
-              ) : null}
-              <button type="button" onClick={() => void removeMedia(item)} aria-label={`Remove ${item.file.name}`} disabled={isPending}>
-                <Trash2 aria-hidden="true" />
-              </button>
+              <div
+                className={
+                  promptEditAssetId && promptEditAssetId === item.assetId
+                    ? "composer-media-card is-editing"
+                    : "composer-media-card"
+                }
+              >
+                <div className="composer-media-thumb">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={item.previewUrl} alt={`Selected upload ${item.file.name}`} />
+                  {item.status === "uploading" ? (
+                    <progress value={item.progress} max={100} aria-label={`Uploading ${item.file.name}`} />
+                  ) : null}
+                  <button
+                    type="button"
+                    className="composer-media-remove"
+                    onClick={() => void removeMedia(item)}
+                    aria-label={`Remove ${item.file.name}`}
+                    disabled={isPending}
+                  >
+                    <Trash2 aria-hidden="true" />
+                  </button>
+                </div>
+                {item.status === "error" ? (
+                  <button
+                    type="button"
+                    className="composer-media-retry"
+                    onClick={() => {
+                      void removeMedia(item).then(() => uploadFiles([item.file]));
+                    }}
+                  >
+                    Retry
+                  </button>
+                ) : null}
+                {promptEditAssetId && promptEditAssetId === item.assetId ? (
+                  <div className="composer-media-editing">
+                    <div className="composer-media-status">
+                      <strong>Adjust</strong>
+                      <span>Type the change below, then send.</span>
+                    </div>
+                    <button type="button" onClick={cancelPromptEdit}>
+                      Cancel
+                    </button>
+                  </div>
+                ) : item.status === "ready" && item.assetId ? (
+                  <div className="composer-media-actions">
+                    <button
+                      type="button"
+                      disabled={isPending || Boolean(imageEditBusy)}
+                      aria-busy={
+                        imageEditBusy?.assetId === item.assetId &&
+                        imageEditBusy.kind === "reframe"
+                      }
+                      onClick={() => startImageEdit("reframe", item.assetId!)}
+                    >
+                      {imageEditBusy?.assetId === item.assetId &&
+                      imageEditBusy.kind === "reframe" ? (
+                        <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
+                      ) : null}
+                      Reframe
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isPending || Boolean(imageEditBusy)}
+                      aria-busy={
+                        imageEditBusy?.assetId === item.assetId &&
+                        imageEditBusy.kind === "vary"
+                      }
+                      onClick={() => startImageEdit("vary", item.assetId!)}
+                    >
+                      {imageEditBusy?.assetId === item.assetId &&
+                      imageEditBusy.kind === "vary" ? (
+                        <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
+                      ) : null}
+                      Vary
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isPending || Boolean(imageEditBusy)}
+                      onClick={() => {
+                        setPromptEditAssetId(item.assetId);
+                        setMessage("");
+                      }}
+                    >
+                      Adjust
+                    </button>
+                  </div>
+                ) : null}
+                {imageEditBusy?.assetId === item.assetId ? (
+                  <p className="composer-media-hint" role="status">
+                    {imageEditBusy.kind === "reframe"
+                      ? "Setting up a reframe…"
+                      : imageEditBusy.kind === "vary"
+                        ? "Setting up a variation…"
+                        : "Setting up your edit…"}
+                  </p>
+                ) : null}
+              </div>
             </li>
           ))}
         </ul>
@@ -481,16 +647,167 @@ export function ChatWorkspace({
     </>
   );
 
+  function onComposerMessageChange(value: string) {
+    setMessage(value);
+    setSlashDismissed(false);
+    if (detectBrandAssetSlash(value)) {
+      setBrandPickerOpen(true);
+    }
+  }
+
+  function selectSlashCommand(token: string) {
+    onComposerMessageChange(applySlashCommand(message, token));
+  }
+
+  const slashQuery = detectSlashQuery(message);
+  const slashCommands = slashQuery
+    ? matchingSlashCommands(slashQuery.query)
+    : [];
+  const showSlashMenu =
+    !slashDismissed &&
+    !brandPickerOpen &&
+    !promptEditAssetId &&
+    slashCommands.length > 0 &&
+    !detectBrandAssetSlash(message);
+
+  function submitPromptEdit() {
+    if (!promptEditAssetId || !message.trim() || isPending) return;
+    startImageEdit("prompt_edit", promptEditAssetId, message.trim());
+    setMessage("");
+  }
+
+  function outgoingComposerMessage() {
+    const text = stripBrandAssetSlash(message).trim();
+    if (
+      (brandPickerOpen || selectedBrandAssetIds.length > 0) &&
+      text &&
+      !/\buse my brand\b/i.test(text)
+    ) {
+      return `${text}\nUse my brand.`;
+    }
+    return text;
+  }
+
   function onSubmit(event: FormEvent) {
     event.preventDefault();
-    void submit(message);
+    if (promptEditAssetId) {
+      submitPromptEdit();
+      return;
+    }
+    if (showSlashMenu && slashCommands[0]) {
+      selectSlashCommand(slashCommands[0].token);
+      return;
+    }
+    void submit(outgoingComposerMessage());
   }
 
   function onComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Escape") {
+      if (promptEditAssetId) {
+        event.preventDefault();
+        cancelPromptEdit();
+        return;
+      }
+      if (showSlashMenu || brandPickerOpen) {
+        event.preventDefault();
+        setSlashDismissed(true);
+        setBrandPickerOpen(false);
+        return;
+      }
+    }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      void submit(message);
+      if (promptEditAssetId) {
+        submitPromptEdit();
+        return;
+      }
+      if (showSlashMenu && slashCommands[0]) {
+        selectSlashCommand(slashCommands[0].token);
+        return;
+      }
+      void submit(outgoingComposerMessage());
     }
+  }
+
+  function attachGeneratedImage(assetId: string, previewUrl: string) {
+    setSelectedMedia((current) => {
+      if (current.length >= 5) return current;
+      if (current.some((entry) => entry.assetId === assetId)) {
+        return current;
+      }
+      return [
+        ...current,
+        {
+          key: `gen_${assetId}`,
+          file: new File([], "generated.png"),
+          previewUrl,
+          assetId,
+          status: "ready",
+          progress: 100,
+          generated: true,
+        },
+      ];
+    });
+    setPreviewAttachRequest({ assetId, previewUrl });
+    toast({
+      tone: "success",
+      title: "Image attached",
+    });
+  }
+
+  function startImageEdit(
+    kind: "reframe" | "vary" | "prompt_edit",
+    assetId: string,
+    prompt?: string,
+  ) {
+    setImageEditBusy({ assetId, kind });
+    void createImageJob({
+      kind,
+      prompt:
+        kind === "vary"
+          ? "Create a close variation of this image."
+          : kind === "prompt_edit"
+            ? prompt?.trim() || undefined
+            : undefined,
+      sourceMediaAssetId: assetId,
+      sizePreset: "portrait_4_5",
+      conversationId: activeConversationId ?? undefined,
+      inputs:
+        kind === "reframe"
+          ? selectedBrandAssetIds.map((brandAssetId) => ({
+              brandAssetId,
+              role: "brand" as const,
+            }))
+          : undefined,
+    })
+      .then((result) => {
+        setLocalImageProposal({
+          ok: true,
+          jobId: result.job.id,
+          status: result.job.status,
+          kind: result.job.kind,
+          sizePreset: result.job.sizePreset,
+          creditsCharged: result.job.creditsCharged,
+          estimatedCostCents: result.job.estimatedCostCents,
+          needsConfirm: true,
+        });
+        setPromptEditAssetId(null);
+        setMessage("");
+      })
+      .catch((err) => {
+        toast({
+          tone: "error",
+          title: `Could not start ${kind === "prompt_edit" ? "adjust" : kind}`,
+          description: userFacingError(err, {
+            fallback: "That image is no longer available. Generate it again.",
+          }),
+        });
+      })
+      .finally(() => {
+        setImageEditBusy((current) =>
+          current?.assetId === assetId && current.kind === kind ? null : current,
+        );
+      });
   }
 
   async function confirmDelete() {
@@ -553,6 +870,12 @@ export function ChatWorkspace({
               <p>
                 Ask for a content idea, a channel check, or feedback on a post.
               </p>
+              <div className="composer-slash-stack">
+                <SlashCommandMenu
+                  open={showSlashMenu}
+                  commands={slashCommands}
+                  onSelect={(command) => selectSlashCommand(command.token)}
+                />
               <form
                 onSubmit={onSubmit}
                 className="composer composer-empty os-composer-inline"
@@ -563,15 +886,18 @@ export function ChatWorkspace({
                 </label>
                 <textarea
                   id="chat-message"
+                  ref={composerInputRef}
                   value={message}
-                  onChange={(event) => setMessage(event.target.value)}
+                  onChange={(event) => onComposerMessageChange(event.target.value)}
                   onKeyDown={onComposerKeyDown}
                   maxLength={8000}
                   rows={2}
                   placeholder={
-                    isPending
-                      ? "Sochestral is working…"
-                      : "Ask Sochestral about your social content"
+                    promptEditAssetId
+                      ? "Describe the edit"
+                      : isPending
+                        ? "Sochestral is working…"
+                        : "Ask Sochestral about your social content"
                   }
                   disabled={isPending}
                 />
@@ -584,6 +910,31 @@ export function ChatWorkspace({
                   <ArrowUp className="size-5" aria-hidden="true" />
                 </button>
               </form>
+                <BrandAssetPicker
+                  open={brandPickerOpen}
+                  selectedIds={selectedBrandAssetIds}
+                  onToggle={(id) => {
+                    setSelectedBrandAssetIds((current) =>
+                      current.includes(id)
+                        ? current.filter((item) => item !== id)
+                        : [...current, id],
+                    );
+                  }}
+                  onClose={() => setBrandPickerOpen(false)}
+                />
+                {localImageProposal?.needsConfirm ? (
+                  <div ref={proposalStripRef}>
+                    <ImageProposalStrip
+                      summary={localImageProposal}
+                      disabled={isPending}
+                      onAttachResult={({ assetId, previewUrl }) => {
+                        attachGeneratedImage(assetId, previewUrl);
+                        setLocalImageProposal(null);
+                      }}
+                    />
+                  </div>
+                ) : null}
+              </div>
               <ul className="starter-grid">
                 {starterPrompts.map((prompt) => (
                   <li key={prompt}>
@@ -658,6 +1009,40 @@ export function ChatWorkspace({
                               <ActionLabel
                                 label={stepByAssistantId.get(item.id) ?? STREAM_STEP_LABELS.checking_intent}
                               />
+                              {!pendingIntent
+                                ? activity.toolSummaries
+                                    .filter(
+                                      (tool) =>
+                                        tool.toolName === "propose_image_job" &&
+                                        (tool.summary as ProposeImageJobSummary | null)
+                                          ?.needsConfirm,
+                                    )
+                                    .map((tool) => {
+                                      const requestMessage = (
+                                        detail?.messages ?? []
+                                      ).find(
+                                        (message) =>
+                                          message.id === activity.requestMessageId,
+                                      );
+                                      return (
+                                      <ImageProposalStrip
+                                        key={tool.id}
+                                        summary={
+                                          (tool.summary ??
+                                            {}) as ProposeImageJobSummary
+                                        }
+                                        fallbackSourceMediaAssetId={
+                                          requestMessage?.attachments?.[0]?.id ??
+                                          null
+                                        }
+                                        disabled={isPending}
+                                        onAttachResult={({ assetId, previewUrl }) => {
+                                          attachGeneratedImage(assetId, previewUrl);
+                                        }}
+                                      />
+                                      );
+                                    })
+                                : null}
                             </motion.section>
                           ) : null}
                         </>
@@ -714,11 +1099,7 @@ export function ChatWorkspace({
                   >
                     <span className="message-author">Sochestral</span>
                     <ActionLabel
-                      label={
-                        activeLiveStep
-                          ? STREAM_STEP_LABELS[activeLiveStep]
-                          : STREAM_STEP_LABELS.understanding
-                      }
+                      label={liveActionLabel(activeLiveStep, activeLiveTool)}
                       live
                     />
                   </motion.li>
@@ -781,6 +1162,35 @@ export function ChatWorkspace({
                 }}
               />
             ) : null}
+            <SlashCommandMenu
+              open={showSlashMenu}
+              commands={slashCommands}
+              onSelect={(command) => selectSlashCommand(command.token)}
+            />
+            <BrandAssetPicker
+              open={brandPickerOpen}
+              selectedIds={selectedBrandAssetIds}
+              onToggle={(id) => {
+                setSelectedBrandAssetIds((current) =>
+                  current.includes(id)
+                    ? current.filter((item) => item !== id)
+                    : [...current, id],
+                );
+              }}
+              onClose={() => setBrandPickerOpen(false)}
+            />
+            {localImageProposal?.needsConfirm && !pendingIntent ? (
+              <div ref={proposalStripRef}>
+                <ImageProposalStrip
+                  summary={localImageProposal}
+                  disabled={isPending}
+                  onAttachResult={({ assetId, previewUrl }) => {
+                    attachGeneratedImage(assetId, previewUrl);
+                    setLocalImageProposal(null);
+                  }}
+                />
+              </div>
+            ) : null}
             <form
               onSubmit={onSubmit}
               className="composer"
@@ -791,15 +1201,18 @@ export function ChatWorkspace({
               </label>
               <textarea
                 id="chat-message"
+                ref={composerInputRef}
                 value={message}
-                onChange={(event) => setMessage(event.target.value)}
+                onChange={(event) => onComposerMessageChange(event.target.value)}
                 onKeyDown={onComposerKeyDown}
                 maxLength={8000}
                 rows={1}
                 placeholder={
-                  isPending
-                    ? "Sochestral is working…"
-                    : "Ask Sochestral about your social content"
+                  promptEditAssetId
+                    ? "Describe the edit"
+                    : isPending
+                      ? "Sochestral is working…"
+                      : "Ask Sochestral about your social content"
                 }
                 disabled={isPending}
               />
@@ -825,6 +1238,8 @@ export function ChatWorkspace({
         <LivePreviewAside
           group={activeReviewGroup}
           mediaPreviews={mediaPreviews}
+          attachRequest={previewAttachRequest}
+          onAttachRequestConsumed={() => setPreviewAttachRequest(null)}
           onRefresh={async () => {
             await loadConversation(activeConversationId);
           }}

@@ -41,7 +41,15 @@ const ERROR_COPY: Record<string, string> = {
     "You have uploaded too many images recently. Try again later.",
   STORAGE_UNAVAILABLE:
     "Image storage is temporarily unavailable. Try again shortly.",
+  NOT_FOUND:
+    "That image is no longer available. Generate or attach it again.",
+  MEDIA_NOT_FOUND:
+    "That image is no longer available. Generate or attach it again.",
   INVALID_MEDIA: "That image could not be accepted. Try a different file.",
+  INVALID:
+    "That image request was not valid. Attach the image and try again.",
+  SOURCE_REQUIRED:
+    "Attach the image you want to edit, then try Apply again.",
   REWRITE_UNAVAILABLE:
     "Rewrite suggestions are unavailable right now. Try again shortly.",
   INVALID_REWRITE: "That rewrite request was not valid. Try a shorter instruction.",
@@ -54,7 +62,7 @@ const ERROR_COPY: Record<string, string> = {
   RUN_IN_PROGRESS:
     "Sochestral is still finishing work in this conversation.",
   INVALID_MESSAGE:
-    "Those image attachments could not be used for this chat. Remove them, re-attach, and try again.",
+    "That message could not be used. Try sending it again, or shorten it.",
   INVALID_TOOL_ARGUMENTS:
     "I could not form a safe platform request. Name Threads, Instagram, or LinkedIn, or restate what to draft or schedule.",
   MODEL_UNAVAILABLE:

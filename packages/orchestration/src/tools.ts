@@ -1,9 +1,6 @@
 import { z } from "zod";
 import type { TargetPlatform } from "@sochestral/database";
-import {
-  AUTONOMY_SCHEDULE_POST_CAP,
-  STANDARD_SCHEDULE_POST_CAP,
-} from "./autonomy-brief.js";
+import { STANDARD_SCHEDULE_POST_CAP } from "./autonomy-brief.js";
 import { OrchestrationError } from "./errors.js";
 import type { ModelTool } from "./model.js";
 
@@ -116,13 +113,57 @@ export const schedulePostInputSchema = z
   })
   .strict();
 
+export const researchWebInputSchema = z
+  .object({
+    query: z.string().trim().min(3).max(400),
+    why: z.string().trim().max(400).optional(),
+  })
+  .strict();
+
+export const saveContentPlanInputSchema = z
+  .object({
+    horizonDays: z.number().int().min(1).max(30).optional(),
+    platforms: z.array(platformSchema).max(3).optional(),
+    contentType: z.string().trim().max(80).optional(),
+    direction: z.string().trim().max(400).optional(),
+    themes: z.array(z.string().trim().min(1).max(120)).max(12).optional(),
+    acceptedItems: z
+      .array(z.record(z.string(), z.unknown()))
+      .max(20)
+      .optional(),
+  })
+  .strict();
+
+export const proposeImageJobInputSchema = z
+  .object({
+    kind: z.enum(["generate", "reframe", "vary", "prompt_edit"]),
+    prompt: z.string().max(2000).optional(),
+    sizePreset: z
+      .enum(["square", "portrait_4_5", "story_9_16", "linkedin_landscape"])
+      .optional(),
+    sourceMediaAssetId: z.string().min(1).optional(),
+    brandAssetIds: z.array(z.string().min(1)).max(5).default([]),
+    referenceMediaAssetIds: z.array(z.string().min(1)).max(5).default([]),
+    brandIntent: z.enum(["use", "skip", "unclear"]).default("skip"),
+  })
+  .strict();
+
 export type AllowedToolInput =
   | z.infer<typeof listConnectedAccountsInputSchema>
   | z.infer<typeof unifiedPostInputSchema>
-  | z.infer<typeof schedulePostInputSchema>;
+  | z.infer<typeof schedulePostInputSchema>
+  | z.infer<typeof proposeImageJobInputSchema>
+  | z.infer<typeof researchWebInputSchema>
+  | z.infer<typeof saveContentPlanInputSchema>;
 
 const definitions: Array<{
-  name: AllowedToolName | "prepare_review" | "save_profile_entry";
+  name:
+    | AllowedToolName
+    | "prepare_review"
+    | "save_profile_entry"
+    | "propose_image_job"
+    | "research_web"
+    | "save_content_plan";
   description: string;
   schema: z.ZodType;
 }> = [
@@ -137,6 +178,24 @@ const definitions: Array<{
     description:
       "Persist an authoritative business profile rule the user asked to keep (do_not, tone, brand_fact, etc.). Only call when the user clearly wants it saved to their profile. Never claim a rule is saved unless this tool succeeds.",
     schema: saveProfileEntryInputSchema,
+  },
+  {
+    name: "propose_image_job",
+    description:
+      "Propose a still image generate or edit job. This never spends credits or calls the image provider. The user must confirm Generate or Apply in the UI. Use for generate, reframe, vary, or prompt_edit. For reframe, vary, and prompt_edit, set sourceMediaAssetId to the current attached image when you know it; the product fills it from the current message attachment when omitted. Set brandIntent to use only when the user opted in (/brand-asset or clear use my brand) or answered a brand clarify with use brand. Set skip for subject only asks, random, or don’t use brand. Set unclear for flyer or poster style marketing creative when brand use is not clear. Do not invent brandAssetIds.",
+    schema: proposeImageJobInputSchema,
+  },
+  {
+    name: "research_web",
+    description:
+      "Search the live web through DeepSeek for ideas, trends, and how real people post similar content. Use when planning, when the user looks off, or when a better practice would change the plan. Do not invent citations if the tool says research is unavailable.",
+    schema: researchWebInputSchema,
+  },
+  {
+    name: "save_content_plan",
+    description:
+      "Save the working content plan after the operator gave a handful of ideas (direction, topics, or audience). Do not invent Day 1 / Day 2 items from the brand profile alone.",
+    schema: saveContentPlanInputSchema,
   },
   {
     name: "list_connected_accounts",
@@ -159,7 +218,7 @@ const definitions: Array<{
   {
     name: "schedule_post",
     description:
-      `Schedule a post for a future publishAt (UTC ISO, must be after now) through SocialMCP. Use when schedule intent is clear and publishAt is known from the user, an accepted plan, or an autonomy context brief. Write the caption in text and call this tool directly; do not use prepare_review for schedule asks. Never claim a schedule succeeded unless this tool returns ok. Max five mediaAssetIds. At most ${STANDARD_SCHEDULE_POST_CAP} schedule_post calls per turn normally; autonomy mode may allow up to ${AUTONOMY_SCHEDULE_POST_CAP}.`,
+      `Schedule a post for a future publishAt (UTC ISO, must be after now) through SocialMCP. Use when schedule intent is clear and publishAt is known from the user, an accepted plan, or an autonomy context brief. Write the caption in text and call this tool directly; do not use prepare_review for schedule asks. Never claim a schedule succeeded unless this tool returns ok. Max five mediaAssetIds. At most ${STANDARD_SCHEDULE_POST_CAP} schedule_post call per turn. More than one post uses a campaign job, not extra schedule_post calls.`,
     schema: schedulePostInputSchema,
   },
 ];
@@ -194,7 +253,13 @@ export function validateToolInput(
   raw: unknown,
   resolvedPlatforms: TargetPlatform[],
 ): {
-  name: AllowedToolName | "prepare_review" | "save_profile_entry";
+  name:
+    | AllowedToolName
+    | "prepare_review"
+    | "save_profile_entry"
+    | "propose_image_job"
+    | "research_web"
+    | "save_content_plan";
   input: Record<string, unknown>;
 } {
   if (name === "prepare_review") {
@@ -226,6 +291,42 @@ export function validateToolInput(
         "INVALID_TOOL_ARGUMENTS",
         422,
         "The model produced invalid profile entry arguments.",
+      );
+    }
+  }
+  if (name === "propose_image_job") {
+    try {
+      const parsed = proposeImageJobInputSchema.parse(raw);
+      return { name, input: parsed };
+    } catch {
+      throw new OrchestrationError(
+        "INVALID_TOOL_ARGUMENTS",
+        422,
+        "The model produced invalid image job arguments.",
+      );
+    }
+  }
+  if (name === "research_web") {
+    try {
+      const parsed = researchWebInputSchema.parse(raw);
+      return { name, input: parsed };
+    } catch {
+      throw new OrchestrationError(
+        "INVALID_TOOL_ARGUMENTS",
+        422,
+        "The model produced invalid research arguments.",
+      );
+    }
+  }
+  if (name === "save_content_plan") {
+    try {
+      const parsed = saveContentPlanInputSchema.parse(raw);
+      return { name, input: parsed };
+    } catch {
+      throw new OrchestrationError(
+        "INVALID_TOOL_ARGUMENTS",
+        422,
+        "The model produced invalid content plan arguments.",
       );
     }
   }

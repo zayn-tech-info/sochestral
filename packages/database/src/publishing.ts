@@ -303,6 +303,50 @@ export async function getOwnedMediaAsset(
   return asset ?? null;
 }
 
+export async function getOwnedMediaAssetAnyState(
+  db: Database["db"],
+  userId: string,
+  assetId: string,
+): Promise<MediaAsset | null> {
+  const [asset] = await db
+    .select()
+    .from(mediaAssets)
+    .where(and(eq(mediaAssets.id, assetId), eq(mediaAssets.userId, userId)))
+    .limit(1);
+  return asset ?? null;
+}
+
+export async function restoreReadyMediaAsset(
+  db: Database["db"],
+  input: {
+    userId: string;
+    assetId: string;
+    mimeType: string;
+    byteSize: number;
+    width: number;
+    height: number;
+  },
+): Promise<MediaAsset | null> {
+  const [asset] = await db
+    .update(mediaAssets)
+    .set({
+      state: "ready",
+      mimeType: input.mimeType,
+      byteSize: input.byteSize,
+      width: input.width,
+      height: input.height,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(mediaAssets.id, input.assetId),
+        eq(mediaAssets.userId, input.userId),
+      ),
+    )
+    .returning();
+  return asset ?? null;
+}
+
 export async function listOwnedConversationMediaAssets(
   db: Database["db"],
   userId: string,
@@ -395,6 +439,24 @@ export async function markMediaAssetReady(
     .returning();
   if (!asset) throw new PublishingDatabaseError("MEDIA_NOT_FOUND");
   return asset;
+}
+
+export async function linkOwnedMediaToConversation(
+  db: Database["db"],
+  userId: string,
+  assetId: string,
+  conversationId: string,
+): Promise<void> {
+  await db
+    .update(mediaAssets)
+    .set({ conversationId, updatedAt: new Date() })
+    .where(
+      and(
+        eq(mediaAssets.id, assetId),
+        eq(mediaAssets.userId, userId),
+        ne(mediaAssets.state, "deleted"),
+      ),
+    );
 }
 
 export async function deleteOwnedUnattachedMediaAsset(

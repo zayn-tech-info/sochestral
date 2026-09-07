@@ -11,6 +11,12 @@ describe("userFacingError", () => {
     expect(userFacingError("SCHEDULE_REACTIVATE_FAILED")).toMatch(/reactivated/i);
   });
 
+  it("maps image edit failures to attach-and-retry copy", () => {
+    expect(userFacingError("INVALID")).toMatch(/attach/i);
+    expect(userFacingError("SOURCE_REQUIRED")).toMatch(/attach/i);
+    expect(userFacingError("INVALID")).not.toBe("INVALID");
+  });
+
   it("reads ApiError.code and never echoes the raw code", () => {
     const message = userFacingError(
       new ApiError(422, "SCHEDULE_TIME_MUST_BE_FUTURE", {}),

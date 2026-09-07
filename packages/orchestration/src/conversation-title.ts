@@ -21,6 +21,11 @@ export function isSubstantiveMessage(message: string): boolean {
   return trimmed.length >= 12 || /\w{4,}/.test(trimmed);
 }
 
+function startAsTitle(text: string): string {
+  if (!text) return text;
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 export function compressMessageToTitle(message: string): string {
   let text = message.replace(/\s+/g, " ").trim();
   text = text.replace(LEADING_FILLER_PATTERN, "").trim();
@@ -31,7 +36,7 @@ export function compressMessageToTitle(message: string): string {
     text =
       lastSpace > 16 ? sliced.slice(0, lastSpace).trim() : sliced.trim();
   }
-  return text || "New chat";
+  return startAsTitle(text) || "New chat";
 }
 
 export function deriveInitialConversationTitle(
@@ -54,6 +59,9 @@ export function isProvisionalConversationTitle(
   if (firstUserMessage) {
     const first = firstUserMessage.replace(/\s+/g, " ").trim();
     if (isGreetingMessage(first) && normalized === first.slice(0, 80)) {
+      return true;
+    }
+    if (normalized === compressMessageToTitle(first)) {
       return true;
     }
   }

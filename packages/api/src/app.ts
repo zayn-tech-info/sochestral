@@ -30,8 +30,11 @@ import { registerPublishingRoutes } from "./publishing-routes.js";
 import { registerMediaRoutes } from "./media-routes.js";
 import { registerProfileRoutes } from "./profile-routes.js";
 import { registerCalendarRoutes } from "./calendar-routes.js";
+import { registerImageRoutes } from "./image-routes.js";
+import { registerCampaignRoutes } from "./campaign-routes.js";
 import { allowedCorsOrigins } from "./cors-origin.js";
 import { MediaService } from "./media-storage.js";
+import { ImageService } from "./image-service.js";
 
 export type Env = {
   Variables: {
@@ -60,10 +63,16 @@ export function createApp(
   let resolvedReview = reviewService;
   let resolvedCalendar = calendarService;
   let mediaService: MediaService | undefined;
+  let imageService: ImageService | undefined;
 
   function getMediaService(): MediaService {
     mediaService ??= new MediaService(db);
     return mediaService;
+  }
+
+  function getImageService(): ImageService {
+    imageService ??= new ImageService(db, getMediaService());
+    return imageService;
   }
 
   function getReviewService(): ReviewService {
@@ -198,6 +207,8 @@ export function createApp(
   const publishingPreferences = new PublishingPreferenceService(db);
   registerPublishingRoutes(app, db, () => publishingPreferences);
   registerMediaRoutes(app, db, getMediaService);
+  registerImageRoutes(app, db, getImageService);
+  registerCampaignRoutes(app, db);
   registerProfileRoutes(app, db);
   registerCalendarRoutes(app, db, () => {
     resolvedCalendar ??= createCalendarService(resolvedConnectors, undefined, {

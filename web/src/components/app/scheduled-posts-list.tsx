@@ -26,6 +26,7 @@ import {
 import { userFacingError } from "@/lib/user-facing-error";
 import { AppShell } from "./app-shell";
 import { CreateScheduleModal } from "./create-schedule-modal";
+import { CampaignBanner } from "./campaign-banner";
 import { PlatformAccountPicker } from "./platform-account-picker";
 import { ScheduleDetailModal } from "./schedule-detail-modal";
 
@@ -156,6 +157,7 @@ export function ScheduledPostsList() {
       }
     >
       <div className="sched-page">
+        <CampaignBanner />
         <header className="sched-header">
           <Link href="/app/calendar" className="cal-link-btn">
             Week view

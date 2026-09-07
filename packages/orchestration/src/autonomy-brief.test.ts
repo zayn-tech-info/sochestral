@@ -5,6 +5,7 @@ import {
   buildAutonomyBrief,
   buildPublishAtCandidates,
   coverageDayOffsets,
+  parseHorizonDays,
   resolveAutonomyTimeZone,
 } from "./autonomy-brief.js";
 import { playbookFor } from "./platform-playbooks.js";
@@ -147,6 +148,39 @@ describe("buildAutonomyBrief", () => {
     expect(
       brief.candidates.some((candidate) => candidate.publishAt === occupiedAt),
     ).toBe(false);
+  });
+
+  it("grounds do it all captions in research and human writing (AC-6)", () => {
+    const brief = buildAutonomyBrief({
+      profile: profile(),
+      activeEntries: [entry({ category: "tone", body: "Direct and practical" })],
+      compiledNote: "Name: Acme Tools",
+      minimumComplete: true,
+      requestedPlatforms: ["threads"],
+      connectedPlatforms: ["threads"],
+      occupiedSlots: [],
+      timeZone: "UTC",
+      now: new Date("2026-08-10T08:00:00.000Z"),
+      userMessage: "Do it all for the next 2 weeks",
+      researchSummary:
+        "Makers are posting short shop-floor notes, not listicles. Threads posts that name a real tool win.",
+      contentPlanNote: "Content type: founder\nDirection: Win more customers",
+      horizonDays: 14,
+    });
+    expect(brief.ok).toBe(true);
+    if (!brief.ok) return;
+    expect(brief.horizonDays).toBe(14);
+    expect(brief.text).toContain("shop-floor notes");
+    expect(brief.text).toMatch(/real person/i);
+    expect(brief.text).toMatch(/generic AI/i);
+  });
+});
+
+describe("parseHorizonDays", () => {
+  it("reads week spans from the ask", () => {
+    expect(parseHorizonDays("Do it all for the next 2 weeks", 14)).toBe(14);
+    expect(parseHorizonDays("plan the next 7 days", 14)).toBe(7);
+    expect(parseHorizonDays("hello", 14)).toBe(14);
   });
 });
 

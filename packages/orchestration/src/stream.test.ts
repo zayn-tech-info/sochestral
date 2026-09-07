@@ -43,12 +43,14 @@ describe("createSequenceSink", () => {
 
   it("keeps product owned step labels stable", () => {
     expect(STEP_LABELS).toEqual({
-      understanding: "Reading your message",
-      checking_intent: "Checking intent",
-      clarifying_intent: "Clarifying intent",
-      planning: "Planning from your context",
-      preparing_draft: "Preparing a draft",
-      validating: "Validating",
+      understanding: "Thinking",
+      checking_intent: "Figuring out what to do",
+      checking_plan: "Checking your plan",
+      clarifying_intent: "Asking a follow-up",
+      planning: "Planning",
+      booking_campaign: "Booking your campaign",
+      preparing_draft: "Drafting",
+      validating: "Checking the post",
       scheduling: "Scheduling",
       publishing: "Publishing",
     });

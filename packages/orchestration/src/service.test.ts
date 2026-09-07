@@ -56,6 +56,7 @@ const config: OrchestrationConfig = {
   theseanIntentModel: "intent-model",
   theseanVisionModel: "vision-model",
   theseanSetupModel: "setup-model",
+  theseanVoiceModel: "voice-model",
   theseanVisionEnabled: true,
   theseanThinkingEnabled: false,
   theseanThinkingBudgetTokens: 2048,
@@ -1091,6 +1092,59 @@ describe("DefaultOrchestrationService", () => {
       ).toBe(true);
       expect(mcp.callTool).not.toHaveBeenCalled();
       expect(model.complete).toHaveBeenCalledTimes(1);
+    } finally {
+      if (previousEnabled === undefined) delete process.env.PUBLISHING_AUTHORITY_ENABLED;
+      else process.env.PUBLISHING_AUTHORITY_ENABLED = previousEnabled;
+    }
+  });
+
+  it("does not ask confirm-before-act for a greeting on Full access", async () => {
+    const previousEnabled = process.env.PUBLISHING_AUTHORITY_ENABLED;
+    process.env.PUBLISHING_AUTHORITY_ENABLED = "true";
+    await updatePublishingPreference(database.db, {
+      userId,
+      expectedRevision: 0,
+      mode: "full_access",
+      source: "settings",
+      currentConsentVersion: "2026-08-01",
+      acknowledged: true,
+      consentVersion: "2026-08-01",
+    });
+    service = new DefaultOrchestrationService(
+      database.db,
+      config,
+      model,
+      mcp,
+      new PublishingPreferenceService(database.db),
+    );
+    vi.mocked(model.complete).mockResolvedValueOnce(
+      modelCompletion({ content: "Hi. How can I help with your social posts?" }),
+    );
+
+    try {
+      const events: Array<{ type: string }> = [];
+      const result = await service.createConversationStream(
+        userId,
+        {
+          message: "Hello",
+          requestId: "00000000-0000-4000-8000-000000000199",
+        },
+        {
+          emit(event) {
+            events.push(event);
+          },
+        },
+      );
+
+      expect(result.intentQuestions).toBeFalsy();
+      expect(result.assistantMessage.content).not.toContain("quick confirm");
+      expect(result.assistantMessage.content).toBe(
+        "Hi. How can I help with your social posts?",
+      );
+      expect(events.some((event) => event.type === "intent_questions")).toBe(
+        false,
+      );
+      expect(mcp.callTool).not.toHaveBeenCalled();
     } finally {
       if (previousEnabled === undefined) delete process.env.PUBLISHING_AUTHORITY_ENABLED;
       else process.env.PUBLISHING_AUTHORITY_ENABLED = previousEnabled;
@@ -2521,5 +2575,28 @@ describe("DefaultOrchestrationService conversation titles", () => {
     });
     expect(third.conversation.title).toBe("Threads launch draft");
     expect(model.complete).toHaveBeenCalledTimes(4);
+  });
+
+  it("starts from the first ask, then renames when the goal is clear", async () => {
+    vi.mocked(model.complete)
+      .mockResolvedValueOnce(modelCompletion({ content: "Here is a launch draft." }))
+      .mockResolvedValueOnce(modelCompletion({ content: "Launch brand image" }));
+
+    const first = await service.createConversation(userId, {
+      message: "Generate a image for a launch using my brand",
+      requestId: "00000000-0000-4000-8000-00000000a005",
+    });
+    expect(first.conversation.title).toBe("Launch brand image");
+    expect(model.complete).toHaveBeenCalledTimes(2);
+
+    vi.mocked(model.complete).mockResolvedValueOnce(
+      modelCompletion({ content: "Here is another option." }),
+    );
+    const second = await service.addMessage(userId, first.conversation.id, {
+      message: "Make the logo bigger",
+      requestId: "00000000-0000-4000-8000-00000000a006",
+    });
+    expect(second.conversation.title).toBe("Launch brand image");
+    expect(model.complete).toHaveBeenCalledTimes(3);
   });
 });

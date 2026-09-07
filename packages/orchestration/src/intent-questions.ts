@@ -109,6 +109,143 @@ export function buildIntentQuestions(input: {
   return questions;
 }
 
+/** Product owned brand clarify when image brand use is unclear (AC-3). */
+export function buildBrandClarifyQuestions(): IntentQuestion[] {
+  return [
+    {
+      id: "brand_use",
+      prompt: "Should this image use your Brand Assets?",
+      reason:
+        "This looks like marketing creative, and I need a clear yes or no before I propose the image.",
+      options: withCustom([
+        {
+          id: "use_brand",
+          label: "Yes, use my brand",
+          recommended: true,
+        },
+        { id: "skip_brand", label: "No, keep it brand free" },
+      ]),
+    },
+  ];
+}
+
+export function buildAutonomyBriefQuestions(input: {
+  needsPlatform: boolean;
+  hasContentType: boolean;
+  hasDirection: boolean;
+}): IntentQuestion[] {
+  const questions: IntentQuestion[] = [];
+  if (!input.hasContentType) {
+    questions.push({
+      id: "content_type",
+      prompt: "What kind of content should I plan?",
+      reason: "I need a direction before I research and schedule.",
+      options: withCustom([
+        { id: "founder", label: "Founder updates and shipping notes", recommended: true },
+        { id: "product", label: "Product and offer posts" },
+        { id: "educational", label: "How-to and educational posts" },
+        { id: "mixed", label: "A mix across the next days" },
+      ]),
+    });
+  }
+  if (!input.hasDirection) {
+    questions.push({
+      id: "direction",
+      prompt: "What should the next posts push toward?",
+      reason: "A short aim keeps the captions specific instead of generic.",
+      options: withCustom([
+        { id: "customers", label: "Win more customers", recommended: true },
+        { id: "launch", label: "Talk about a launch or ship" },
+        { id: "authority", label: "Show expertise and stay visible" },
+        { id: "community", label: "Talk with the people I already have" },
+      ]),
+    });
+  }
+  if (input.needsPlatform) {
+    questions.push({
+      id: "platform",
+      prompt: "Which platform should I use?",
+      reason: "No platform is clear from this turn yet.",
+      options: withCustom([
+        { id: "threads", label: "Threads", recommended: true },
+        { id: "instagram", label: "Instagram" },
+        { id: "linkedin_personal", label: "LinkedIn" },
+      ]),
+    });
+  }
+  return questions;
+}
+
+export function autonomyBriefFromAnswers(answers: IntentAnswer[]): {
+  contentType?: string;
+  direction?: string;
+  platforms: TargetPlatform[];
+} {
+  const byId = new Map(answers.map((answer) => [answer.questionId, answer]));
+  const typeAnswer = byId.get("content_type");
+  const directionAnswer = byId.get("direction");
+  const platform = byId.get("platform");
+  const contentType = typeAnswer
+    ? typeAnswer.optionId === "custom"
+      ? typeAnswer.customText?.trim() || undefined
+      : typeAnswer.optionId
+    : undefined;
+  const direction = directionAnswer
+    ? directionAnswer.optionId === "custom"
+      ? directionAnswer.customText?.trim() || undefined
+      : directionAnswer.optionId === "customers"
+        ? "Win more customers"
+        : directionAnswer.optionId === "launch"
+          ? "Talk about a launch or ship"
+          : directionAnswer.optionId === "authority"
+            ? "Show expertise and stay visible"
+            : directionAnswer.optionId === "community"
+              ? "Talk with the people I already have"
+              : directionAnswer.optionId
+    : undefined;
+  const platforms: TargetPlatform[] = [];
+  if (platform) {
+    const raw =
+      platform.optionId === "custom"
+        ? (platform.customText ?? "").toLowerCase()
+        : platform.optionId;
+    if (raw === "threads" || raw.includes("thread")) platforms.push("threads");
+    if (raw === "instagram" || raw.includes("instagram") || raw.includes("insta")) {
+      platforms.push("instagram");
+    }
+    if (raw === "linkedin_personal" || raw.includes("linkedin")) {
+      platforms.push("linkedin_personal");
+    }
+  }
+  return { contentType, direction, platforms };
+}
+
+export function brandIntentFromAnswers(
+  answers: IntentAnswer[],
+): "use" | "skip" | null {
+  const answer = answers.find((item) => item.questionId === "brand_use");
+  if (!answer) return null;
+  if (answer.optionId === "use_brand") return "use";
+  if (answer.optionId === "skip_brand") return "skip";
+  if (answer.optionId === "custom") {
+    const custom = (answer.customText ?? "").trim().toLowerCase();
+    if (
+      custom.includes("don't use") ||
+      custom.includes("do not use") ||
+      custom.includes("without brand") ||
+      custom.includes("no brand") ||
+      custom.includes("brand free") ||
+      custom.includes("random")
+    ) {
+      return "skip";
+    }
+    if (custom.includes("brand") || custom.includes("logo") || custom.includes("yes")) {
+      return "use";
+    }
+  }
+  return null;
+}
+
 export function resolveIntentFromAnswers(
   answers: IntentAnswer[],
 ): {

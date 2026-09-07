@@ -152,7 +152,9 @@ export {
   isSchedulePlanAcceptance,
   localAutonomousScheduleIntent,
   isSchedulePlanRejection,
+  hasConcreteScheduleTarget,
   localDraftIntent,
+  localPlanningIntent,
   localLiveIntent,
   localScheduleIntent,
   priorHasAutonomousScheduleContext,
@@ -169,6 +171,10 @@ export {
 } from "./publishing.js";
 export {
   buildIntentQuestions,
+  buildAutonomyBriefQuestions,
+  autonomyBriefFromAnswers,
+  buildBrandClarifyQuestions,
+  brandIntentFromAnswers,
   resolveIntentFromAnswers,
   type IntentAnswer,
   type IntentQuestion,
@@ -180,8 +186,22 @@ export {
   buildAutonomyBrief,
   buildPublishAtCandidates,
   coverageDayOffsets,
+  parseHorizonDays,
   resolveAutonomyTimeZone,
 } from "./autonomy-brief.js";
+export {
+  isLengthStopReason,
+  joinContinuedReply,
+  looksCutOffAssistantText,
+  shouldContinueAssistantReply,
+} from "./reply-complete.js";
+export {
+  createDeepSeekSearchClient,
+  extractSearchSummary,
+  failOpenSearchSummary,
+  type DeepSeekSearchClient,
+  type DeepSeekSearchResult,
+} from "./deepseek-search.js";
 export { PLATFORM_PLAYBOOKS, playbookFor } from "./platform-playbooks.js";
 export {
   createSequenceSink,
@@ -190,3 +210,23 @@ export {
   type OrchestrationStreamSink,
   type OrchestrationStreamStep,
 } from "./stream.js";
+export {
+  brandDesignSystemSuffix,
+  prependBrandBrief,
+} from "./brand-design.js";
+export {
+  clerkIsChatOnly,
+  clerkWantsCampaign,
+  isGptTheseanModel,
+  mergeClerkLock,
+  runPlanClerk,
+  type ClerkOutput,
+} from "./clerk-lock.js";
+export {
+  buildDaySlots,
+  campaignBookingLine,
+  campaignInFlightLine,
+  campaignQueueCap,
+  processOneCampaignTick,
+  publicCampaign,
+} from "./campaign-day.js";

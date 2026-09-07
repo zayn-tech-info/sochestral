@@ -2,10 +2,12 @@ import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  date,
   index,
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -138,6 +140,183 @@ export const mediaAssets = pgTable(
     check(
       "media_assets_size_check",
       sql`${table.byteSize} is null or ${table.byteSize} > 0`,
+    ),
+  ],
+);
+
+export const brandAssets = pgTable(
+  "brand_assets",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    name: text("name").notNull(),
+    mediaAssetId: text("media_asset_id").references(() => mediaAssets.id, {
+      onDelete: "set null",
+    }),
+    colorValue: text("color_value"),
+    noteText: text("note_text"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("brand_assets_user_kind_idx").on(table.userId, table.kind),
+    index("brand_assets_user_created_idx").on(table.userId, table.createdAt),
+    check(
+      "brand_assets_kind_check",
+      sql`${table.kind} in ('logo', 'reference_image', 'color', 'design_note')`,
+    ),
+  ],
+);
+
+export const brandDesignBriefs = pgTable(
+  "brand_design_briefs",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    briefText: text("brief_text"),
+    sourceHash: text("source_hash").notNull(),
+    status: text("status").notNull().default("pending"),
+    compiledAt: timestamp("compiled_at", { withTimezone: true }),
+    pendingAt: timestamp("pending_at", { withTimezone: true }),
+    errorCode: text("error_code"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check(
+      "brand_design_briefs_status_check",
+      sql`${table.status} in ('pending', 'ready', 'failed')`,
+    ),
+    index("brand_design_briefs_pending_idx").on(table.status, table.pendingAt),
+  ],
+);
+
+export const imageJobs = pgTable(
+  "image_jobs",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id").references(
+      () => orchestrationConversations.id,
+      { onDelete: "set null" },
+    ),
+    requestId: text("request_id"),
+    kind: text("kind").notNull(),
+    status: text("status").notNull().default("pending_confirm"),
+    prompt: text("prompt"),
+    sizePreset: text("size_preset").notNull().default("portrait_4_5"),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    sourceMediaAssetId: text("source_media_asset_id").references(
+      () => mediaAssets.id,
+      { onDelete: "set null" },
+    ),
+    resultMediaAssetId: text("result_media_asset_id").references(
+      () => mediaAssets.id,
+      { onDelete: "set null" },
+    ),
+    resultMediaAssetIds: jsonb("result_media_asset_ids")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    variantCount: integer("variant_count").notNull().default(1),
+    provider: text("provider").notNull().default("openai"),
+    model: text("model").notNull(),
+    estimatedCostCents: integer("estimated_cost_cents").notNull().default(0),
+    creditsCharged: integer("credits_charged").notNull().default(0),
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("image_jobs_user_created_idx").on(table.userId, table.createdAt),
+    index("image_jobs_status_created_idx").on(table.status, table.createdAt),
+    uniqueIndex("image_jobs_user_request_uidx").on(table.userId, table.requestId),
+    check(
+      "image_jobs_kind_check",
+      sql`${table.kind} in ('generate', 'reframe', 'vary', 'prompt_edit')`,
+    ),
+    check(
+      "image_jobs_status_check",
+      sql`${table.status} in ('pending_confirm', 'queued', 'running', 'succeeded', 'failed', 'cancelled')`,
+    ),
+    check(
+      "image_jobs_size_preset_check",
+      sql`${table.sizePreset} in ('square', 'portrait_4_5', 'story_9_16', 'linkedin_landscape')`,
+    ),
+    check(
+      "image_jobs_variant_count_check",
+      sql`${table.variantCount} between 1 and 3`,
+    ),
+  ],
+);
+
+export const imageJobInputs = pgTable(
+  "image_job_inputs",
+  {
+    id: text("id").primaryKey(),
+    jobId: text("job_id")
+      .notNull()
+      .references(() => imageJobs.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    mediaAssetId: text("media_asset_id").references(() => mediaAssets.id, {
+      onDelete: "set null",
+    }),
+    brandAssetId: text("brand_asset_id").references(() => brandAssets.id, {
+      onDelete: "cascade",
+    }),
+    role: text("role").notNull(),
+  },
+  (table) => [
+    uniqueIndex("image_job_inputs_job_position_uidx").on(
+      table.jobId,
+      table.position,
+    ),
+    check(
+      "image_job_inputs_role_check",
+      sql`${table.role} in ('reference', 'brand')`,
+    ),
+    check(
+      "image_job_inputs_source_check",
+      sql`(${table.mediaAssetId} is not null and ${table.brandAssetId} is null) or (${table.mediaAssetId} is null and ${table.brandAssetId} is not null)`,
+    ),
+  ],
+);
+
+export const imageCreditWallets = pgTable(
+  "image_credit_wallets",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    periodYm: text("period_ym").notNull(),
+    creditsUsed: integer("credits_used").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.periodYm] }),
+    check(
+      "image_credit_wallets_used_check",
+      sql`${table.creditsUsed} >= 0`,
     ),
   ],
 );
@@ -288,6 +467,138 @@ export const orchestrationConversations = pgTable(
       table.updatedAt,
       table.id,
     ),
+  ],
+);
+
+export type PlanCadence = {
+  threadsPerDay?: number;
+  linkedinPerDay?: number;
+  instagramPerDay?: number;
+};
+
+export const conversationContentPlans = pgTable(
+  "conversation_content_plans",
+  {
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => orchestrationConversations.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    horizonDays: integer("horizon_days").notNull().default(14),
+    platforms: jsonb("platforms").$type<string[]>().notNull().default([]),
+    contentType: text("content_type"),
+    direction: text("direction"),
+    themes: jsonb("themes").$type<string[]>().notNull().default([]),
+    acceptedItems: jsonb("accepted_items")
+      .$type<Array<Record<string, unknown>>>()
+      .notNull()
+      .default([]),
+    researchSummary: text("research_summary"),
+    startDate: date("start_date"),
+    timezone: text("timezone"),
+    cadence: jsonb("cadence")
+      .$type<PlanCadence>()
+      .notNull()
+      .default({}),
+    timeMode: text("time_mode"),
+    lockedAt: timestamp("locked_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("conversation_content_plans_conversation_unique").on(
+      table.conversationId,
+    ),
+    index("conversation_content_plans_user_idx").on(table.userId),
+    check(
+      "conversation_content_plans_horizon_check",
+      sql`${table.horizonDays} between 1 and 30`,
+    ),
+    check(
+      "conversation_content_plans_time_mode_check",
+      sql`${table.timeMode} is null or ${table.timeMode} in ('spread', 'windows')`,
+    ),
+  ],
+);
+
+export const campaignJobs = pgTable(
+  "campaign_jobs",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => orchestrationConversations.id, { onDelete: "cascade" }),
+    planId: text("plan_id")
+      .notNull()
+      .references(() => conversationContentPlans.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("queued"),
+    cap: integer("cap").notNull().default(30),
+    bookedCount: integer("booked_count").notNull().default(0),
+    nextDate: date("next_date").notNull(),
+    dayAttempts: integer("day_attempts").notNull().default(0),
+    bookedPublishAts: jsonb("booked_publish_ats")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    notice: text("notice"),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("campaign_jobs_one_inflight_user")
+      .on(table.userId)
+      .where(sql`${table.status} in ('queued', 'running', 'paused')`),
+    index("campaign_jobs_user_created_idx").on(table.userId, table.createdAt),
+    index("campaign_jobs_status_idx").on(table.status, table.createdAt),
+    check(
+      "campaign_jobs_status_check",
+      sql`${table.status} in ('queued', 'running', 'paused', 'succeeded', 'stopped', 'failed')`,
+    ),
+    check(
+      "campaign_jobs_cap_check",
+      sql`${table.cap} between 1 and 30`,
+    ),
+    check(
+      "campaign_jobs_booked_count_check",
+      sql`${table.bookedCount} >= 0`,
+    ),
+  ],
+);
+
+export const voiceBibles = pgTable(
+  "voice_bibles",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    briefText: text("brief_text"),
+    sourceHash: text("source_hash").notNull(),
+    status: text("status").notNull().default("compiling"),
+    pendingAt: timestamp("pending_at", { withTimezone: true }),
+    compileHash: text("compile_hash"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check(
+      "voice_bibles_status_check",
+      sql`${table.status} in ('current', 'compiling', 'failed')`,
+    ),
+    index("voice_bibles_pending_idx").on(table.status, table.pendingAt),
   ],
 );
 
@@ -502,7 +813,7 @@ export const orchestrationToolCalls = pgTable(
     ),
     check(
       "orchestration_tool_calls_name_check",
-      sql`${table.toolName} in ('list_connected_accounts', 'validate_post', 'publish_now', 'prepare_review', 'save_profile_entry', 'schedule_post', 'update_business_identity', 'upsert_profile_entry', 'skip_competitors', 'research_competitors', 'save_tone_rule', 'complete_setup_if_ready')`,
+      sql`${table.toolName} in ('list_connected_accounts', 'validate_post', 'publish_now', 'prepare_review', 'save_profile_entry', 'schedule_post', 'propose_image_job', 'research_web', 'save_content_plan', 'update_business_identity', 'upsert_profile_entry', 'skip_competitors', 'research_competitors', 'save_tone_rule', 'complete_setup_if_ready')`,
     ),
     check(
       "orchestration_tool_calls_status_check",
@@ -630,8 +941,49 @@ export const orchestrationConversationsRelations = relations(
     messages: many(orchestrationMessages),
     runs: many(orchestrationRuns),
     drafts: many(drafts),
+    contentPlan: one(conversationContentPlans, {
+      fields: [orchestrationConversations.id],
+      references: [conversationContentPlans.conversationId],
+    }),
   }),
 );
+
+export const conversationContentPlansRelations = relations(
+  conversationContentPlans,
+  ({ one, many }) => ({
+    conversation: one(orchestrationConversations, {
+      fields: [conversationContentPlans.conversationId],
+      references: [orchestrationConversations.id],
+    }),
+    user: one(users, {
+      fields: [conversationContentPlans.userId],
+      references: [users.id],
+    }),
+    campaignJobs: many(campaignJobs),
+  }),
+);
+
+export const campaignJobsRelations = relations(campaignJobs, ({ one }) => ({
+  user: one(users, {
+    fields: [campaignJobs.userId],
+    references: [users.id],
+  }),
+  conversation: one(orchestrationConversations, {
+    fields: [campaignJobs.conversationId],
+    references: [orchestrationConversations.id],
+  }),
+  plan: one(conversationContentPlans, {
+    fields: [campaignJobs.planId],
+    references: [conversationContentPlans.id],
+  }),
+}));
+
+export const voiceBiblesRelations = relations(voiceBibles, ({ one }) => ({
+  user: one(users, {
+    fields: [voiceBibles.userId],
+    references: [users.id],
+  }),
+}));
 
 export const draftsRelations = relations(drafts, ({ one, many }) => ({
   user: one(users, { fields: [drafts.userId], references: [users.id] }),
@@ -700,11 +1052,45 @@ export type DraftPublishAttempt = typeof draftPublishAttempts.$inferSelect;
 export type PublishingPreference = typeof publishingPreferences.$inferSelect;
 export type PublishingAuthorityEvent = typeof publishingAuthorityEvents.$inferSelect;
 export type MediaAsset = typeof mediaAssets.$inferSelect;
+export type BrandAsset = typeof brandAssets.$inferSelect;
+export type BrandDesignBrief = typeof brandDesignBriefs.$inferSelect;
+export type ImageJob = typeof imageJobs.$inferSelect;
+export type ImageJobInput = typeof imageJobInputs.$inferSelect;
+export type ImageCreditWallet = typeof imageCreditWallets.$inferSelect;
+export type BrandAssetKind = "logo" | "reference_image" | "color" | "design_note";
+export type ImageJobKind = "generate" | "reframe" | "vary" | "prompt_edit";
+export type ImageJobStatus =
+  | "pending_confirm"
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+export type ImageSizePreset =
+  | "square"
+  | "portrait_4_5"
+  | "story_9_16"
+  | "linkedin_landscape";
+export type ImageJobInputRole = "reference" | "brand";
+export type BrandDesignBriefStatus = "pending" | "ready" | "failed";
 export type OrchestrationConversation =
   typeof orchestrationConversations.$inferSelect;
 export type OrchestrationMessage = typeof orchestrationMessages.$inferSelect;
 export type OrchestrationRun = typeof orchestrationRuns.$inferSelect;
 export type OrchestrationToolCall = typeof orchestrationToolCalls.$inferSelect;
+export type ConversationContentPlan =
+  typeof conversationContentPlans.$inferSelect;
+export type CampaignJob = typeof campaignJobs.$inferSelect;
+export type VoiceBible = typeof voiceBibles.$inferSelect;
+export type CampaignJobStatus =
+  | "queued"
+  | "running"
+  | "paused"
+  | "succeeded"
+  | "stopped"
+  | "failed";
+export type VoiceBibleStatus = "current" | "compiling" | "failed";
+export type PlanTimeMode = "spread" | "windows";
 export type NewUser = typeof users.$inferInsert;
 export type NewSession = typeof sessions.$inferInsert;
 export type NewDraft = typeof drafts.$inferInsert;

@@ -16,9 +16,12 @@ import {
   ApiError,
   composeCalendarCaptions,
   createCalendarSlots,
+  getImageJob,
+  listRecentImageGenerations,
   rewriteCaptionSelection,
   type CalendarAccount,
   type ConnectorPlatform,
+  type ImageJob,
   type ScheduleRewriteAction,
 } from "@/lib/product-api";
 import { PLATFORM_LABELS, resolveTimeZone } from "@/lib/calendar-week";
@@ -176,6 +179,8 @@ export function CreateScheduleModal({
   const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
+  const [recentJobs, setRecentJobs] = useState<ImageJob[]>([]);
+  const [recentOpenFor, setRecentOpenFor] = useState<string | null>(null);
   const selectionRef = useRef<SelectionState | null>(null);
   selectionRef.current = selection;
 
@@ -232,6 +237,16 @@ export function CreateScheduleModal({
     setAiSuggestion(null);
     setAiError(null);
     setAiBusy(false);
+    setRecentOpenFor(null);
+    void listRecentImageGenerations()
+      .then((result) =>
+        setRecentJobs(
+          result.items.filter(
+            (job) => job.status === "succeeded" && job.resultMediaAssetId,
+          ),
+        ),
+      )
+      .catch(() => setRecentJobs([]));
   }, [open, initialScheduledAt]);
 
   useEffect(() => {
@@ -427,6 +442,49 @@ export function CreateScheduleModal({
       setUploadingAccountId(null);
       setUploadTargetAccountId(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function attachRecentGeneration(accountId: string, job: ImageJob) {
+    const assetId = job.resultMediaAssetId;
+    if (!assetId) return;
+    const account = accounts.find((row) => row.id === accountId);
+    if (!account) return;
+    const limits = platformImageLimits(account.platform);
+    const existing = mediaByAccount[accountId] ?? [];
+    if (existing.length >= limits.max) return;
+    if (existing.some((item) => item.assetId === assetId)) {
+      setRecentOpenFor(null);
+      return;
+    }
+    try {
+      const detail = await getImageJob(job.id);
+      const previewUrl = detail.resultPreviewUrl ?? "";
+      setMediaByAccount((current) => {
+        const prior = current[accountId] ?? [];
+        return {
+          ...current,
+          [accountId]: [
+            ...prior,
+            { assetId, externalUrl: previewUrl || assetId },
+          ].slice(0, limits.max),
+        };
+      });
+      if (previewUrl) {
+        setMediaPreviews((current) => ({
+          ...current,
+          [assetId]: previewUrl,
+        }));
+      }
+      setRecentOpenFor(null);
+      toast({ tone: "success", title: "Generated image attached" });
+    } catch (error) {
+      toast({
+        tone: "error",
+        title: userFacingError(error, {
+          fallback: "Could not attach that generation.",
+        }),
+      });
     }
   }
 
@@ -791,6 +849,44 @@ export function CreateScheduleModal({
                                 ? `Max ${limits.max} images`
                                 : "Add images"}
                           </button>
+                          {recentJobs.length > 0 && !atMax ? (
+                            <div className="cal-modal-recent-gen">
+                              <button
+                                type="button"
+                                className="cal-link-btn"
+                                disabled={busy || Boolean(uploadingAccountId)}
+                                onClick={() =>
+                                  setRecentOpenFor((current) =>
+                                    current === accountRow.id
+                                      ? null
+                                      : accountRow.id,
+                                  )
+                                }
+                              >
+                                Use recent
+                              </button>
+                              {recentOpenFor === accountRow.id ? (
+                                <ul className="cal-modal-recent-list">
+                                  {recentJobs.map((job) => (
+                                    <li key={job.id}>
+                                      <button
+                                        type="button"
+                                        disabled={busy}
+                                        onClick={() =>
+                                          void attachRecentGeneration(
+                                            accountRow.id,
+                                            job,
+                                          )
+                                        }
+                                      >
+                                        {job.kind.replaceAll("_", " ")}
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : null}
+                            </div>
+                          ) : null}
                           {paneMedia.length > 0 ? (
                             <ul className="cal-modal-media-list">
                               {paneMedia.map((item, index) => (

@@ -3,6 +3,7 @@
 **Date**: 2026-08-05
 **Status**: In Progress
 **Amended**: 2026-08-08 — action labels replace Thesean think-stream UI; structured `intent_questions` carousel for ambiguous or multi-goal turns.
+**Amended**: 2026-08-14 — live vs draft classify shares the Luna clerk in [0018](../0018-model-campaign-handoff/index.md). This spec still owns the Q&A carousel and action labels.
 
 ## Summary
 

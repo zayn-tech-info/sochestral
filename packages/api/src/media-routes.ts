@@ -17,6 +17,14 @@ export function registerMediaRoutes(
   db: Database["db"],
   getService: () => MediaService,
 ): void {
+  async function sessionOnly(c: Context<Env>) {
+    const raw = getCookie(c, SESSION_COOKIE_NAME);
+    const session = await validateSessionToken(db, raw);
+    if (!session && raw) deleteCookie(c, SESSION_COOKIE_NAME, { path: "/" });
+    if (!session) return { response: c.json({ error: "UNAUTHORIZED" }, 401) };
+    return { user: session.user };
+  }
+
   async function trusted(c: Context<Env>) {
     const raw = getCookie(c, SESSION_COOKIE_NAME);
     const session = await validateSessionToken(db, raw);
@@ -89,6 +97,25 @@ export function registerMediaRoutes(
     try {
       const target = await getService().signedRedirectTarget(userId, assetId);
       return c.redirect(target, 302);
+    } catch (error) {
+      const result = mapped(error);
+      return c.json(result.body, result.status);
+    }
+  });
+
+  app.get("/media/assets/:assetId/download", async (c) => {
+    const request = await sessionOnly(c);
+    if ("response" in request) return request.response;
+    try {
+      const file = await getService().download(
+        request.user.id,
+        c.req.param("assetId"),
+      );
+      return c.body(file.bytes, 200, {
+        "Content-Type": file.mimeType,
+        "Content-Disposition": `attachment; filename="${file.filename}"`,
+        "Cache-Control": "private, no-store",
+      });
     } catch (error) {
       const result = mapped(error);
       return c.json(result.body, result.status);

@@ -8,8 +8,8 @@ import { playbookFor, type PlatformPlaybook } from "./platform-playbooks.js";
 export const AUTONOMY_DEFAULT_HORIZON_DAYS = 7;
 /** Fraction of horizon days that should receive at least one candidate slot. */
 export const AUTONOMY_COVERAGE_RATIO = 0.85;
-export const AUTONOMY_SCHEDULE_POST_CAP = 14;
-export const STANDARD_SCHEDULE_POST_CAP = 2;
+export const AUTONOMY_SCHEDULE_POST_CAP = 1;
+export const STANDARD_SCHEDULE_POST_CAP = 1;
 
 const IANA_TIME_ZONE_RE =
   /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/(?:[A-Za-z0-9_+-]+(?:\/[A-Za-z0-9_+-]+)?)\b/;
@@ -57,6 +57,9 @@ export type AutonomyBriefInput = {
   /** User rejected a prior plan; steer away from previous slots/topics. */
   redoFeedback?: string;
   avoidPublishAts?: string[];
+  contentPlanNote?: string | null;
+  researchSummary?: string | null;
+  horizonDays?: number;
 };
 
 export type PublishAtCandidate = {
@@ -78,13 +81,18 @@ export type AutonomyBrief = {
   text: string;
 };
 
-function parseHorizonDays(message: string | undefined, fallback: number): number {
+export function parseHorizonDays(message: string | undefined, fallback: number): number {
   if (!message) return fallback;
   const lower = message.toLowerCase();
   const daysMatch = lower.match(/\b(?:next|for|over)\s+(\d{1,2})\s+days?\b/);
   if (daysMatch) {
     const n = Number(daysMatch[1]);
     if (Number.isFinite(n) && n >= 1 && n <= 30) return n;
+  }
+  const weeksMatch = lower.match(/\b(?:next|for|over)\s+(\d{1,2})\s+weeks?\b/);
+  if (weeksMatch) {
+    const n = Number(weeksMatch[1]);
+    if (Number.isFinite(n) && n >= 1 && n <= 4) return n * 7;
   }
   if (/\b(?:this|next)\s+week\b/.test(lower) || /\b7\s+days?\b/.test(lower)) {
     return 7;
@@ -334,10 +342,9 @@ export function buildPublishAtCandidates(input: {
 export function buildAutonomyBrief(input: AutonomyBriefInput): AutonomyBrief {
   const timeZone = input.timeZone?.trim() || "UTC";
   const now = input.now ?? new Date();
-  const horizonDays = parseHorizonDays(
-    input.userMessage,
-    AUTONOMY_DEFAULT_HORIZON_DAYS,
-  );
+  const horizonDays =
+    input.horizonDays ??
+    parseHorizonDays(input.userMessage, AUTONOMY_DEFAULT_HORIZON_DAYS);
 
   if (!input.minimumComplete) {
     const refuseReason =
@@ -456,7 +463,16 @@ export function buildAutonomyBrief(input: AutonomyBriefInput): AutonomyBrief {
     "## publishAt candidates (UTC ISO)",
     candidateLines,
     "",
+    "",
+    "## Conversation plan",
+    input.contentPlanNote?.trim() || "No stored plan yet. Use the user message and profile.",
+    "",
+    "## Live web research",
+    input.researchSummary?.trim() ||
+      "No live web notes. Do not invent citations. Still write like a person, not a generic AI post.",
+    "",
     "## Required actions this turn",
+    "- Write captions like a real person in this niche: specific, conversational, grounded in the research and plan. No generic AI listicles or empty inspiration posts.",
     "- Write original captions that fit profile tone and stand out from listed competitors.",
     "- Call schedule_post for each chosen candidate (or a near free slot on the same spread day), up to the cap.",
     "- Keep the calendar spread: when the horizon is multi-day, do not collapse schedules into the first one or two days.",

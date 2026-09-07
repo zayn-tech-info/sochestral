@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AUTONOMY_SCHEDULE_POST_CAP, STANDARD_SCHEDULE_POST_CAP } from "./autonomy-brief.js";
+import { STANDARD_SCHEDULE_POST_CAP } from "./autonomy-brief.js";
 import { OrchestrationError } from "./errors.js";
 import {
   ALLOWED_TOOL_NAMES,
@@ -19,18 +19,19 @@ describe("orchestration tools", () => {
     expect(MODEL_TOOLS.map((tool) => tool.name)).toEqual([
       "prepare_review",
       "save_profile_entry",
+      "propose_image_job",
+      "research_web",
+      "save_content_plan",
       ...ALLOWED_TOOL_NAMES,
     ]);
   });
 
-  it("documents the same schedule_post autonomy cap the service enforces", () => {
+  it("documents the same schedule_post cap the service enforces", () => {
     const scheduleTool = MODEL_TOOLS.find((tool) => tool.name === "schedule_post");
     expect(scheduleTool?.description).toContain(
-      `At most ${STANDARD_SCHEDULE_POST_CAP} schedule_post calls per turn normally`,
+      `At most ${STANDARD_SCHEDULE_POST_CAP} schedule_post call per turn`,
     );
-    expect(scheduleTool?.description).toContain(
-      `autonomy mode may allow up to ${AUTONOMY_SCHEDULE_POST_CAP}`,
-    );
+    expect(scheduleTool?.description).toContain("campaign job");
     expect(scheduleTool?.description).not.toMatch(/up to seven/i);
   });
 
@@ -367,6 +368,44 @@ describe("orchestration tools", () => {
       scheduled: false,
       code: "SCHEDULE_TIME_MUST_BE_FUTURE",
       message: "scheduledAt must be in the future.",
+    });
+  });
+
+  it("accepts research_web and save_content_plan (AC-4, AC-5)", () => {
+    expect(
+      validateToolInput(
+        "research_web",
+        { query: "founder shipping posts that work", why: "plan" },
+        [],
+      ),
+    ).toEqual({
+      name: "research_web",
+      input: { query: "founder shipping posts that work", why: "plan" },
+    });
+    expect(() =>
+      validateToolInput("research_web", { query: "ab" }, []),
+    ).toThrowError(expect.objectContaining({ code: "INVALID_TOOL_ARGUMENTS" }));
+    expect(
+      validateToolInput(
+        "save_content_plan",
+        {
+          horizonDays: 14,
+          platforms: ["threads"],
+          contentType: "founder",
+          direction: "Win more customers",
+          themes: ["shipping notes"],
+        },
+        [],
+      ),
+    ).toMatchObject({
+      name: "save_content_plan",
+      input: {
+        horizonDays: 14,
+        platforms: ["threads"],
+        contentType: "founder",
+        direction: "Win more customers",
+        themes: ["shipping notes"],
+      },
     });
   });
 });

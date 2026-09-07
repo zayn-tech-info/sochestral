@@ -12,6 +12,10 @@ import {
   deleteExpiredPendingMediaAsset,
   deleteOwnedUnattachedMediaAsset,
   getOwnedMediaAsset,
+  getOwnedMediaAssetAnyState,
+  isImageJobResultAsset,
+  restoreReadyMediaAsset,
+  linkOwnedMediaToConversation,
   listExpiredPendingMediaAssets,
   listOwnedConversationMediaAssets,
   markMediaAssetReady,
@@ -175,6 +179,9 @@ export class R2MediaObjectStore implements MediaObjectStore {
         accessKeyId: config.accessKeyId,
         secretAccessKey: config.secretAccessKey,
       },
+      // AWS SDK v3.729+ default checksums break Cloudflare R2 GetObject.
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
     });
   }
 
@@ -204,7 +211,14 @@ export class R2MediaObjectStore implements MediaObjectStore {
       new GetObjectCommand({ Bucket: this.config.bucket, Key: key }),
     );
     if (!result.Body) throw new MediaError("MEDIA_NOT_READY", 409);
-    return result.Body.transformToByteArray();
+    if (typeof result.Body.transformToByteArray === "function") {
+      return result.Body.transformToByteArray();
+    }
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of result.Body as AsyncIterable<Uint8Array>) {
+      chunks.push(chunk);
+    }
+    return new Uint8Array(Buffer.concat(chunks));
   }
 
   async put(key: string, body: Uint8Array, mimeType: string): Promise<void> {
@@ -397,6 +411,9 @@ export class MediaService {
     const asset = await getOwnedMediaAsset(this.db, userId, assetId);
     if (!asset) throw new MediaError("MEDIA_NOT_FOUND", 404);
     if (asset.conversationId) throw new MediaError("MEDIA_NOT_READY", 409);
+    if (await isImageJobResultAsset(this.db, userId, assetId)) {
+      throw new MediaError("MEDIA_NOT_READY", 409);
+    }
     try {
       await this.store.delete(asset.storageKey);
       if (!(await deleteOwnedUnattachedMediaAsset(this.db, userId, assetId))) {
@@ -408,6 +425,63 @@ export class MediaService {
     }
   }
 
+  /** Server side ingest for generation results: sanitize, store, mark ready. */
+  async ingestGeneratedBytes(
+    userId: string,
+    bytes: Uint8Array,
+    fileName = "generated.png",
+    conversationId?: string | null,
+  ): Promise<PublicMediaAsset> {
+    const sanitized = await sanitizeImage(bytes);
+    const created = await this.createUploads(userId, [
+      {
+        name: fileName,
+        mimeType: sanitized.mimeType,
+        byteSize: sanitized.byteSize,
+      },
+    ]);
+    const assetId = created.uploads[0]!.assetId;
+    const asset = await getOwnedMediaAsset(this.db, userId, assetId);
+    if (!asset) throw new MediaError("MEDIA_NOT_FOUND", 404);
+    try {
+      await this.store.put(asset.storageKey, sanitized.bytes, sanitized.mimeType);
+      const ready = await markMediaAssetReady(this.db, {
+        userId,
+        assetId,
+        mimeType: sanitized.mimeType,
+        byteSize: sanitized.byteSize,
+        width: sanitized.width,
+        height: sanitized.height,
+      });
+      if (conversationId) {
+        await linkOwnedMediaToConversation(
+          this.db,
+          userId,
+          assetId,
+          conversationId,
+        );
+      }
+      return this.publicAsset(ready);
+    } catch (error) {
+      if (error instanceof MediaError) throw error;
+      throw new MediaError("STORAGE_UNAVAILABLE", 502);
+    }
+  }
+
+  async getOwnedBytes(userId: string, assetId: string): Promise<Uint8Array> {
+    const asset = await getOwnedMediaAsset(this.db, userId, assetId);
+    if (!asset || asset.state !== "ready") throw new MediaError("MEDIA_NOT_FOUND", 404);
+    try {
+      return await this.store.get(asset.storageKey);
+    } catch (error) {
+      if (error instanceof MediaError) throw error;
+      console.error("[sochestral:media] object get failed", {
+        error: error instanceof Error ? error.message : "unknown",
+      });
+      throw new MediaError("STORAGE_UNAVAILABLE", 502);
+    }
+  }
+
   async previewUrl(userId: string, assetId: string): Promise<string> {
     const asset = await getOwnedMediaAsset(this.db, userId, assetId);
     if (!asset || asset.state !== "ready") throw new MediaError("MEDIA_NOT_FOUND", 404);
@@ -415,6 +489,34 @@ export class MediaService {
       asset.storageKey,
       positiveInteger(process.env.MEDIA_PREVIEW_TTL_SECONDS, 3600),
     );
+  }
+
+  async previewUrlOrRevive(userId: string, assetId: string): Promise<string | null> {
+    try {
+      return await this.previewUrl(userId, assetId);
+    } catch {
+      const asset = await getOwnedMediaAssetAnyState(this.db, userId, assetId);
+      if (!asset) return null;
+      try {
+        const sanitized = await sanitizeImage(await this.store.get(asset.storageKey));
+        if (asset.state !== "ready") {
+          await restoreReadyMediaAsset(this.db, {
+            userId,
+            assetId,
+            mimeType: sanitized.mimeType,
+            byteSize: sanitized.byteSize,
+            width: sanitized.width,
+            height: sanitized.height,
+          });
+        }
+        return this.store.signedGet(
+          asset.storageKey,
+          positiveInteger(process.env.MEDIA_PREVIEW_TTL_SECONDS, 3600),
+        );
+      } catch {
+        return null;
+      }
+    }
   }
 
   async publishUrl(userId: string, assetId: string): Promise<string> {
@@ -433,6 +535,30 @@ export class MediaService {
 
   async signedRedirectTarget(userId: string, assetId: string): Promise<string> {
     return this.publishUrl(userId, assetId);
+  }
+
+  async download(userId: string, assetId: string): Promise<{
+    bytes: Uint8Array;
+    mimeType: string;
+    filename: string;
+  }> {
+    const asset = await getOwnedMediaAsset(this.db, userId, assetId);
+    if (!asset || asset.state !== "ready") {
+      throw new MediaError("MEDIA_NOT_FOUND", 404);
+    }
+    const mimeType = asset.mimeType || "image/png";
+    const ext =
+      mimeType === "image/jpeg" ? "jpg" : mimeType === "image/webp" ? "webp" : "png";
+    try {
+      return {
+        bytes: await this.store.get(asset.storageKey),
+        mimeType,
+        filename: `sochestral-${assetId}.${ext}`,
+      };
+    } catch (error) {
+      if (error instanceof MediaError) throw error;
+      throw new MediaError("STORAGE_UNAVAILABLE", 502);
+    }
   }
 
   async modelImage(userId: string, assetId: string): Promise<ModelMediaAsset> {

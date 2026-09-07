@@ -9,6 +9,7 @@ import {
   patchBusinessProfile,
   patchOwnedProfileEntry,
   ProfileDatabaseError,
+  refreshVoiceBibleHash,
   type Database,
   type ProfileEntryCategory,
   type ProfileEntryStatus,
@@ -246,6 +247,7 @@ export function registerProfileRoutes(
         source: "settings",
         sortOrder: typeof body.sortOrder === "number" ? body.sortOrder : 0,
       });
+      await refreshVoiceBibleHash(db, user.id).catch(() => undefined);
       return c.json(projectEntry(entry), 201);
     } catch (error) {
       if (error instanceof ProfileDatabaseError) {
@@ -274,6 +276,7 @@ export function registerProfileRoutes(
         sortOrder:
           typeof body.sortOrder === "number" ? body.sortOrder : undefined,
       });
+      await refreshVoiceBibleHash(db, user.id).catch(() => undefined);
       return c.json(projectEntry(entry));
     } catch (error) {
       if (error instanceof ProfileDatabaseError) {
@@ -288,6 +291,7 @@ export function registerProfileRoutes(
     if (!user) return c.json({ error: "UNAUTHORIZED" }, 401);
     try {
       await deleteOwnedProfileEntry(db, user.id, c.req.param("id"));
+      await refreshVoiceBibleHash(db, user.id).catch(() => undefined);
       return c.body(null, 204);
     } catch (error) {
       if (error instanceof ProfileDatabaseError) {

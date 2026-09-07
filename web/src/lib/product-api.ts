@@ -152,15 +152,37 @@ export type IntentAnswer = {
 };
 
 export const STREAM_STEP_LABELS: Record<StreamStep, string> = {
-  understanding: "Reading your message",
-  checking_intent: "Checking intent",
-  clarifying_intent: "Clarifying intent",
-  planning: "Planning from your context",
-  preparing_draft: "Preparing a draft",
-  validating: "Validating",
+  understanding: "Thinking",
+  checking_intent: "Figuring out what to do",
+  clarifying_intent: "Asking a follow-up",
+  planning: "Planning",
+  preparing_draft: "Drafting",
+  validating: "Checking the post",
   scheduling: "Scheduling",
   publishing: "Publishing",
 };
+
+export const STREAM_TOOL_LABELS: Record<string, string> = {
+  propose_image_job: "Preparing an image",
+  prepare_review: "Drafting",
+  schedule_post: "Scheduling",
+  validate_post: "Checking the post",
+  publish_now: "Publishing",
+  list_connected_accounts: "Checking accounts",
+  save_profile_entry: "Saving a profile note",
+  research_web: "Searching the web",
+  save_content_plan: "Saving the plan",
+};
+
+export function liveActionLabel(
+  step: StreamStep | null | undefined,
+  toolName?: string | null,
+): string {
+  if (toolName && STREAM_TOOL_LABELS[toolName]) {
+    return STREAM_TOOL_LABELS[toolName];
+  }
+  return STREAM_STEP_LABELS[step ?? "understanding"];
+}
 
 export async function apiStreamTurn(
   path: string,
@@ -674,3 +696,210 @@ export function getScheduledPosts(query: {
     `/scheduled/posts?${params.toString()}`,
   );
 }
+
+export type CampaignCurrent = {
+  id: string;
+  status: string;
+  bookedCount: number;
+  cap: number;
+  nextDate: string;
+  dayIndex: number;
+  conversationId: string;
+  startDate: string | null;
+  notice: string | null;
+  lastError: string | null;
+};
+
+export function getCurrentCampaign() {
+  return apiRequest<{ campaign: CampaignCurrent }>("/campaigns/current");
+}
+
+export function pauseCampaign(id: string) {
+  return apiRequest<{ id: string; status: string }>(
+    `/campaigns/${encodeURIComponent(id)}/pause`,
+    { method: "POST", body: JSON.stringify({ confirm: true }) },
+  );
+}
+
+export function resumeCampaign(id: string) {
+  return apiRequest<{ id: string; status: string }>(
+    `/campaigns/${encodeURIComponent(id)}/resume`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+}
+
+export function stopCampaign(id: string) {
+  return apiRequest<{ id: string; status: string }>(
+    `/campaigns/${encodeURIComponent(id)}/stop`,
+    { method: "POST", body: JSON.stringify({ confirm: true }) },
+  );
+}
+
+export type ImageSizePreset =
+  | "square"
+  | "portrait_4_5"
+  | "story_9_16"
+  | "linkedin_landscape";
+
+export type ImageJobKind = "generate" | "reframe" | "vary" | "prompt_edit";
+
+export type ImageJobStatus =
+  | "pending_confirm"
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+
+export type ImageJob = {
+  id: string;
+  kind: ImageJobKind | string;
+  status: ImageJobStatus | string;
+  prompt: string | null;
+  sizePreset: ImageSizePreset | string;
+  width: number;
+  height: number;
+  sourceMediaAssetId: string | null;
+  resultMediaAssetId: string | null;
+  resultMediaAssetIds?: string[];
+  variantCount?: number;
+  estimatedCostCents: number;
+  creditsCharged: number;
+  errorCode: string | null;
+  errorMessage: string | null;
+  conversationId: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+};
+
+export type ProposeImageJobSummary = {
+  ok?: boolean;
+  jobId?: string;
+  status?: string;
+  kind?: string;
+  sizePreset?: string;
+  creditsCharged?: number;
+  estimatedCostCents?: number;
+  needsConfirm?: boolean;
+};
+
+export type BrandAssetItem = {
+  id: string;
+  kind: "logo" | "reference_image" | "color" | "design_note" | string;
+  name: string;
+  mediaAssetId: string | null;
+  colorValue: string | null;
+  noteText: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+function imageActionHeaders(): HeadersInit {
+  return { "X-Sochestral-Request": "image-action" };
+}
+
+export function listBrandAssets(kind?: string) {
+  const query = kind ? `?kind=${encodeURIComponent(kind)}` : "";
+  return apiRequest<{ items: BrandAssetItem[] }>(`/brand-assets${query}`);
+}
+
+export function getImageJob(jobId: string) {
+  return apiRequest<{
+    job: ImageJob;
+    inputs: unknown[];
+    resultPreviewUrl: string | null;
+    resultPreviewUrls?: string[];
+  }>(`/image-jobs/${jobId}`);
+}
+
+export function createImageJob(body: {
+  kind: ImageJobKind;
+  prompt?: string;
+  sizePreset?: ImageSizePreset;
+  sourceMediaAssetId?: string;
+  conversationId?: string;
+  requestId?: string;
+  variantCount?: number;
+  inputs?: Array<{
+    mediaAssetId?: string;
+    brandAssetId?: string;
+    role: "reference" | "brand";
+  }>;
+}) {
+  return apiRequest<{
+    job: ImageJob;
+    remainingCredits: number;
+    monthlyBudget: number;
+  }>("/image-jobs", {
+    method: "POST",
+    headers: imageActionHeaders(),
+    body: JSON.stringify(body),
+  });
+}
+
+export function confirmImageJob(
+  jobId: string,
+  body: {
+    requestId?: string;
+    sizePreset?: ImageSizePreset;
+    brandAssetIds?: string[];
+    variantCount?: number;
+  } = {},
+) {
+  return apiRequest<{ job: ImageJob }>(`/image-jobs/${jobId}/confirm`, {
+    method: "POST",
+    headers: imageActionHeaders(),
+    body: JSON.stringify(body),
+  });
+}
+
+export async function downloadMediaAsset(
+  assetId: string,
+  filename = `sochestral-${assetId}.png`,
+): Promise<void> {
+  const response = await fetch(
+    `${apiBase}/media/assets/${encodeURIComponent(assetId)}/download`,
+    { credentials: "include" },
+  );
+  if (!response.ok) {
+    throw new ApiError(response.status, "DOWNLOAD_FAILED", {});
+  }
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
+export function cancelImageJob(jobId: string) {
+  return apiRequest<{ job: ImageJob }>(`/image-jobs/${jobId}/cancel`, {
+    method: "POST",
+    headers: imageActionHeaders(),
+    body: JSON.stringify({}),
+  });
+}
+
+export function listRecentImageGenerations() {
+  return apiRequest<{ items: ImageJob[] }>("/brand-assets/recent-generations");
+}
+
+export function listImageJobs(limit = 20, cursor?: string) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set("cursor", cursor);
+  return apiRequest<{ items: ImageJob[]; nextCursor: string | null }>(
+    `/image-jobs?${params.toString()}`,
+  );
+}
+
+export const IMAGE_SIZE_PRESET_LABELS: Record<ImageSizePreset, string> = {
+  square: "Square",
+  portrait_4_5: "Portrait",
+  story_9_16: "Story",
+  linkedin_landscape: "LinkedIn landscape",
+};

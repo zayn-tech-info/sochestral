@@ -25,7 +25,12 @@ describe("conversation titles", () => {
     ).toBe("Business setup");
     expect(
       deriveInitialConversationTitle("Please draft an Instagram caption for our launch"),
-    ).toBe("draft an Instagram caption for our launch");
+    ).toBe("Draft an Instagram caption for our launch");
+    expect(
+      deriveInitialConversationTitle(
+        "Generate a image for a launch using my brand",
+      ),
+    ).toBe("Generate a image for a launch using my brand");
   });
 
   it("compresses long openings", () => {
@@ -45,8 +50,14 @@ describe("conversation titles", () => {
     ).toBe(false);
     expect(
       isProvisionalConversationTitle(
-        "draft an Instagram caption for our launch",
+        "Draft an Instagram caption for our launch",
         "Please draft an Instagram caption for our launch",
+      ),
+    ).toBe(true);
+    expect(
+      isProvisionalConversationTitle(
+        "Launch brand image",
+        "Generate a image for a launch using my brand",
       ),
     ).toBe(false);
   });

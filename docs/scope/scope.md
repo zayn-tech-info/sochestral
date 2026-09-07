@@ -35,7 +35,7 @@ Implementation stays professional and conservative: official APIs only, validate
 | Slice 2 (6 to 10) | Feature 7 **Done** ([0009](../specs/0009-setup-agent-business-profile/index.md); onboarding path superseded by [0014](../specs/0014-onboarding-wizard-settings/index.md) wizard + Personal/Memory settings). Feature 6 tiers **deferred** (SOC-10 / SOC-11 Backlog). Channels (8/9) wait until the main web app is further along. Feature 10 calendar + scheduled posts list **build landed** ([0010](../specs/0010-schedule-calendar/index.md), [0011](../specs/0011-scheduled-posts-list/index.md)); next `/check verify` then `/test`. Feature 15 chat schedule loop **build + tests landed** ([0012](../specs/0012-chat-schedule-loop/index.md)); live SocialMCP smoke still open in verify.md. Feature 16 autonomous schedule planner **build landed** ([0013](../specs/0013-autonomous-schedule-planner/index.md)); verify/test open. Brand kit (SOC-40) stays a strong parallel Settings deepen |
 | Hosting | Fly apps `sochestral` (web) + `sochestral-api` (Hono); cloud SocialMCP; Neon as primary product DB. Local Docker Postgres on 5433 is for agent/dev only |
 
-**Next:** `/check verify chat schedule loop` (Feature 15, [0012](../specs/0012-chat-schedule-loop/index.md)), then `/test`. Feature 10 calendar verify can run in parallel. WhatsApp/Telegram after the web operator loop feels complete. Feature 6 tiers still deferred. Free beta access; billing is parallel and not a beta gate.
+**Next:** Feature 20 model and campaign handoff is designed ([0018](../specs/0018-model-campaign-handoff/index.md)). Feature 19 content planning is in progress ([0017](../specs/0017-content-planning-context/index.md)). Feature 18 brand design brief is in progress ([0016](../specs/0016-brand-design-brief/index.md)). Feature 17 still needs `/check verify image generation and editing` then `/test`. Feature 6 tiers still deferred. Free beta access; billing is parallel and not a beta gate.
 
 ## Already done in SocialMCP (do not rebuild here)
 
@@ -78,8 +78,12 @@ Treat the following as shipped in the external SocialMCP repo. This SaaS scope o
 | 14 | Live platform preview aside | Slice 3 | done |
 | 15 | Chat schedule loop | Slice 3 | in-progress |
 | 16 | Autonomous schedule planner | Slice 3 | in-progress |
+| 17 | Image generation and editing | Slice 3 | in-progress |
+| 18 | Brand design brief | Slice 3 | in-progress |
+| 19 | Content planning and conversation context | Slice 3 | in-progress |
+| 20 | Model and campaign handoff | Slice 3 | in-progress |
 | — | Operator comment/mention handling | Deferred | planned |
-| — | Video and image generation pipeline | Deferred | planned |
+| — | Video generation pipeline | Deferred | planned |
 | — | Facebook Pages (after MCP adapter exists) | Deferred | planned |
 | — | Analytics and trends | Deferred | planned |
 | — | Payment provider integration | Deferred | planned |
@@ -316,12 +320,79 @@ When the operator asks chat to decide posting itself, orchestration builds a gro
 
 **Code:** `packages/orchestration/src/autonomy-brief.ts`, `packages/orchestration/src/platform-playbooks.ts`, `packages/orchestration/src/publishing.ts`, `packages/orchestration/src/service.ts`, `web/src/lib/product-api.ts`
 
+### 17. Image generation and editing · full · in-progress
+
+Still image generate and edit with Brand Assets, confirm before spend, OpenAI `gpt-image-2`, Postgres jobs, and Feature 12 media reuse. Video, remove background, upscale, and the full credit usage dashboard wait.
+**Done when:** a tenant can manage Brand Assets, confirm a paid generate or edit from chat (and attach results in review/schedule), stay inside the beta credit budget and kill switch, and never call the provider without Generate/Apply.
+**Spec:** [0015](../specs/0015-image-generation-editing/index.md)
+- [x] Design it (spec): `/architect image generation and editing`
+- [x] Build it: `/develop image generation and editing`
+  - [x] Schema migration applied + Brand Assets CRUD + Settings library page (AC-1, AC-9, AC-11)
+  - [x] OpenAI provider, Postgres worker, R2 result ingest (AC-8, AC-11, AC-12)
+  - [x] Job confirm, credits wallet, kill switch, 1 in flight (AC-4, AC-5, AC-7, AC-10)
+  - [x] Chat strip, `/brand-asset` picker, brand clarify, quick actions, schedule/review attach (AC-2, AC-3, AC-6, AC-8)
+- [ ] Verify it: `/check verify image generation and editing`
+- [ ] Test it: `/test image generation and editing`
+
+**Code:** `packages/database`, `packages/api` (`image-*`), `packages/orchestration` (`propose_image_job`), `web/` (Brand Assets, proposal strip, schedule Use recent)
+
+### 18. Brand design brief · full · in-progress
+
+Compile a brand style brief once when Brand Assets change. Chat uses that text. Branded generates send logo plus 1 or 2 example images after opt in or clarify.
+**Done when:** a library change compiles at most once (hash + debounce), chat never re scans the gallery, and a branded generate follows the brief with a small reference pack.
+**Spec:** [0016](../specs/0016-brand-design-brief/index.md)
+- [x] Design it (spec): `/architect brand design brief`
+- [x] Build it: `/develop brand design brief`
+  - [x] Schema + hash gate + compile worker (AC-1, AC-2, AC-3)
+  - [x] Chat inject + auto pack logo and exemplars (AC-4, AC-5, AC-6, AC-8)
+  - [x] Quiet updating state + tests (AC-7)
+- [ ] Verify it: `/check verify brand design brief`
+- [ ] Test it: `/test brand design brief`
+
+**Code:** `packages/database`, `packages/api` (`brand-brief`, image worker), `packages/orchestration`, `web/` Brand Assets
+
+### 19. Content planning and conversation context · medium · in-progress
+
+Discuss first for ideas and plans. Do it all still searches the live web, then schedules from a conversation plan snapshot. Captions stay human, not generic AI.
+**Done when:** planning asks stay in chat until the operator accepts items; do it all asks only for missing type, direction, and platform, then DeepSeek search runs before `schedule_post`; one plan row per conversation is injected next to the profile note.
+**Spec:** [0017](../specs/0017-content-planning-context/index.md)
+- [x] Design it (spec): `/architect content planning and conversation context`
+- [x] Build it: `/develop content planning and conversation context`
+  - [x] Schema, migration, plan helpers (AC-5)
+  - [x] DeepSeek Responses search + `research_web` (AC-4, AC-8)
+  - [x] Planning intent, autonomy short brief, human caption rules (AC-1, AC-2, AC-3, AC-6)
+  - [x] Inject plan + research, then existing `schedule_post` (AC-3, AC-6, AC-7)
+  - [x] Stream label + tests (AC-8)
+- [ ] Verify it: `/check verify content planning and conversation context`
+- [ ] Test it: `/test content planning and conversation context`
+
+**Code:** `packages/database` (`content-plan`), `packages/orchestration` (`deepseek-search`, `research_web`, `save_content_plan`), `web/src/lib/product-api.ts`
+
+### 20. Model and campaign handoff · full · in-progress
+
+Clerk extracts a lock. Code gates. Sonnet talks or starts a campaign. A worker books one day at a time through existing `schedule_post`. Schedule tab can pause or stop.
+**Done when:** go on a complete lock returns at once; the worker fills the calendar up to 30; the Schedule tab shows Day N and X of 30 with pause and stop; day copy uses the voice bible.
+**Spec:** [0018](../specs/0018-model-campaign-handoff/index.md)
+- [x] Design it (spec): `/architect model and campaign handoff`
+- [x] Build it: `/develop model and campaign handoff`
+  - [x] Clerk plus plan lock columns (AC-1, AC-2, AC-13)
+  - [x] Campaign job and worker book one day (AC-3, AC-4, AC-6, AC-9, AC-11)
+  - [x] Loop to 30, pause and stop, Schedule tab banner (AC-5, AC-7, AC-8, AC-12)
+  - [x] Voice bible compile and day write inject (AC-10, AC-11)
+  - [x] Route multi post volume off the 0013 same turn cap (AC-3, AC-14)
+- [ ] Verify it: `/check verify model and campaign handoff`
+- [ ] Test it: `/test model and campaign handoff`
+
+**Code:** `packages/database` (`campaign-job`, `voice-bible`, plan lock columns), `packages/api` (`campaign-worker`, `campaign-routes`), `packages/orchestration` (`clerk-lock`, `campaign-day`), `web/` Schedule tab banner
+
 ## Deferred
 
 Out of scope for the current build pass. Kept so the plan stays honest.
 
 - **Operator-driven comment / mention handling**: product orchestration on top of MCP webhook ingestion · needs a decision · medium
-- **Video and image generation pipeline**: async generation jobs and media storage · needs a decision · full (image upload/normalize already exists under Feature 12; generation does not)
+- **Video generation pipeline**: async video jobs on top of Feature 17 image path · needs a decision · full · from spec 0015
+- **Remove background and upscale image ops**: after OpenAI path or a second specialist provider · from spec 0015 · medium
+- **Cross product credit usage UI (user + admin)**: not image only; follows Feature 6 billing · from spec 0015 · full
 - **Facebook Pages**: only after a SocialMCP adapter exists; do not build the adapter in this repo · needs a decision · full
 - **Analytics and trend detection**: needs posting volume first · needs a decision · medium (login promo analytics cards are decoration only)
 - **Payment provider integration**: follows subscription tier model spec · full

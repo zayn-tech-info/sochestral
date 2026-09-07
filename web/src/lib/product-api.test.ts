@@ -5,6 +5,7 @@ import {
   apiRequest,
   apiStreamTurn,
   createCalendarSlot,
+  liveActionLabel,
 } from "./product-api";
 
 function jsonResponse(body: unknown, status = 200) {
@@ -258,6 +259,25 @@ describe("business profile client helpers", () => {
           redoSetup: true,
         }),
       }),
+    );
+  });
+});
+
+describe("liveActionLabel", () => {
+  it("uses the step label until a known tool starts", () => {
+    expect(liveActionLabel(null)).toBe("Thinking");
+    expect(liveActionLabel("understanding")).toBe("Thinking");
+    expect(liveActionLabel("preparing_draft")).toBe("Drafting");
+  });
+
+  it("prefers the tool overlay for the exact agent action", () => {
+    expect(liveActionLabel("understanding", "propose_image_job")).toBe(
+      "Preparing an image",
+    );
+    expect(liveActionLabel("planning", "schedule_post")).toBe("Scheduling");
+    expect(liveActionLabel("planning", "research_web")).toBe("Searching the web");
+    expect(liveActionLabel("checking_intent", "unknown_tool")).toBe(
+      "Figuring out what to do",
     );
   });
 });

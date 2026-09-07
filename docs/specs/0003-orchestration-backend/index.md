@@ -2,6 +2,7 @@
 
 **Date**: 2026-07-25
 **Status**: In Progress
+**Amended**: 2026-08-14 — clerk, model roles, and campaign volume live in [0018](../0018-model-campaign-handoff/index.md). This spec still owns the Thesean tool loop, persistence, and SocialMCP dry run contract.
 
 ## Summary
 

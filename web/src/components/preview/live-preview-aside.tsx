@@ -86,11 +86,15 @@ export function LivePreviewAside({
   onRefresh,
   onClose,
   mediaPreviews = {},
+  attachRequest = null,
+  onAttachRequestConsumed,
 }: {
   group: ReviewGroupValue;
   onRefresh: () => Promise<void>;
   onClose?: () => void;
   mediaPreviews?: Record<string, string>;
+  attachRequest?: { assetId: string; previewUrl: string } | null;
+  onAttachRequestConsumed?: () => void;
 }) {
   const { toast } = useToast();
   const reduceMotion = useReducedMotion();
@@ -141,6 +145,49 @@ export function LivePreviewAside({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
+
+  useEffect(() => {
+    if (!attachRequest) return;
+    const { assetId, previewUrl } = attachRequest;
+    let attached = false;
+    setEdits((current) => {
+      const draftId =
+        group.drafts.find((item) => item.platform === activePlatform)?.id ??
+        group.drafts[0]?.id;
+      if (!draftId) return current;
+      const edit = current[draftId];
+      if (!edit || edit.mediaItems.length >= 5) return current;
+      if (edit.mediaItems.some((item) => item.assetId === assetId)) {
+        attached = true;
+        return current;
+      }
+      attached = true;
+      return {
+        ...current,
+        [draftId]: {
+          ...edit,
+          mediaItems: [...edit.mediaItems, { assetId, externalUrl: null }],
+        },
+      };
+    });
+    setLocalPreviews((current) => ({
+      ...current,
+      [assetId]: previewUrl,
+    }));
+    onAttachRequestConsumed?.();
+    if (attached) {
+      toast({
+        tone: "success",
+        title: "Generated image added to the draft",
+      });
+    }
+  }, [
+    attachRequest,
+    activePlatform,
+    group.drafts,
+    onAttachRequestConsumed,
+    toast,
+  ]);
 
   useEffect(() => {
     let active = true;

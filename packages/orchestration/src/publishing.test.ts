@@ -9,6 +9,7 @@ import {
   isSchedulePlanRejection,
   localDraftIntent,
   localAutonomousScheduleIntent,
+  localPlanningIntent,
   localLiveIntent,
   localScheduleIntent,
   priorHasAutonomousScheduleContext,
@@ -42,6 +43,16 @@ describe("localDraftIntent", () => {
     "Can you publish this?",
     "Yeah",
     "Make this better",
+    "Hello",
+    "Hi!",
+    "Hey there",
+    "Good morning",
+    "What's up?",
+    "Plan the next 2 weeks",
+    "Content ideas for Threads",
+    "What should I post this week",
+    "6. Objection-handling – ‘I",
+    "This is what you last said",
   ])("maps obvious non-live wording to draft: %s", (message) => {
     expect(localDraftIntent(message)).toBe(true);
     expect(vetoesExplicitLivePublishIntent(message)).toBe(true);
@@ -76,6 +87,7 @@ describe("localLiveIntent", () => {
     "Draft this post",
     "Can you publish this?",
     "Yeah",
+    "Hello",
     "Just shot it there",
     "Instagram",
     "Publish",
@@ -100,7 +112,9 @@ describe("localScheduleIntent", () => {
     "Post this on my Instagram",
     "Publish this now on Threads",
     "Draft a caption",
-  ])("does not treat live or draft as schedule: %s", (message) => {
+    "I want us to schedule some content for the next 3 days.",
+    "Let's put together posts for this week",
+  ])("does not treat live, draft, or plan-together asks as schedule: %s", (message) => {
     expect(localScheduleIntent(message)).toBe(false);
   });
 });
@@ -111,6 +125,7 @@ describe("localAutonomousScheduleIntent", () => {
     "Do this all by yourself for Threads",
     "Pick the best times and topics for me",
     "Handle my content calendar autonomously",
+    "Do it all for the next 2 weeks on Threads",
   ])("detects autonomy cues: %s", (message) => {
     expect(localAutonomousScheduleIntent(message)).toBe(true);
     expect(localScheduleIntent(message)).toBe(true);
@@ -122,6 +137,41 @@ describe("localAutonomousScheduleIntent", () => {
     "Post this live on Threads",
   ])("does not treat ordinary schedule, draft, or live as autonomy: %s", (message) => {
     expect(localAutonomousScheduleIntent(message)).toBe(false);
+  });
+});
+
+describe("localPlanningIntent", () => {
+  it.each([
+    "Plan the next 2 weeks",
+    "Plan the next two weeks",
+    "Content ideas please",
+    "Brainstorm posts for the next month",
+    "What should I post",
+    "I want us to schedule some content for the next 3 days.",
+    "Schedule some content for next 3 days",
+    "Let's put together posts for this week",
+    "Help me with content for the coming days",
+    "Can we work on a content calendar together",
+  ])("treats plan-together asks as idea collection: %s", (message) => {
+    expect(localPlanningIntent(message)).toBe(true);
+    expect(localDraftIntent(message)).toBe(true);
+    expect(localScheduleIntent(message)).toBe(false);
+    expect(localAutonomousScheduleIntent(message)).toBe(false);
+  });
+
+  it("lets do it all win over a planning phrase", () => {
+    expect(
+      localPlanningIntent("Do it all and plan the next 2 weeks"),
+    ).toBe(false);
+    expect(
+      localAutonomousScheduleIntent("Do it all and plan the next 2 weeks"),
+    ).toBe(true);
+    expect(localScheduleIntent("Do it all for the next 2 weeks")).toBe(true);
+  });
+
+  it("keeps a specific post or time on the schedule path", () => {
+    expect(localPlanningIntent("Schedule this for Friday at 3pm")).toBe(false);
+    expect(localScheduleIntent("Schedule this for Friday at 3pm")).toBe(true);
   });
 });
 
@@ -261,6 +311,9 @@ describe("resolveLivePublishIntent", () => {
     "Draft this for Threads",
     "Do not publish this on Threads",
     "Can you publish this?",
+    "Hello",
+    "Hi!",
+    "Hey there",
   ])("returns draft without calling the model when local draft veto triggers: %s", async (message) => {
     const model: ModelProvider = { complete: vi.fn() };
 
@@ -462,6 +515,29 @@ describe("resolveLivePublishIntent", () => {
         mode: "full_access",
       }),
     ).resolves.toBe("live");
+    expect(model.complete).not.toHaveBeenCalled();
+  });
+
+  it("does not continue live context for unfinished or meta follow ups", async () => {
+    expect(
+      continuesLivePublishContext("This is what you last said", [
+        "Post this on my Instagram",
+      ]),
+    ).toBe(false);
+    expect(
+      continuesLivePublishContext("6. Objection-handling – ‘I", [
+        "Post this on Threads",
+      ]),
+    ).toBe(false);
+    const model: ModelProvider = { complete: vi.fn() };
+    await expect(
+      resolveLivePublishIntent(model, {
+        message: "This is what you last said",
+        priorMessages: ["Post this on my Instagram"],
+        modelName: "intent-model",
+        mode: "full_access",
+      }),
+    ).resolves.toBe("draft");
     expect(model.complete).not.toHaveBeenCalled();
   });
 
