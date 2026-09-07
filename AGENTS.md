@@ -87,6 +87,10 @@ These are for package tests and local UI work on the agent VM. They are **not** 
 - Package tests (`pnpm run test:database`, `test:auth`, `test:api`) need a migrated `sochestral_test` DB. Web tests/lint run without a DB: `npm run test` and `npm run lint` in `web/`.
 - Cloud deploy configs: `fly.api.toml` (`sochestral-api`), `web/fly.toml` (`sochestral`). Production `DATABASE_URL` is the Neon connection string set as a Fly secret, not the `.env.example` localhost URL.
 
+### Cloud Agent environment scripts
+
+The Cloud Agent environment is snapshot-backed. `scripts/cloud-agent-install.sh` refreshes deps (`pnpm install --frozen-lockfile`, `web` via `npm ci`) and seeds `.env`. `scripts/cloud-agent-start.sh` starts Postgres 16 (:5433) and a local MinIO S3 endpoint (:9000, console :9001, `minioadmin`/`minioadmin`), ensures the `sochestral`/`sochestral_test` DBs and the `sochestral-media` bucket, and applies migrations. The API constructs a media store at boot, so local `.env` sets `R2_*` to that MinIO endpoint — without R2 values the API refuses to start and the `image-routes` tests fail with `STORAGE_UNAVAILABLE`.
+
 ### Provision + login (local, no external deps)
 
 `pnpm run db:provision <email>` then `pnpm run db:set-password <email> <password>`, then log in at `http://localhost:3000/login`. This exercises local Postgres + API + auth only.
