@@ -10,8 +10,11 @@ cd "$ROOT"
 corepack enable >/dev/null 2>&1 || true
 
 # Workspace packages (pnpm) + standalone web app (npm, not in the pnpm workspace).
-pnpm install --frozen-lockfile
-(cd web && npm ci --no-audit --no-fund)
+# Force dev dependencies: build/CI hosts often set NODE_ENV=production, which
+# would otherwise omit vitest, drizzle-kit, tailwind, eslint, typescript, etc.
+export NODE_ENV=development
+pnpm install --frozen-lockfile --prod=false
+(cd web && npm ci --include=dev --no-audit --no-fund)
 
 # Local .env for agent/dev work (gitignored). Seed from the example if absent.
 if [ ! -f .env ]; then
