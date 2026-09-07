@@ -87,6 +87,12 @@ These are for package tests and local UI work on the agent VM. They are **not** 
 - Package tests (`pnpm run test:database`, `test:auth`, `test:api`) need a migrated `sochestral_test` DB. Web tests/lint run without a DB: `npm run test` and `npm run lint` in `web/`.
 - Cloud deploy configs: `fly.api.toml` (`sochestral-api`), `web/fly.toml` (`sochestral`). Production `DATABASE_URL` is the Neon connection string set as a Fly secret, not the `.env.example` localhost URL.
 
+### Cloud Agent environment scripts
+
+The Cloud Agent environment is snapshot-backed. `scripts/cloud-agent-install.sh` refreshes deps (`pnpm install --frozen-lockfile --prod=false`, `web` via `npm ci --include=dev`, with `NODE_ENV=development` so dev deps survive build hosts that set `NODE_ENV=production`) and seeds `.env`. `scripts/cloud-agent-start.sh` starts Postgres 16 (:5433) and a local MinIO S3 endpoint (:9000, console :9001, `minioadmin`/`minioadmin`), ensures the `sochestral`/`sochestral_test` DBs and the `sochestral-media` bucket, applies migrations, and launches the API (:8787) and web (:3000) dev servers. The API constructs a media store at boot, so local `.env` sets `R2_*` to that MinIO endpoint — without R2 values the API refuses to start and the `image-routes` tests fail with `STORAGE_UNAVAILABLE`.
+
+Caveat: Cloud Agents for this repo may inject production secrets (`DATABASE_URL`=Neon prod, `NODE_ENV=production`, `PORT=8080`, `CORS_ORIGIN`=prod) into the shell, and the apps load `.env` without `override`, so those injected values win. The start script pins local values for everything it launches (migrations and both servers), but a **manually** run `pnpm run db:migrate` would target production Neon, and `pnpm run test:api` fails one `cors-origin` case under the injected prod env (green with `env -u CORS_ORIGIN NODE_ENV=development`). Rescope those production secrets to the `sochestral-api` Fly app (not the Cloud Agent environment) to make manual commands and tests safe by default.
+
 ### Provision + login (local, no external deps)
 
 `pnpm run db:provision <email>` then `pnpm run db:set-password <email> <password>`, then log in at `http://localhost:3000/login`. This exercises local Postgres + API + auth only.
