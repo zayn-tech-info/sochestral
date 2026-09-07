@@ -45,4 +45,15 @@ echo "[cloud-agent-start] applying migrations"
 pnpm run db:migrate
 DATABASE_URL="${PG_URL}/sochestral_test" pnpm run db:migrate
 
+# --- Application dev servers (fully detached; logs in /tmp) ---
+# setsid + </dev/null detaches these from this script's stdout so `start`
+# returns cleanly instead of blocking on the servers' inherited pipe.
+echo "[cloud-agent-start] starting API (:8787) and web (:3000)"
+if ! curl -sf http://localhost:8787/health >/dev/null 2>&1; then
+  setsid bash -c 'cd "'"${ROOT}"'" && exec pnpm run dev:api' </dev/null >/tmp/sochestral-api.log 2>&1 &
+fi
+if ! curl -sf http://localhost:3000/login >/dev/null 2>&1; then
+  setsid bash -c 'cd "'"${ROOT}"'/web" && exec npm run dev' </dev/null >/tmp/sochestral-web.log 2>&1 &
+fi
+
 echo "[cloud-agent-start] services ready"
