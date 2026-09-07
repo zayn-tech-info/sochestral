@@ -11,6 +11,14 @@ cd "$ROOT"
 PG_PORT=5433
 PG_URL="postgresql://sochestral:sochestral@localhost:${PG_PORT}"
 
+# Defensive local dev config. Cloud Agents for this repo may inject production
+# secrets (DATABASE_URL=Neon prod, NODE_ENV=production, PORT=8080, CORS_ORIGIN=
+# prod) into the shell; the apps load .env without override, so those injected
+# values would otherwise win — pointing migrations/API at PRODUCTION and
+# breaking local ports. We pin the local values below for everything we launch.
+LOCAL_DB_URL="${PG_URL}/sochestral"
+LOCAL_TEST_DB_URL="${PG_URL}/sochestral_test"
+
 echo "[cloud-agent-start] starting PostgreSQL 16 on :${PG_PORT}"
 sudo pg_ctlcluster 16 main start >/dev/null 2>&1 || true
 for _ in $(seq 1 30); do
@@ -41,19 +49,21 @@ fi
 mc alias set localminio http://localhost:9000 minioadmin minioadmin >/dev/null 2>&1 || true
 mc mb --ignore-existing localminio/sochestral-media >/dev/null 2>&1 || true
 
-echo "[cloud-agent-start] applying migrations"
-pnpm run db:migrate
-DATABASE_URL="${PG_URL}/sochestral_test" pnpm run db:migrate
+echo "[cloud-agent-start] applying migrations (pinned to local DB)"
+DATABASE_URL="${LOCAL_DB_URL}" pnpm run db:migrate
+DATABASE_URL="${LOCAL_TEST_DB_URL}" pnpm run db:migrate
 
 # --- Application dev servers (fully detached; logs in /tmp) ---
 # setsid + </dev/null detaches these from this script's stdout so `start`
-# returns cleanly instead of blocking on the servers' inherited pipe.
+# returns cleanly instead of blocking on the servers' inherited pipe. Each
+# server gets its local env pinned so injected production values cannot
+# redirect it to prod or change its port.
 echo "[cloud-agent-start] starting API (:8787) and web (:3000)"
 if ! curl -sf http://localhost:8787/health >/dev/null 2>&1; then
-  setsid bash -c 'cd "'"${ROOT}"'" && exec pnpm run dev:api' </dev/null >/tmp/sochestral-api.log 2>&1 &
+  setsid bash -c 'cd "'"${ROOT}"'" && export DATABASE_URL="'"${LOCAL_DB_URL}"'" NODE_ENV=development PORT=8787 CORS_ORIGIN=http://localhost:3000 PUBLIC_API_URL=http://localhost:8787 && exec pnpm run dev:api' </dev/null >/tmp/sochestral-api.log 2>&1 &
 fi
 if ! curl -sf http://localhost:3000/login >/dev/null 2>&1; then
-  setsid bash -c 'cd "'"${ROOT}"'/web" && exec npm run dev' </dev/null >/tmp/sochestral-web.log 2>&1 &
+  setsid bash -c 'cd "'"${ROOT}"'/web" && export NODE_ENV=development PORT=3000 NEXT_PUBLIC_API_URL=http://localhost:8787 && exec npm run dev' </dev/null >/tmp/sochestral-web.log 2>&1 &
 fi
 
 echo "[cloud-agent-start] services ready"
