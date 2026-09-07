@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Cloud Agent start phase: bring up per-boot services and reconcile DB state.
-# Idempotent and safe to re-run. Binaries and data dirs are provided by the
-# environment snapshot; this script only (re)starts processes and applies
-# any pending migrations.
+# Idempotent and safe to re-run. Binaries and cluster are provisioned by
+# scripts/cloud-agent-install.sh; this script (re)starts processes, ensures
+# the role/databases/bucket, applies migrations, and launches the dev servers.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
