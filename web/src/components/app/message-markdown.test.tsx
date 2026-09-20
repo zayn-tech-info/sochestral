@@ -18,6 +18,16 @@ describe("MessageMarkdown", () => {
     );
   });
 
+  it("routes in-app plan links through the product app", () => {
+    render(
+      <MessageMarkdown content="Your plan is ready: [Review plan](/app/plans/plan_interview_1)." />,
+    );
+    expect(screen.getByRole("link", { name: "Review plan" })).toHaveAttribute(
+      "href",
+      "/app/plans/plan_interview_1",
+    );
+  });
+
   it("presents markdown headings without oversized heading levels", () => {
     render(<MessageMarkdown content="# Preview ready" />);
 

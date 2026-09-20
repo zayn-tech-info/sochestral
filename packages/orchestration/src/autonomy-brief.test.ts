@@ -6,6 +6,8 @@ import {
   buildPublishAtCandidates,
   coverageDayOffsets,
   parseHorizonDays,
+  parseStatedHorizonDays,
+  parseStatedItemCount,
   resolveAutonomyTimeZone,
 } from "./autonomy-brief.js";
 import { playbookFor } from "./platform-playbooks.js";
@@ -183,6 +185,16 @@ describe("parseHorizonDays", () => {
     expect(parseHorizonDays("Do it all for the next 2 weeks", 14)).toBe(14);
     expect(parseHorizonDays("plan the next 7 days", 14)).toBe(7);
     expect(parseHorizonDays("hello", 14)).toBe(14);
+  });
+});
+
+describe("parseStatedHorizonDays", () => {
+  it("stores only an explicit span and leaves unspecified size empty", () => {
+    expect(parseStatedHorizonDays("Plan 7 days on Threads, about 10 posts")).toBe(7);
+    expect(parseStatedHorizonDays("plan the next 2 weeks")).toBe(14);
+    expect(parseStatedHorizonDays("hello")).toBeNull();
+    expect(parseStatedItemCount("Plan 7 days on Threads, about 10 posts")).toBe(10);
+    expect(parseStatedItemCount("Plan the next 2 weeks")).toBeNull();
   });
 });
 

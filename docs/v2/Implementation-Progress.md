@@ -2,6 +2,8 @@
 
 Started 10 September 2026. Status: in progress. This is a completion record, not a release claim.
 
+**Execution order from 20 September 2026:** follow [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md) one step at a time. Current step in that file is L5 (durable finished content). This progress log remains the dated evidence record.
+
 ## Authority and baseline
 
 The current request authorizes implementation and local verification. Use the repository copies of the reference and guide (v1.3), including scheduling only and one brand per user. Proposals and deferred commercial policies remain distinct from requirements. Phase 8 is conditional expansion.
@@ -32,13 +34,15 @@ Current verification evidence:
 
 ## Remaining work
 
+The ordered steps are L1–L18 in [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md). L1–L4 are done. Do not start L6 while L5 is open. Summary of what those steps cover:
+
 Phase 0: finish cross repository contract and fault harness coverage, isolated full test baselines, browser calendar check and delivery CI gate.
 
-Phase 1: shared scoped context/provenance, all operation usage accounting, persistent confirmed timezone.
+Phase 1: remaining generation paths on shared context and usage accounting (timezone confirm already landed).
 
-Phase 2 and A11: transactional tenant scoped replay and conflict contract; claims, attempts, uncertainty and reconciliation; persisted content revisions and confirmed schedule operations; media lifetime; legacy campaign transition.
+Phase 2 and A11: durable content revisions, confirmed schedule operations, receipts, media lifetime, legacy campaign transition.
 
-Phase 3 and A12/A14: interview/delegation and persistent plan/comments/approvals; implemented responsive UI, appearance and schedule confirmation; retire immediate publishing and full access throughout product.
+Phase 3 and A12/A14: finish and test interview/delegation; content approval and schedule confirmation; remaining responsive UI; retire immediate publishing and full access.
 
 Phase 4: correction memory and source inbox.
 
@@ -137,6 +141,90 @@ The viewer offers Reattach comment for detached feedback, requires selecting a n
 
 Verification so far: nine database plan tests, six API plan tests and six viewer tests pass. Backend typechecks pass. Browser and revision-worker regression results follow below. No new environment variables or production deployment.
 
-The next major integration is replacing the mandatory-ideas/legacy planning path in chat with the documented partial-answer/delegation interview and durable plan creation. This remains necessary: the new viewer/worker does not yet replace that old chat path. Durable content generation, approval and confirmed scheduling, memory/sources, full accounting/routing/billing and final release verification also remain unfinished.
+The next major integration is L2 interview product gates (delegation, research provenance, original request constraints) and then the durable content tracer. The viewer/worker still does not replace every old chat path. Durable content generation, approval and confirmed scheduling, memory/sources, full accounting/routing/billing and final release verification also remain unfinished.
 
 Final reattachment verification: all five browser widths pass, including explicit location selection and preservation of the original anchor; all five revision-worker regression tests pass. Standalone web typecheck and git diff --check pass. Logs: /tmp/v2-reattach-{db,api,web,worker,browser,types,web-types}.log. Nothing deployed and no provider calls made.
+
+## Interview typecheck and isolated tests (L1)
+
+20 September 2026 on `cursor/v2-next-9bc5`. Local `sochestral_test` only. No production migration.
+
+Added database and orchestration interview tests. Chat planning turns now pass resolved platforms so a run can be created. After a versioned plan exists, acceptance, schedule, or live wording returns the review link instead of SocialMCP or the legacy campaign worker. Vitest `maxWorkers` is 1 for database, orchestration, and API so suites that `delete from users` do not overlap.
+
+Verification:
+
+- `pnpm -r typecheck` passed (database, auth, orchestration, API).
+- `npx tsc --noEmit` in `web/` passed after installing missing `@playwright/test` locally (not committed).
+- Database V2 files: 34 passing (`profile`, `generation-context`, `plans`, `plan-interview`).
+- Orchestration V2 files: 12 passing (`usage`, `plan-revision`, `plan-interview`).
+- Plan API: 6 passing. Plan viewer: 6 passing.
+
+Fake provider only. No live Thesean, DeepSeek, or SocialMCP calls. CI `verify-v2` includes the new test files. Next: L2 interview product gates.
+
+## L2 — Interview product gates (20 September 2026)
+
+20 September 2026 on `cursor/v2-next-9bc5`. Local `sochestral_test` only. No production migration.
+
+Interview JSON `request` holds stated horizon, item count, platforms, cadence, attachments, and the original message. Unspecified size stays null (no 14-day fallback). After `research_unavailable`, generation waits for `useExistingContext`. Writer sources must match supplied research 1:1. Usage persistence failures stay visible. Classifier and writer attempts go through `measureModelAttempt`; omitted tokens stay null. After a plan exists, “go ahead” returns the review link.
+
+Verification (pinned `TEST_DATABASE_URL=postgresql://sochestral:sochestral@127.0.0.1:5433/sochestral_test`, `NODE_ENV=test`, `CORS_ORIGIN` unset):
+
+- Database V2 files: 34 passing (`profile`, `generation-context`, `plans`, `plan-interview`).
+- Orchestration interview + autonomy + publishing: 125 passing.
+- Orchestration CI files: 17 passing (`usage`, `plan-revision`, `plan-interview`).
+- API profile + plan routes: 15 passing.
+- `pnpm --filter @sochestral/database typecheck` and `pnpm --filter @sochestral/orchestration typecheck` passed.
+
+Fake provider only. No live Thesean, DeepSeek, or SocialMCP. Next: L3 chat to plan viewer.
+
+## L3 — Chat to plan viewer (20 September 2026)
+
+20 September 2026 on `cursor/v2-next-9bc5`. Intercepted API only. No live model.
+
+Pause/cancel wording (`pause planning`, `cancel planning`, `never mind`) is code-owned and stops interview capture. `continue planning` or a new plan ask in the same thread resumes saved answers. Chat markdown routes `/app/plans/:id` in-app. Playwright: workspace composer → interview → review link → reload → comment → submit batch → direction approve at 360, 390, 768, 1024, and 1440. Pause → unrelated chat → resume is browser-proven at 1440. Existing `e2e/plans.spec.ts` stayed green.
+
+Verification:
+
+- Orchestration `plan-interview.test.ts`: 12 passing (includes pause/resume and unrelated chat after cancel).
+- Web `message-markdown.test.tsx`: 4 passing.
+- Playwright `e2e/chat-plan.spec.ts`: 6 passing (five widths plus pause/resume). `e2e/plans.spec.ts`: 5 passing.
+
+Next: L4 direction approval is only direction.
+
+## L4 — Direction approval is only direction (20 September 2026)
+
+20 September 2026 on `cursor/v2-next-9bc5`. Pinned local `sochestral_test`. No production migrate. No live SocialMCP.
+
+`POST /plans/:id/approve` with confirm writes `workflowApprovals.scope = plan_direction` for that version. Stale version is 409. `campaignJobs` stays empty. The API has no MCP client.
+
+`POST /plans/:id/create-content` is a stub. Own plan, confirm, and version are required. Response is 409 `CONTENT_NOT_READY` even after direction approval. Unauthenticated 401. Other user 404. No captions and no new SQL.
+
+Plan viewer shows **Create content** only on the current direction-approved version. The click calls the stub and shows that direction approval does not create posts.
+
+After a saved interview plan, chat `create content`, `the plan is approved, schedule it`, and `publish now` stay on the review link. Clerk `accept` / `schedule_one` / `live` with `interview.planId` also stay on planning. `mcp.callTool` is not called.
+
+### Schedule and publish entry audit
+
+These are the live schedule or publish seams. L4 tests the ones that could treat plan direction as a grant.
+
+| Entry | File | L4 finding |
+| --- | --- | --- |
+| `schedule_post` in chat tool loop | `packages/orchestration/src/service.ts` `executeRun` | After `interview.planId`, schedule/publish/create-content wording and clerk accept/schedule_one/live return the review link and never reach this loop. |
+| `save_content_plan` / `enqueueCampaignJob` | `service.ts` then `packages/database/src/campaign-job.ts` | Same interview guard. Approve and create-content leave `campaignJobs` empty. |
+| `publish_now` in chat | `service.ts` tools | Same interview guard. `publish now` after a plan does not call MCP. |
+| `schedule_post` campaign tick | `packages/orchestration/src/campaign-day.ts` | Not started by plan approve or create-content. |
+| Calendar `schedule_post` | `packages/orchestration/src/calendar.ts` | Calendar mutations, not plan direction. Unchanged. |
+| Review `publish_now` | `packages/orchestration/src/review.ts` | Legacy review drafts, not `plan_direction`. Unchanged. |
+| Viewer approve | `web/src/components/app/plan-viewer.tsx` → `POST /plans/:id/approve` | Version-bound `plan_direction` only. |
+| Viewer create content | same → `POST /plans/:id/create-content` | Stub `CONTENT_NOT_READY`. |
+
+Verification (pinned `TEST_DATABASE_URL=postgresql://sochestral:sochestral@127.0.0.1:5433/sochestral_test`, `DATABASE_URL` on `sochestral`, `NODE_ENV=test`, `CORS_ORIGIN` unset):
+
+- Database `plans.test.ts`: 9 passing (approve does not enqueue jobs; create-content throws `CONTENT_NOT_READY`).
+- API profile + plan routes: 16 passing.
+- Orchestration interview + usage + revision: 21 passing (chat after plan never calls MCP).
+- Orchestration `publishing.test.ts`: 110 passing (`isCreateContentAsk`).
+- Web `plan-viewer.test.tsx`: 7 passing (Create content refuse notice).
+- Typecheck: database, api, orchestration.
+
+Fake provider only. Next: L5 durable finished content. Do not implement L5 in this commit.

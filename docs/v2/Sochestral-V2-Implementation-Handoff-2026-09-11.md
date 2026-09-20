@@ -38,6 +38,7 @@ The product checkout was fast-forwarded from `a8c9981` to `a0d26e5` before imple
 
 ### Immediate resume point
 
+0. From 20 September 2026, execute remaining work from [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md). This handoff is historical evidence. The launch plan is the step order.
 1. Read this handoff, especially §7 (interrupted work) and §12 (remaining requirements).
 2. Inspect the current diff and files; this document is a dated snapshot, not a substitute for current-state evidence.
 3. Finish and test the **new chat/interview integration**, which was edited immediately before the user paused implementation. No interview integration tests were written yet.

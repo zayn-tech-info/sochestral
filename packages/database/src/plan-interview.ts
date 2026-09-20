@@ -5,12 +5,29 @@ import { planInterviews, orchestrationConversations, generationContexts } from "
 import { createPlan, PlanWorkflowError } from "./plans.js";
 
 const field = z.enum(["goal", "newsAssets", "direction"]);
+const platform = z.enum(["threads", "instagram", "linkedin_personal"]);
+const cadenceSchema = z.object({
+  threadsPerDay: z.number().int().min(0).max(8).optional(),
+  linkedinPerDay: z.number().int().min(0).max(8).optional(),
+  instagramPerDay: z.number().int().min(0).max(8).optional(),
+}).strict();
+export const planInterviewRequestSchema = z.object({
+  originalMessage: z.string().max(8000),
+  horizonDays: z.number().int().min(1).max(90).nullable(),
+  itemCount: z.number().int().min(1).max(1000).nullable(),
+  platforms: z.array(platform).max(3),
+  cadence: cadenceSchema.nullable(),
+  attachmentIds: z.array(z.string().min(1).max(100)).max(20),
+}).strict();
 export const planInterviewStateSchema = z.object({
   status: z.enum(["asking", "clarification_needed", "delegated", "ready", "research_unavailable", "planned", "canceled"]),
   answers: z.object({ goal: z.string().max(4000).nullable(), newsAssets: z.string().max(4000).nullable(), direction: z.string().max(4000).nullable() }).strict(),
   questions: z.array(z.object({ field, text: z.string().trim().min(1).max(600) }).strict()).max(3),
   useExistingContext: z.boolean(),
   sources: z.array(z.object({ url: z.url(), title: z.string(), retrievedAt: z.iso.datetime(), summary: z.string(), claim: z.string() }).strict()).max(30).default([]),
+  request: planInterviewRequestSchema.default({
+    originalMessage: "", horizonDays: null, itemCount: null, platforms: [], cadence: null, attachmentIds: [],
+  }),
 }).strict();
 export type PlanInterviewState = z.infer<typeof planInterviewStateSchema>;
 type Db = Database["db"];

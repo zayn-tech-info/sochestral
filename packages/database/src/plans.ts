@@ -7,7 +7,7 @@ import { planAnchorText, planDocumentSchema, type PlanDocument } from "./plan-do
 
 type Db = Database["db"];
 export class PlanWorkflowError extends Error {
-  constructor(public readonly code: "PLAN_NOT_FOUND" | "STALE_VERSION" | "INVALID_DOCUMENT" | "INVALID_ANCHOR" | "INVALID_COMMENT" | "INVALID_BATCH" | "CONTEXT_NOT_FOUND") {
+  constructor(public readonly code: "PLAN_NOT_FOUND" | "STALE_VERSION" | "INVALID_DOCUMENT" | "INVALID_ANCHOR" | "INVALID_COMMENT" | "INVALID_BATCH" | "CONTEXT_NOT_FOUND" | "CONTENT_NOT_READY") {
     super(code);
   }
 }
@@ -171,6 +171,12 @@ export async function approvePlanDirection(db: Db, input: { userId: string; plan
     const [approval] = await tx.select().from(workflowApprovals).where(and(eq(workflowApprovals.userId, input.userId), eq(workflowApprovals.targetId, input.planId), eq(workflowApprovals.scope, "plan_direction"), eq(workflowApprovals.revision, input.version)));
     return approval!;
   });
+}
+
+/** L4 stub: direction approval never generates captions. L5 owns creation. */
+export async function refuseCreateContent(db: Db, input: { userId: string; planId: string; version: number }): Promise<never> {
+  await ownPlan(db, input.userId, input.planId, input.version);
+  throw new PlanWorkflowError("CONTENT_NOT_READY");
 }
 
 /** Claim one plan at a time; every plan mutation takes this same parent lock first. */

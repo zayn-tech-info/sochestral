@@ -102,6 +102,29 @@ export function parseHorizonDays(message: string | undefined, fallback: number):
   return fallback;
 }
 
+/** Days the user actually named. Null when the message has no explicit span (do not store a 14-day fallback). */
+export function parseStatedHorizonDays(message: string | undefined): number | null {
+  if (!message) return null;
+  const lower = message.toLowerCase();
+  const bounded = (value: number) => Number.isFinite(value) && value >= 1 && value <= 90 ? value : null;
+  const prefixedDays = lower.match(/\b(?:next|for|over)\s+(\d{1,2})\s+days?\b/);
+  if (prefixedDays) return bounded(Number(prefixedDays[1]));
+  const prefixedWeeks = lower.match(/\b(?:next|for|over)\s+(\d{1,2})\s+weeks?\b/);
+  if (prefixedWeeks) return bounded(Number(prefixedWeeks[1]) * 7);
+  if (/\b(?:this|next)\s+week\b/.test(lower)) return 7;
+  const bareDays = lower.match(/\b(\d{1,2})\s+days?\b/);
+  if (bareDays) return bounded(Number(bareDays[1]));
+  return null;
+}
+
+export function parseStatedItemCount(message: string | undefined): number | null {
+  if (!message) return null;
+  const match = message.toLowerCase().match(/\b(?:about|around|roughly)?\s*(\d{1,4})\s+posts?\b/);
+  if (!match) return null;
+  const n = Number(match[1]);
+  return Number.isFinite(n) && n >= 1 && n <= 1000 ? n : null;
+}
+
 function postsPerWeekFromCadence(
   entries: ProfileEntry[],
   playbook: PlatformPlaybook,

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "./app-shell";
 import { ApiError } from "@/lib/product-api";
-import { reattachComment, approvePlan, commentOnPlan, getPlan, listPlans, submitPlanComments, type PlanBlock, type PlanDetail, type PlanSummary } from "@/lib/plans-api";
+import { reattachComment, approvePlan, commentOnPlan, createPlanContent, getPlan, listPlans, submitPlanComments, type PlanBlock, type PlanDetail, type PlanSummary } from "@/lib/plans-api";
 
 function message(error: unknown) {
   return error instanceof ApiError && error.code === "STALE_VERSION"
@@ -92,7 +92,13 @@ export function PlanViewer({ planId }: { planId: string }) {
   async function action(work: () => Promise<unknown>, success: string) {
     setBusy(true); setError(null);
     try { await work(); await load(); setNotice(success); }
-    catch (err) { setError(message(err)); }
+    catch (err) {
+      if (err instanceof ApiError && err.code === "CONTENT_NOT_READY") {
+        setNotice("Direction approval does not create posts. Finished captions come later.");
+      } else {
+        setError(message(err));
+      }
+    }
     finally { setBusy(false); }
   }
   async function viewVersion(version?: number) {
@@ -111,7 +117,8 @@ export function PlanViewer({ planId }: { planId: string }) {
       <header className="my-6 flex flex-wrap items-start justify-between gap-4">
         <div><h1 className="text-3xl font-semibold tracking-tight">{detail.plan.title}</h1><p className="mt-2 text-sm text-muted-foreground">Version {detail.version.version} · {historical ? "Earlier version · Read only" : approved ? "Direction approved" : "Needs review"}</p></div>
         <div className="flex flex-wrap gap-2"><button className="min-h-11 rounded-lg border px-4" onClick={() => void viewVersion()} disabled={busy}>Refresh</button>
-          <button className="min-h-11 rounded-lg bg-primary px-4 text-primary-foreground disabled:opacity-50" disabled={busy || approved || historical} onClick={() => void action(() => approvePlan(planId, detail.plan.currentVersion), "Plan direction approved. Content still needs review before scheduling.")}>Approve plan direction</button></div>
+          <button className="min-h-11 rounded-lg bg-primary px-4 text-primary-foreground disabled:opacity-50" disabled={busy || approved || historical} onClick={() => void action(() => approvePlan(planId, detail.plan.currentVersion), "Plan direction approved. Content still needs review before scheduling.")}>Approve plan direction</button>
+          {approved && !historical && <button className="min-h-11 rounded-lg border px-4 disabled:opacity-50" disabled={busy} onClick={() => void action(() => createPlanContent(planId, detail.plan.currentVersion), "Direction approval does not create posts. Finished captions come later.")}>Create content</button>}</div>
       </header>
       <nav aria-label="Plan version history" className="mb-6 flex flex-wrap items-center gap-3">
         <button className="min-h-11 rounded-lg border px-4 disabled:opacity-50" disabled={busy || detail.version.version <= 1} onClick={() => void viewVersion(detail.version.version - 1)}>Previous version</button>

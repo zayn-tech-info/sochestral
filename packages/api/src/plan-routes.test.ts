@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createSession, SESSION_COOKIE_NAME } from "@sochestral/auth";
-import { createDb, provisionUser, requireTestDatabaseUrl, type Database } from "@sochestral/database";
+import { campaignJobs, createDb, provisionUser, requireTestDatabaseUrl, type Database } from "@sochestral/database";
 import { createApp } from "./app.js";
 
 const document = {
@@ -44,6 +44,7 @@ describe("plan API", () => {
     expect((await app.request(`/plans/${planId}`, { headers: { Cookie: otherCookie } })).status).toBe(404);
     expect((await post(`/plans/${planId}/comments`, { version: 1, blockId: "b_goal", body: "Change" }, otherCookie)).status).toBe(404);
     expect((await post(`/plans/${planId}/approve`, { version: 1, confirm: true }, otherCookie)).status).toBe(404);
+    expect((await post(`/plans/${planId}/create-content`, { version: 1, confirm: true }, otherCookie)).status).toBe(404);
     const list = await app.request("/plans", { headers: { Cookie: otherCookie } });
     expect(await list.json()).toEqual({ plans: [] });
   });
@@ -53,6 +54,9 @@ describe("plan API", () => {
     expect((await post(`/plans/${planId}/approve`, { version: 1 })).status).toBe(422);
     const approved = await post(`/plans/${planId}/approve`, { version: 1, confirm: true });
     expect(await approved.json()).toMatchObject({ scope: "plan_direction", revision: 1 });
+    expect(await database.db.select().from(campaignJobs)).toHaveLength(0);
+    expect((await post(`/plans/${planId}/create-content`, { version: 1, confirm: true })).status).toBe(409);
+    expect(await (await post(`/plans/${planId}/create-content`, { version: 1, confirm: true })).json()).toEqual({ error: "CONTENT_NOT_READY" });
     expect((await post(`/plans/${planId}/versions`, { expectedVersion: 1, document })).status).toBe(200);
     expect((await post(`/plans/${planId}/approve`, { version: 1, confirm: true })).status).toBe(409);
     const result = await app.request(`/plans/${planId}`, { headers: { Cookie: cookie } });
@@ -88,6 +92,17 @@ describe("plan API", () => {
     expect((await read("?version=1", otherCookie)).status).toBe(404);
     expect((await read("?version=3")).status).toBe(404);
     for (const bad of ["0", "-1", "1.5", "1e0", "abc", "9007199254740992"]) expect((await read(`?version=${bad}`)).status).toBe(422);
+  });
+
+  it("refuses create-content until captions exist and never inserts campaign jobs", async () => {
+    const planId = await create();
+    expect((await app.request(`/plans/${planId}/create-content`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: 1, confirm: true }) })).status).toBe(401);
+    expect((await post(`/plans/${planId}/create-content`, { version: 1 })).status).toBe(422);
+    await post(`/plans/${planId}/approve`, { version: 1, confirm: true });
+    const refused = await post(`/plans/${planId}/create-content`, { version: 1, confirm: true });
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({ error: "CONTENT_NOT_READY" });
+    expect(await database.db.select().from(campaignJobs)).toHaveLength(0);
   });
 
   it("stores comments immediately and rejects an anchor absent from the reviewed version", async () => {

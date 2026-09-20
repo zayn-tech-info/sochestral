@@ -1,4 +1,4 @@
-import { runPlanInterview } from "./plan-interview.js";
+import { isInterviewResume, runPlanInterview } from "./plan-interview.js";
 import { withUsageContext, withUsageRole } from "./usage.js";
 import {
   createHash,
@@ -99,9 +99,11 @@ import {
 } from "./review.js";
 import {
   PublishingPreferenceService,
+  isCreateContentAsk,
   isSchedulePlanAcceptance,
   isSchedulePlanRejection,
   localAutonomousScheduleIntent,
+  localLiveIntent,
   localPlanningIntent,
   localScheduleIntent,
   priorHasAutonomousScheduleContext,
@@ -2893,7 +2895,7 @@ export class DefaultOrchestrationService implements OrchestrationService {
 
     const interview = conversationId ? await getPlanInterview(this.db, userId, conversationId) : null;
     const planningTurn = async () => {
-      const turnInput = { ...common, provider: "thesean", model: this.config.theseanModel, publishingMode: "always_draft" as const, explicitLiveIntent: false };
+      const turnInput = { ...common, provider: "thesean" as const, model: this.config.theseanModel, publishingMode: "always_draft" as const, explicitLiveIntent: false, targetPlatforms: resolution.platforms };
       const turn = conversationId ? await appendConversationTurn(this.db, conversationId, turnInput)
         : await createConversationTurn(this.db, { ...turnInput, title: deriveInitialConversationTitle(input.message) });
       if (!turn.run || turn.run.status !== "running") return this.existingResponse(turn);
@@ -2901,6 +2903,7 @@ export class DefaultOrchestrationService implements OrchestrationService {
       try {
         const text = await runPlanInterview(this.db, { userId, conversationId: turn.conversation.id, runId: turn.run.id, message: effectiveMessage,
           provider: this.model, model: this.config.theseanModel, maxTokens: this.config.outputTokenLimit, search: this.search, searchModel: this.config.deepseekModel,
+          mediaAssetIds: common.mediaAssetIds,
           onStep: (step, started) => this.emit({ type: started ? "step_started" : "step_completed", step }) });
         const assistant = await completeOrchestrationRun(this.db, turn.run.id, text, Math.round(performance.now() - started));
         return this.existingResponse({ ...turn, assistantMessage: assistant, run: { ...turn.run, status: "completed" } });
@@ -2909,8 +2912,14 @@ export class DefaultOrchestrationService implements OrchestrationService {
         return this.existingResponse({ ...turn, assistantMessage: assistant, run: { ...turn.run, status: "failed" } });
       }
     };
+    const interviewOpen = Boolean(interview && !["planned", "canceled"].includes(interview.state.status));
+    const resumeCanceledInterview = Boolean(interview && interview.state.status === "canceled" && !interview.planId
+      && (isInterviewResume(effectiveMessage) || localPlanningIntent(effectiveMessage)));
     if (localPlanningIntent(effectiveMessage) || localAutonomousScheduleIntent(effectiveMessage) ||
-      (interview && !["planned", "canceled"].includes(interview.state.status))) return planningTurn();
+      interviewOpen || resumeCanceledInterview ||
+      (interview?.planId && (isCreateContentAsk(effectiveMessage) || isSchedulePlanAcceptance(effectiveMessage) || localScheduleIntent(effectiveMessage) || localLiveIntent(effectiveMessage) || /\b(?:schedule|publish|post\s+now)\b/i.test(effectiveMessage)))) {
+      return planningTurn();
+    }
 
     try {
       let targetPlatforms =
@@ -2961,7 +2970,7 @@ export class DefaultOrchestrationService implements OrchestrationService {
         }));
         this.emit({ type: "step_completed", step: "checking_plan" });
       }
-      if (clerk?.intent === "plan" || (interview?.planId && clerk && ["accept", "schedule_one"].includes(clerk.intent))) return planningTurn();
+      if (clerk?.intent === "plan" || (interview?.planId && clerk && ["accept", "schedule_one", "live"].includes(clerk.intent))) return planningTurn();
       const clerkFailed = clerkRan && !clerk;
       const mergedLock = clerk
         ? mergeClerkLock(existingPlanRow, clerk, {
