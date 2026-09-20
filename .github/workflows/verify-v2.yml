@@ -39,9 +39,9 @@ jobs:
       - run: pnpm run db:migrate
         env:
           DATABASE_URL: postgresql://sochestral:sochestral@127.0.0.1:5433/sochestral_test
-      - run: pnpm --filter @sochestral/database test src/profile.test.ts src/generation-context.test.ts src/plans.test.ts src/plan-interview.test.ts --no-file-parallelism
-      - run: pnpm --filter @sochestral/api test src/profile-routes.test.ts src/plan-routes.test.ts --no-file-parallelism
-      - run: pnpm --filter @sochestral/orchestration test src/usage.test.ts src/plan-revision.test.ts src/plan-interview.test.ts --no-file-parallelism
+      - run: pnpm --filter @sochestral/database test -- src/profile.test.ts src/generation-context.test.ts src/plans.test.ts src/plan-interview.test.ts --no-file-parallelism
+      - run: pnpm --filter @sochestral/api test -- src/profile-routes.test.ts src/plan-routes.test.ts --no-file-parallelism
+      - run: pnpm --filter @sochestral/orchestration test -- src/usage.test.ts src/plan-revision.test.ts src/plan-interview.test.ts --no-file-parallelism
       - run: bash scripts/test-v2-baseline.sh
       - run: npx playwright install --with-deps chromium
         working-directory: web
