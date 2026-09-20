@@ -102,6 +102,7 @@ import {
   isSchedulePlanAcceptance,
   isSchedulePlanRejection,
   localAutonomousScheduleIntent,
+  localLiveIntent,
   localPlanningIntent,
   localScheduleIntent,
   priorHasAutonomousScheduleContext,
@@ -2910,7 +2911,10 @@ export class DefaultOrchestrationService implements OrchestrationService {
       }
     };
     if (localPlanningIntent(effectiveMessage) || localAutonomousScheduleIntent(effectiveMessage) ||
-      (interview && !["planned", "canceled"].includes(interview.state.status))) return planningTurn();
+      (interview && !["planned", "canceled"].includes(interview.state.status)) ||
+      (interview?.planId && (isSchedulePlanAcceptance(effectiveMessage) || localScheduleIntent(effectiveMessage) || localLiveIntent(effectiveMessage)))) {
+      return planningTurn();
+    }
 
     try {
       let targetPlatforms =
