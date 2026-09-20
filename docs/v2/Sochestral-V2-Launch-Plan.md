@@ -10,8 +10,8 @@
 
 | Field | Value |
 | --- | --- |
-| Current step | **L1** — stabilize and test the interview path that already exists in source |
-| Last completed | Codex V2 foundations on `main` (migrations 0019–0025, timezone, shared context, versioned plans, revision worker, comment reattachment, untested interview code) |
+| Current step | **L2** — interview product gates (delegation, research, no schedule) |
+| Last completed | **L1** (20 Sep 2026): interview typecheck, isolated tests, chat routing onto the review link, CI include |
 | Do not start | Durable content generation, schedule confirmation, billing, WhatsApp, Phase 8 expansion |
 | Stop if | A later step would invent a deferred commercial policy, publish live, migrate production Neon, or treat direction approval as schedule permission |
 
@@ -186,7 +186,7 @@ Relative size is guidance. Do the steps in order unless a later step is marked *
 
 ### L1 — Interview typecheck and isolated tests
 
-**Status:** Next. Source exists; proof does not.  
+**Status:** Done 20 September 2026 on `cursor/v2-next-9bc5`. Interview source is covered by isolated tests. Remaining mandatory-ideas / campaign paths are L2/L11.  
 **Gold:** A04 Phase 3 items 1–3; handoff §7.  
 **Why:** Chat still has a mandatory ideas / clerk campaign path. The new interview is the entry to the gold loop. Untested interview code must not be treated as shipped.
 
@@ -215,7 +215,7 @@ Relative size is guidance. Do the steps in order unless a later step is marked *
 
 ### L2 — Interview product gates (delegation, research, no schedule)
 
-**Status:** Not started. Depends on L1.  
+**Status:** Next. Depends on L1.  
 **Gold:** P05.3, A04 Phase 3 items 2–3, A02 invariants 1–2 and 6.
 
 **Build:**

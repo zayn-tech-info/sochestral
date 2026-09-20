@@ -2,7 +2,7 @@
 
 Started 10 September 2026. Status: in progress. This is a completion record, not a release claim.
 
-**Execution order from 20 September 2026:** follow [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md) one step at a time. Current step in that file is L1 (interview typecheck and tests). This progress log remains the dated evidence record.
+**Execution order from 20 September 2026:** follow [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md) one step at a time. Current step in that file is L2 (interview product gates). This progress log remains the dated evidence record.
 
 ## Authority and baseline
 
@@ -34,7 +34,7 @@ Current verification evidence:
 
 ## Remaining work
 
-The ordered steps are L1–L18 in [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md). Do not start L5 while L1 is open. Summary of what those steps cover:
+The ordered steps are L1–L18 in [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md). L1 is done. Do not start L5 while L2–L4 are open. Summary of what those steps cover:
 
 Phase 0: finish cross repository contract and fault harness coverage, isolated full test baselines, browser calendar check and delivery CI gate.
 
@@ -141,6 +141,22 @@ The viewer offers Reattach comment for detached feedback, requires selecting a n
 
 Verification so far: nine database plan tests, six API plan tests and six viewer tests pass. Backend typechecks pass. Browser and revision-worker regression results follow below. No new environment variables or production deployment.
 
-The next major integration is replacing the mandatory-ideas/legacy planning path in chat with the documented partial-answer/delegation interview and durable plan creation. This remains necessary: the new viewer/worker does not yet replace that old chat path. Durable content generation, approval and confirmed scheduling, memory/sources, full accounting/routing/billing and final release verification also remain unfinished.
+The next major integration is L2 interview product gates (delegation, research provenance, original request constraints) and then the durable content tracer. The viewer/worker still does not replace every old chat path. Durable content generation, approval and confirmed scheduling, memory/sources, full accounting/routing/billing and final release verification also remain unfinished.
 
 Final reattachment verification: all five browser widths pass, including explicit location selection and preservation of the original anchor; all five revision-worker regression tests pass. Standalone web typecheck and git diff --check pass. Logs: /tmp/v2-reattach-{db,api,web,worker,browser,types,web-types}.log. Nothing deployed and no provider calls made.
+
+## Interview typecheck and isolated tests (L1)
+
+20 September 2026 on `cursor/v2-next-9bc5`. Local `sochestral_test` only. No production migration.
+
+Added database and orchestration interview tests. Chat planning turns now pass resolved platforms so a run can be created. After a versioned plan exists, acceptance, schedule, or live wording returns the review link instead of SocialMCP or the legacy campaign worker. Vitest `maxWorkers` is 1 for database, orchestration, and API so suites that `delete from users` do not overlap.
+
+Verification:
+
+- `pnpm -r typecheck` passed (database, auth, orchestration, API).
+- `npx tsc --noEmit` in `web/` passed after installing missing `@playwright/test` locally (not committed).
+- Database V2 files: 34 passing (`profile`, `generation-context`, `plans`, `plan-interview`).
+- Orchestration V2 files: 12 passing (`usage`, `plan-revision`, `plan-interview`).
+- Plan API: 6 passing. Plan viewer: 6 passing.
+
+Fake provider only. No live Thesean, DeepSeek, or SocialMCP calls. CI `verify-v2` includes the new test files. Next: L2 interview product gates.

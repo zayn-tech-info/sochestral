@@ -5,5 +5,6 @@ export default defineConfig({
     environment: "node",
     // Integration files reset the same explicitly isolated test database.
     fileParallelism: false,
+    maxWorkers: 1,
   },
 });

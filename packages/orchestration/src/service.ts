@@ -2894,7 +2894,7 @@ export class DefaultOrchestrationService implements OrchestrationService {
 
     const interview = conversationId ? await getPlanInterview(this.db, userId, conversationId) : null;
     const planningTurn = async () => {
-      const turnInput = { ...common, provider: "thesean", model: this.config.theseanModel, publishingMode: "always_draft" as const, explicitLiveIntent: false };
+      const turnInput = { ...common, provider: "thesean" as const, model: this.config.theseanModel, publishingMode: "always_draft" as const, explicitLiveIntent: false, targetPlatforms: resolution.platforms };
       const turn = conversationId ? await appendConversationTurn(this.db, conversationId, turnInput)
         : await createConversationTurn(this.db, { ...turnInput, title: deriveInitialConversationTitle(input.message) });
       if (!turn.run || turn.run.status !== "running") return this.existingResponse(turn);
