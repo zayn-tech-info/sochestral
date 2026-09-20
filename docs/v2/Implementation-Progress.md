@@ -2,7 +2,7 @@
 
 Started 10 September 2026. Status: in progress. This is a completion record, not a release claim.
 
-**Execution order from 20 September 2026:** follow [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md) one step at a time. Current step in that file is L2 (interview product gates). This progress log remains the dated evidence record.
+**Execution order from 20 September 2026:** follow [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md) one step at a time. Current step in that file is L3 (chat to plan viewer). This progress log remains the dated evidence record.
 
 ## Authority and baseline
 
@@ -34,7 +34,7 @@ Current verification evidence:
 
 ## Remaining work
 
-The ordered steps are L1–L18 in [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md). L1 is done. Do not start L5 while L2–L4 are open. Summary of what those steps cover:
+The ordered steps are L1–L18 in [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md). L1 and L2 are done. Do not start L5 while L3–L4 are open. Summary of what those steps cover:
 
 Phase 0: finish cross repository contract and fault harness coverage, isolated full test baselines, browser calendar check and delivery CI gate.
 
@@ -160,3 +160,19 @@ Verification:
 - Plan API: 6 passing. Plan viewer: 6 passing.
 
 Fake provider only. No live Thesean, DeepSeek, or SocialMCP calls. CI `verify-v2` includes the new test files. Next: L2 interview product gates.
+
+## L2 — Interview product gates (20 September 2026)
+
+20 September 2026 on `cursor/v2-next-9bc5`. Local `sochestral_test` only. No production migration.
+
+Interview JSON `request` holds stated horizon, item count, platforms, cadence, attachments, and the original message. Unspecified size stays null (no 14-day fallback). After `research_unavailable`, generation waits for `useExistingContext`. Writer sources must match supplied research 1:1. Usage persistence failures stay visible. Classifier and writer attempts go through `measureModelAttempt`; omitted tokens stay null. After a plan exists, “go ahead” returns the review link.
+
+Verification (pinned `TEST_DATABASE_URL=postgresql://sochestral:sochestral@127.0.0.1:5433/sochestral_test`, `NODE_ENV=test`, `CORS_ORIGIN` unset):
+
+- Database V2 files: 34 passing (`profile`, `generation-context`, `plans`, `plan-interview`).
+- Orchestration interview + autonomy + publishing: 125 passing.
+- Orchestration CI files: 17 passing (`usage`, `plan-revision`, `plan-interview`).
+- API profile + plan routes: 15 passing.
+- `pnpm --filter @sochestral/database typecheck` and `pnpm --filter @sochestral/orchestration typecheck` passed.
+
+Fake provider only. No live Thesean, DeepSeek, or SocialMCP. Next: L3 chat to plan viewer.

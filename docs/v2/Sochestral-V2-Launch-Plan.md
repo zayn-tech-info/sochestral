@@ -10,8 +10,8 @@
 
 | Field | Value |
 | --- | --- |
-| Current step | **L2** — interview product gates (delegation, research, no schedule) |
-| Last completed | **L1** (20 Sep 2026): interview typecheck, isolated tests, chat routing onto the review link, CI include |
+| Current step | **L3** — chat to plan viewer, browser proof |
+| Last completed | **L2** (20 Sep 2026): request constraints, research gates, source bijection, usage without zeros, go-ahead stays on review |
 | Do not start | Durable content generation, schedule confirmation, billing, WhatsApp, Phase 8 expansion |
 | Stop if | A later step would invent a deferred commercial policy, publish live, migrate production Neon, or treat direction approval as schedule permission |
 
@@ -215,7 +215,7 @@ Relative size is guidance. Do the steps in order unless a later step is marked *
 
 ### L2 — Interview product gates (delegation, research, no schedule)
 
-**Status:** Next. Depends on L1.  
+**Status:** Done 20 September 2026 on `cursor/v2-next-9bc5`. Fake-provider tests on local `sochestral_test`. No production migrate. Browser chat→plan is L3.  
 **Gold:** P05.3, A04 Phase 3 items 2–3, A02 invariants 1–2 and 6.
 
 **Build:**
