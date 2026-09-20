@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { OrchestrationError } from "./errors.js";
 import type {
   ConversationContentPlan,
   PlanCadence,
@@ -219,6 +220,7 @@ export async function runPlanClerk(
     message: string;
     priorMessages: string[];
     modelName: string;
+    contextNote?: string;
     existingLock: {
       startDate: string | null;
       timezone: string | null;
@@ -228,11 +230,11 @@ export async function runPlanClerk(
       plannedPosts?: number;
     } | null;
   },
-): Promise<ClerkOutput | null> {
+): Promise<ClerkOutput> {
   try {
     const window = [input.message, ...input.priorMessages.slice(-4)].join("\n");
     const result = await model.complete({
-      system: `${CLERK_SYSTEM} Existing lock: ${JSON.stringify(input.existingLock)}`,
+      system: `${CLERK_SYSTEM} Existing lock: ${JSON.stringify(input.existingLock)}\n${input.contextNote ?? ""}`,
       messages: [
         {
           role: "user",
@@ -252,21 +254,16 @@ export async function runPlanClerk(
     });
     const call = result.toolCalls.find((item) => item.name === CLERK_TOOL_NAME);
     if (!call) {
-      // #region agent log
-      fetch('http://127.0.0.1:7380/ingest/bba007c1-d719-434b-a717-ab19f91562f7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ebe5c0'},body:JSON.stringify({sessionId:'ebe5c0',runId:'pre-fix',hypothesisId:'B',location:'clerk-lock.ts:runPlanClerk',message:'clerk no tool call',data:{modelName:input.modelName,lockComplete:input.existingLock?.lockComplete ?? null,plannedPosts:input.existingLock?.plannedPosts ?? null,toolCallCount:result.toolCalls.length,messageLen:input.message.trim().length},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
-      return null;
+      throw new OrchestrationError("MODEL_UNAVAILABLE", 503, "Planning could not complete. Please retry.", { stage: "plan_clerk", reason: "missing_tool_call" });
     }
     const parsed = clerkOutputSchema.safeParse(call.input);
-    // #region agent log
-      fetch('http://127.0.0.1:7380/ingest/bba007c1-d719-434b-a717-ab19f91562f7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ebe5c0'},body:JSON.stringify({sessionId:'ebe5c0',runId:'pre-fix',hypothesisId:'C',location:'clerk-lock.ts:runPlanClerk',message:'clerk parsed',data:{parseOk:parsed.success,lockComplete:input.existingLock?.lockComplete ?? null,plannedPosts:input.existingLock?.plannedPosts ?? null,intent:parsed.success?parsed.data.intent:null,isGo:parsed.success?parsed.data.isGo:null,isIncomplete:parsed.success?parsed.data.isIncomplete:null,isConversationMeta:parsed.success?parsed.data.isConversationMeta:null,parseIssue:parsed.success?null:parsed.error.issues[0]?.path.concat(parsed.error.issues[0]?.code ?? ''),rawKeys:call.input&&typeof call.input==='object'?Object.keys(call.input as object):[]},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
-    return parsed.success ? parsed.data : null;
+    if (!parsed.success) {
+      throw new OrchestrationError("MODEL_UNAVAILABLE", 503, "Planning could not complete. Please retry.", { stage: "plan_clerk", reason: "invalid_arguments" });
+    }
+    return parsed.data;
   } catch (error) {
-    // #region agent log
-    fetch('http://127.0.0.1:7380/ingest/bba007c1-d719-434b-a717-ab19f91562f7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ebe5c0'},body:JSON.stringify({sessionId:'ebe5c0',runId:'pre-fix',hypothesisId:'B',location:'clerk-lock.ts:runPlanClerk',message:'clerk threw',data:{errorName:error instanceof Error?error.name:'unknown',errorCode:typeof error==='object'&&error&&'code' in error?String((error as {code:unknown}).code):null},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
-    return null;
+    if (error instanceof OrchestrationError) throw error;
+    throw new OrchestrationError("MODEL_UNAVAILABLE", 503, "Planning could not complete. Please retry.", { stage: "plan_clerk", reason: "provider_error" });
   }
 }
 

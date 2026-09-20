@@ -50,6 +50,13 @@ const items = [
     kind: "link" as const,
   },
   {
+    href: "/app/plans",
+    label: "Plans",
+    icon: FileText,
+    match: (p: string) => p.startsWith("/app/plans"),
+    kind: "link" as const,
+  },
+  {
     href: "/app/calendar",
     label: "Calendar",
     icon: CalendarDays,

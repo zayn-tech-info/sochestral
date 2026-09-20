@@ -6,6 +6,7 @@ import { createApp } from "./app.js";
 import { ImageService } from "./image-service.js";
 import { MediaService } from "./media-storage.js";
 import { startImageWorker } from "./image-worker.js";
+import { startPlanWorker } from "./plan-worker.js";
 import { startCampaignWorker } from "./campaign-worker.js";
 
 loadEnv({ path: resolve(process.cwd(), "../../.env") });
@@ -20,6 +21,7 @@ const media = new MediaService(db);
 const images = new ImageService(db, media);
 startImageWorker(() => images);
 startCampaignWorker(db);
+startPlanWorker(db);
 
 serve({ fetch: app.fetch, port }, () => {
   console.log(`Product API listening on http://localhost:${port}`);

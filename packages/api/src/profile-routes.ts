@@ -48,6 +48,8 @@ function projectProfile(
     : [];
   return {
     id: compiled.profile.id || null,
+    timezone: compiled.profile.timezone,
+    timezoneConfirmedAt: compiled.profile.timezoneConfirmedAt,
     businessName: compiled.profile.businessName,
     businessDescription: compiled.profile.businessDescription,
     websiteUrl: compiled.profile.websiteUrl,
@@ -139,6 +141,8 @@ export function registerProfileRoutes(
     }
     try {
       await patchBusinessProfile(db, user.id, {
+        timezone: body.timezone,
+        confirmTimezone: body.confirmTimezone,
         businessName:
           body.businessName === undefined ? undefined : body.businessName,
         businessDescription:

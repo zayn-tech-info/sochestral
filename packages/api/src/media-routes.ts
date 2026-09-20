@@ -111,7 +111,7 @@ export function registerMediaRoutes(
         request.user.id,
         c.req.param("assetId"),
       );
-      return c.body(file.bytes, 200, {
+      return c.body(new Uint8Array(file.bytes).buffer, 200, {
         "Content-Type": file.mimeType,
         "Content-Disposition": `attachment; filename="${file.filename}"`,
         "Cache-Control": "private, no-store",

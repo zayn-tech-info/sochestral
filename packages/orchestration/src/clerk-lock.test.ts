@@ -115,7 +115,7 @@ describe("clerk lock merge", () => {
   });
 
   it("asks Luna to set isGo from intent when the lock is already complete (AC-4)", async () => {
-    const complete = vi.fn(async () => ({
+    const complete = vi.fn(async (_request: Parameters<ModelProvider["complete"]>[0]) => ({
       content: "",
       thinking: null,
       toolCalls: [
@@ -148,5 +148,30 @@ describe("clerk lock merge", () => {
     expect(system).toContain("lockComplete");
     expect(system).toContain("isGo to true");
     expect(system).toContain("A short confirmation is enough");
+  });
+});
+
+describe("plan clerk failure boundary", () => {
+  const input = { message: "You choose topics from my brand context", priorMessages: [],
+    modelName: "configured-clerk", existingLock: null };
+  it.each([
+    ["missing_tool_call", { toolCalls: [] }],
+    ["invalid_arguments", { toolCalls: [{ name: "record_plan_clerk", input: { intent: "plan" } }] }],
+  ])("surfaces %s instead of treating a failed planner as chat", async (reason, result) => {
+    const complete = vi.fn(async () => result);
+    await expect(runPlanClerk({ complete } as unknown as ModelProvider, input))
+      .rejects.toMatchObject({ code: "MODEL_UNAVAILABLE", details: { stage: "plan_clerk", reason } });
+  });
+  it("sanitizes provider errors without leaking prompts or credentials", async () => {
+    const complete = vi.fn(async () => { throw new Error("secret-key private prompt"); });
+    await expect(runPlanClerk({ complete } as unknown as ModelProvider, input))
+      .rejects.toMatchObject({ message: "Planning could not complete. Please retry.",
+        details: { stage: "plan_clerk", reason: "provider_error" } });
+  });
+  it("retains valid delegated planning output", async () => {
+    const complete = vi.fn(async () => ({ toolCalls: [{ name: "record_plan_clerk",
+      input: { ...clerkBase, intent: "plan", isGo: false } }] }));
+    expect(await runPlanClerk({ complete } as unknown as ModelProvider, input))
+      .toMatchObject({ intent: "plan", isGo: false });
   });
 });

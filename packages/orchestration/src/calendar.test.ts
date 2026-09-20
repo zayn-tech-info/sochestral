@@ -115,13 +115,30 @@ function gatewayMock(scheduled: unknown[]): CalendarGateway {
   };
 }
 
+describe("delivery pagination contract", () => {
+  it("reads every page and keeps unknown outcomes visible", async () => {
+    const row = { id: "first", platform: "threads", connectedAccountId: "acct_1",
+      publishAt: "2026-09-11T10:00:00.000Z", status: "outcome_unknown", contentText: "Checking receipt" };
+    const gateway = { callTool: vi.fn()
+      .mockResolvedValueOnce({ ok: true, scheduled: [row], nextCursor: "first" })
+      .mockResolvedValueOnce({ ok: true, scheduled: [{ ...row, id: "second", status: "publishing" }], nextCursor: null }) };
+    const service = new DefaultCalendarService(gateway, connectorsMock());
+    const result = await service.listSlots("user_1", { from: "2026-09-10T00:00:00Z", to: "2026-09-16T23:59:59Z", timeZone: "UTC" });
+    expect(result.slots.map(slot => slot.statusBucket)).toEqual(["Checking status", "Publishing"]);
+    expect(result.slots.every(slot => !slot.canReschedule)).toBe(true);
+    expect(gateway.callTool.mock.calls[1]![0].arguments).toMatchObject({ cursor: "first" });
+  });
+});
+
 describe("calendar helpers", () => {
   it("maps MCP statuses to product buckets", () => {
     expect(mapStatusBucket("scheduled")).toBe("Scheduled");
     expect(mapStatusBucket("published")).toBe("Done");
     expect(mapStatusBucket("failed")).toBe("Failed");
     expect(mapStatusBucket("cancelled")).toBe("Canceled");
-    expect(mapStatusBucket("weird")).toBe("Scheduled");
+    expect(mapStatusBucket("weird")).toBe("Checking status");
+    expect(mapStatusBucket("outcome_unknown")).toBe("Checking status");
+    expect(mapStatusBucket("publishing")).toBe("Publishing");
   });
 
   it("allows only https media urls", () => {
@@ -368,7 +385,7 @@ describe("DefaultCalendarService", () => {
     const detail = await service.getSlot("user_1", "sched_1");
     expect(detail.statusBucket).toBe("Canceled");
     expect(detail.canReschedule).toBe(true);
-    expect(detail.canEditContent).toBe(true);
+    expect(detail.canEditContent).toBe(false);
     expect(detail.canCancel).toBe(false);
 
     const moved = await service.reschedule("user_1", "sched_1", future);
@@ -1187,13 +1204,13 @@ describe("DefaultCalendarService", () => {
     const media = {
       publishUrl: vi.fn(async () => "https://r2.example/signed/media_abc.jpg"),
     };
-    const service = new DefaultCalendarService(gateway, connectorsMock(), media);
+    const service = new DefaultCalendarService(gateway, connectorsMock({ threads: [{ id: "acct_second", username: "second", displayName: "Second" }] }), media);
     const future = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
     await service.mirrorToPlatforms("user_1", "sched_1", {
       targets: [
         {
-          platform: "linkedin_personal",
-          accountId: "acct_li",
+          platform: "threads",
+          accountId: "acct_second",
           scheduledAt: future,
         },
       ],

@@ -7,7 +7,7 @@ export const PLATFORM_IMAGE_LIMITS: Record<
 > = {
   instagram: { min: 1, max: 10 },
   threads: { min: 0, max: 20 },
-  linkedin_personal: { min: 0, max: 20 },
+  linkedin_personal: { min: 0, max: 1 },
 };
 
 export function platformImageLimits(platform: ConnectorPlatform): {

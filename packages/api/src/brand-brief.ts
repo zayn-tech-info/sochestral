@@ -9,6 +9,7 @@ import {
   type Database,
 } from "@sochestral/database";
 import {
+  withUsageContext,
   loadOrchestrationConfig,
   TheseanOpenAIModelProvider,
   type ModelProvider,
@@ -74,14 +75,14 @@ export async function compileDueBrandBrief(
         },
       });
     }
-    const completion = await input.vision.complete({
+    const completion = await withUsageContext({ db, userId: due.userId, parentId: due.sourceHash, role: "design_compile" }, () => input.vision!.complete({
       system: COMPILE_SYSTEM,
       messages: [{ role: "user", content: blocks }],
       tools: [],
       model: input.visionModel || "ship-like/gpt-5.6-luna",
       maxTokens: 800,
       thinking: { enabled: false, budgetTokens: 0 },
-    });
+    }));
     const text = completion.content?.trim() || colorsAndNotes;
     await markBrandBriefReady(db, {
       userId: due.userId,

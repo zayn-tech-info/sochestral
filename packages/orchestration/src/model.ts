@@ -1,3 +1,4 @@
+import { measureModelAttempt } from "./usage.js";
 import Anthropic from "@anthropic-ai/sdk";
 import type {
   ContentBlockParam,
@@ -46,6 +47,10 @@ export type ModelCompletion = {
   inputTokens: number;
   outputTokens: number;
   attempts: number;
+  usage?: {
+    inputTokens?: number | null; outputTokens?: number | null;
+    cacheReadTokens?: number | null; cacheWriteTokens?: number | null; reasoningTokens?: number | null;
+  };
   /** Anthropic/OpenAI stop reason when available (e.g. max_tokens). */
   stopReason?: string | null;
 };
@@ -250,7 +255,12 @@ export class TheseanModelProvider implements ModelProvider {
     throw new OrchestrationError("MODEL_UNAVAILABLE", 503);
   }
 
-  private async completeOnce(
+  private async completeOnce(...args: Parameters<TheseanModelProvider["completeOnceRaw"]>): Promise<ModelCompletion> {
+    return measureModelAttempt({ provider: "thesean_anthropic", model: args[0].model, attempt: args[3] },
+      () => this.completeOnceRaw(...args));
+  }
+
+  private async completeOnceRaw(
     input: {
       system: string;
       messages: ModelMessage[];
@@ -376,8 +386,12 @@ export class TheseanModelProvider implements ModelProvider {
       content: text || null,
       thinking: thinking ? redactText(thinking) : null,
       toolCalls,
-      inputTokens: message.usage.input_tokens,
-      outputTokens: message.usage.output_tokens,
+      usage: {
+        inputTokens: message.usage?.input_tokens, outputTokens: message.usage?.output_tokens,
+        cacheReadTokens: message.usage?.cache_read_input_tokens, cacheWriteTokens: message.usage?.cache_creation_input_tokens,
+      },
+      inputTokens: message.usage?.input_tokens ?? 0,
+      outputTokens: message.usage?.output_tokens ?? 0,
       attempts,
       stopReason: message.stop_reason ?? null,
     };

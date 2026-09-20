@@ -32,7 +32,8 @@ import { ScheduleDetailModal } from "./schedule-detail-modal";
 
 const STATUS_OPTIONS: CalendarStatusBucket[] = [
   "Scheduled",
-  "Done",
+  "Publishing",
+  "Checking status",  "Done",
   "Failed",
   "Canceled",
 ];

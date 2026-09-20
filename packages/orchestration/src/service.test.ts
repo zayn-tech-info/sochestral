@@ -8,6 +8,8 @@ import {
   createProfileEntry,
   listProfileEntries,
   drafts,
+  generationContexts,
+  generationContextUses,
   orchestrationMessages,
   orchestrationRuns,
   orchestrationToolCalls,
@@ -2360,7 +2362,7 @@ describe("DefaultOrchestrationService setup agent", () => {
     expect(mcp.callTool).not.toHaveBeenCalled();
   });
 
-  it("injects the compiled profile note after setup is complete (AC-6)", async () => {
+  it("uses a persisted shared brand context after setup is complete", async () => {
     const description = Array.from({ length: 32 }, (_, i) => `word${i}`).join(
       " ",
     );
@@ -2393,11 +2395,16 @@ describe("DefaultOrchestrationService setup agent", () => {
     expect(model.complete).toHaveBeenCalledWith(
       expect.objectContaining({
         model: "contract-model",
-        system: expect.stringContaining("Business profile note (authoritative)"),
+        system: expect.stringContaining("Brand context data follows as JSON"),
       }),
     );
     const system = vi.mocked(model.complete).mock.calls[0]?.[0]?.system as string;
     expect(system).toContain("Orch Tools");
+    expect(system).toContain("Warm and short");
+    const [use] = await database.db.select().from(generationContextUses).where(eq(generationContextUses.userId, userId));
+    expect(use?.role).toBe("chat");
+    const [snapshot] = await database.db.select().from(generationContexts).where(eq(generationContexts.id, use!.contextId));
+    expect(system).toContain(JSON.stringify(snapshot!.payload));
   });
 
   it("asks for confirm before mid chat profile pivots (AC-7)", async () => {

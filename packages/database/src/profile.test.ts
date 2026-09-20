@@ -36,6 +36,26 @@ describe("business profile database", () => {
     otherId = (await provisionUser(database.db, "other@example.com")).id;
   });
 
+  it("persists a confirmed timezone without changing another user's profile", async () => {
+    await patchBusinessProfile(database.db, ownerId, { timezone: "America/New_York", confirmTimezone: true });
+    const saved = await getCompiledProfile(database.db, ownerId);
+    expect(saved.profile.timezone).toBe("America/New_York");
+    expect(saved.profile.timezoneConfirmedAt).toBeInstanceOf(Date);
+    expect((await getCompiledProfile(database.db, otherId)).profile.timezone).toBeNull();
+    await patchBusinessProfile(database.db, ownerId, { businessName: "Updated" });
+    expect((await getCompiledProfile(database.db, ownerId)).profile.timezone).toBe("America/New_York");
+  });
+
+  it.each([
+    { timezone: "Africa/Lagos" },
+    { timezone: "Mars/Olympus", confirmTimezone: true },
+    { timezone: "", confirmTimezone: true },
+    { confirmTimezone: true },
+  ])("rejects invalid or unconfirmed timezone changes: %j", async (patch) => {
+    await expect(patchBusinessProfile(database.db, ownerId, patch)).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect((await getCompiledProfile(database.db, ownerId)).profile.timezone).toBeNull();
+  });
+
   it("creates profile and entries with cascade delete (AC-1)", async () => {
     const profile = await ensureBusinessProfile(database.db, ownerId);
     expect(profile.id.startsWith("bprof_")).toBe(true);
@@ -125,6 +145,8 @@ describe("business profile database", () => {
       {
         id: "bprof_x",
         userId: ownerId,
+        timezone: null,
+        timezoneConfirmedAt: null,
         businessName: "Acme",
         businessDescription: "Tools",
         websiteUrl: null,

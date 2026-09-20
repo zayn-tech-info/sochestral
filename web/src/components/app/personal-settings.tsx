@@ -32,6 +32,7 @@ export function PersonalSettings() {
   const [profile, setProfile] = useState<BusinessProfileResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [timezone, setTimezone] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState({
     businessName: "",
@@ -56,6 +57,7 @@ export function PersonalSettings() {
     try {
       const next = await getBusinessProfile();
       setProfile(next);
+      setTimezone(next.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
       setDraft({
         businessName: next.businessName ?? "",
         businessDescription: next.businessDescription ?? "",
@@ -132,6 +134,20 @@ export function PersonalSettings() {
     }
   }
 
+  async function confirmTimezone() {
+    setSaving(true);
+    try {
+      const next = await patchBusinessProfile({ timezone, confirmTimezone: true });
+      setProfile(next);
+      setTimezone(next.timezone ?? timezone);
+      toast({ tone: "success", title: "Timezone confirmed." });
+    } catch (err) {
+      actionError(err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function redoSetup(reset: boolean) {
     setSaving(true);
     try {
@@ -198,6 +214,22 @@ export function PersonalSettings() {
           )
         ) : (
           <>
+            <section className="space-y-3 rounded-xl border p-4" aria-label="Scheduling timezone">
+              <label htmlFor="profile-timezone" className="block font-medium">Scheduling timezone</label>
+              <p className="text-sm text-muted-foreground">
+                {profile.timezoneConfirmedAt
+                  ? `Confirmed timezone: ${profile.timezone}`
+                  : "Suggested from this browser. Confirm the timezone you want to use for scheduling."}
+              </p>
+              <input id="profile-timezone" className="w-full rounded-md border bg-background px-3 py-2"
+                value={timezone} onChange={(event) => setTimezone(event.target.value)}
+                placeholder="Africa/Lagos" autoComplete="off" />
+              <p className="text-sm text-muted-foreground">Use an IANA name, such as Africa/Lagos or America/New_York. Regional timezones follow daylight-saving changes.</p>
+              <button type="button" className="rounded-md border px-3 py-2 text-sm"
+                disabled={saving || !timezone.trim()} onClick={() => void confirmTimezone()}>
+                Confirm timezone
+              </button>
+            </section>
             <section className="space-y-3 rounded-xl border p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">

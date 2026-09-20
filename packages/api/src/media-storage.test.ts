@@ -1,4 +1,8 @@
 import sharp from "sharp";
+import { Hono } from "hono";
+import { createSession, SESSION_COOKIE_NAME } from "@sochestral/auth";
+import { registerMediaRoutes } from "./media-routes.js";
+import type { Env } from "./app.js";
 import { createHmac } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -269,6 +273,15 @@ describe("private media storage", () => {
     expect(file.mimeType).toBe("image/png");
     expect(file.filename).toBe(`sochestral-${completed.id}.png`);
     expect(file.bytes.byteLength).toBeGreaterThan(0);
+    const app = new Hono<Env>();
+    registerMediaRoutes(app, database.db, () => service);
+    const session = await createSession(database.db, user.id);
+    const response = await app.request(`/media/assets/${completed.id}/download`, {
+      headers: { Cookie: `${SESSION_COOKIE_NAME}=${session.rawToken}` },
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/png");
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(file.bytes);
 
     await service.delete(user.id, completed.id);
     await deleteUser(database.db, user.id);

@@ -163,6 +163,8 @@ function emptyProfile(userId: string): BusinessProfile {
   return {
     id: "",
     userId,
+    timezone: null,
+    timezoneConfirmedAt: null,
     businessName: null,
     businessDescription: null,
     websiteUrl: null,
@@ -226,6 +228,8 @@ export async function getBusinessProfile(
 }
 
 export type ProfileIdentityPatch = {
+  timezone?: string;
+  confirmTimezone?: boolean;
   businessName?: string | null;
   businessDescription?: string | null;
   websiteUrl?: string | null;
@@ -267,6 +271,11 @@ async function patchBusinessProfileInTransaction(
   validateProfilePatch(patch);
   const current = await ensureBusinessProfile(db, userId);
   const next: Partial<BusinessProfile> = { updatedAt: new Date() };
+
+  if (patch.timezone !== undefined) {
+    next.timezone = patch.timezone;
+    next.timezoneConfirmedAt = new Date();
+  }
 
   if (patch.redoSetup) {
     next.setupStatus = "in_progress";
@@ -378,6 +387,22 @@ async function patchBusinessProfileInTransaction(
 }
 
 function validateProfilePatch(patch: ProfileIdentityPatch): void {
+  if (patch.timezone !== undefined) {
+    if (typeof patch.timezone !== "string" || patch.confirmTimezone !== true ||
+        patch.timezone.length > 100 || !patch.timezone.trim()) {
+      throw new ProfileDatabaseError("INVALID_INPUT");
+    }
+    try {
+      patch.timezone = new Intl.DateTimeFormat("en", {
+        timeZone: patch.timezone.trim(),
+      }).resolvedOptions().timeZone;
+    } catch {
+      throw new ProfileDatabaseError("INVALID_INPUT");
+    }
+  } else if (patch.confirmTimezone !== undefined) {
+    throw new ProfileDatabaseError("INVALID_INPUT");
+  }
+
   if (patch.setupStep !== undefined && patch.setupStep !== null) {
     const step = patch.setupStep.trim();
     if (!step || !isOnboardingStep(step)) {

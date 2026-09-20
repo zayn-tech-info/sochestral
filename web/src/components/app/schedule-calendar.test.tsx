@@ -1,6 +1,6 @@
 import { createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   ApiError,
@@ -130,6 +130,8 @@ function fixtureSlot(overrides: Partial<CalendarSlot> = {}): CalendarSlot {
   };
 }
 
+afterEach(() => { vi.useRealTimers(); });
+
 beforeEach(() => {
   pushMock.mockReset();
   searchParams = new URLSearchParams();
@@ -141,15 +143,15 @@ beforeEach(() => {
     slots: [fixtureSlot()],
     timeZone: "UTC",
   });
-  vi.mocked(rescheduleCalendarSlot).mockResolvedValue({
-    ...fixtureSlot(),
+  vi.mocked(rescheduleCalendarSlot).mockImplementation(async (_id, scheduledAt) => ({
+    ...fixtureSlot({ scheduledAt }),
     caption: "Hello week",
     media: [],
     conversationId: null,
     draftId: null,
     canCancel: true,
     canEditContent: true,
-  });
+  }));
 });
 
 describe("ScheduleCalendar", () => {

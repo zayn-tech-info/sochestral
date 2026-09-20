@@ -13,6 +13,8 @@ import { platformImageLimits } from "./platform-media-limits.js";
 
 export type CalendarStatusBucket =
   | "Scheduled"
+  | "Publishing"
+  | "Checking status"
   | "Done"
   | "Failed"
   | "Canceled";
@@ -478,6 +480,8 @@ const MAX_LIST_RANGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 export const STATUS_BUCKETS = [
   "Scheduled",
+  "Publishing",
+  "Checking status",
   "Done",
   "Failed",
   "Canceled",
@@ -487,10 +491,13 @@ export type ScheduledPostsSort = "scheduledAt:asc" | "scheduledAt:desc";
 
 export function mapStatusBucket(raw: string | null | undefined): CalendarStatusBucket {
   const value = (raw ?? "").toLowerCase();
+  if (value === "publishing") return "Publishing";
+  if (value === "outcome_unknown" || value === "unknown") return "Checking status";
   if (value === "published") return "Done";
   if (value === "failed") return "Failed";
   if (value === "cancelled" || value === "canceled") return "Canceled";
-  return "Scheduled";
+  if (value === "scheduled") return "Scheduled";
+  return "Checking status";
 }
 
 export function resolveAccountIdFilter(query: {
@@ -683,7 +690,7 @@ function toSlot(
 function toDetail(row: RawSchedule, labels: Map<string, string>): ScheduleDetail {
   const slot = toSlot(row, labels);
   const caption = row.contentText ?? row.captionPreview ?? "";
-  const editable = slot.canReschedule;
+  const editable = slot.statusBucket === "Scheduled";
   return {
     ...slot,
     caption,
@@ -730,12 +737,19 @@ export class DefaultCalendarService implements CalendarService {
   private async loadRaw(userId: string, platform?: string): Promise<RawSchedule[]> {
     const args: Record<string, unknown> = {};
     if (platform && isPlatform(platform)) args.platform = platform;
-    const payload = await this.gateway.callTool({
-      userId,
-      name: "get_scheduled_posts",
-      arguments: args,
-    });
-    return readSchedules(payload);
+    const rows: RawSchedule[] = [];
+    const seenCursors = new Set<string>();
+    for (;;) {
+      const payload = await this.gateway.callTool({ userId, name: "get_scheduled_posts", arguments: args });
+      rows.push(...readSchedules(payload));
+      const cursor = asRecord(payload)?.nextCursor;
+      if (cursor === null || cursor === undefined) return rows;
+      if (typeof cursor !== "string" || !cursor || seenCursors.has(cursor)) {
+        throw new CalendarError("INVALID_SCHEDULE_RESPONSE", 502);
+      }
+      seenCursors.add(cursor);
+      args.cursor = cursor;
+    }
   }
 
   async listSlots(

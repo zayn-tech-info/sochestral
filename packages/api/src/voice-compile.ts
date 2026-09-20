@@ -9,6 +9,7 @@ import {
   type Database,
 } from "@sochestral/database";
 import {
+  withUsageContext,
   loadOrchestrationConfig,
   TheseanModelProvider,
   type ModelProvider,
@@ -80,9 +81,9 @@ export async function compileDueVoiceBible(
   try {
     let text = "";
     try {
-      text = await run();
+      text = await withUsageContext({ db, userId: due.userId, parentId: due.compileHash ?? due.sourceHash, role: "voice_compile" }, run);
     } catch {
-      text = await run();
+      text = await withUsageContext({ db, userId: due.userId, parentId: due.compileHash ?? due.sourceHash, role: "voice_compile" }, run);
     }
     if (!text) {
       await markVoiceBibleFailed(db, {

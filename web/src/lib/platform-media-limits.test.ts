@@ -14,14 +14,15 @@ describe("platformImageLimits", () => {
     expect(mediaCountOk("instagram", 11)).toBe(false);
   });
 
-  it("allows text-only Threads and LinkedIn up to 20 images", () => {
+  it("matches Threads carousel and LinkedIn single image adapter limits", () => {
     expect(platformImageLimits("threads")).toEqual({ min: 0, max: 20 });
     expect(platformImageLimits("linkedin_personal")).toEqual({
       min: 0,
-      max: 20,
+      max: 1,
     });
     expect(mediaCountOk("threads", 0)).toBe(true);
-    expect(mediaCountOk("linkedin_personal", 20)).toBe(true);
+    expect(mediaCountOk("linkedin_personal", 1)).toBe(true);
+    expect(mediaCountOk("linkedin_personal", 2)).toBe(false);
     expect(mediaCountOk("threads", 21)).toBe(false);
   });
 });

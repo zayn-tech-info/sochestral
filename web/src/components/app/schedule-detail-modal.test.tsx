@@ -294,7 +294,8 @@ describe("ScheduleDetailModal", () => {
     expect(
       screen.getAllByLabelText(/Brand LI · LinkedIn preview/i),
     ).toHaveLength(1);
-    expect(screen.getAllByText("1/20 images")).toHaveLength(2);
+    expect(screen.getAllByText("1/20 images")).toHaveLength(1);
+    expect(screen.getByText("1/1 images")).toBeInTheDocument();
     expect(
       document.querySelector('img[src="https://cdn.example/linkedin.jpg"]'),
     ).toBeTruthy();
@@ -374,7 +375,7 @@ describe("ScheduleDetailModal", () => {
         }),
       );
     });
-    expect(mirrorCalendarSlot.mock.calls[0]?.[1]?.media).toBeUndefined();
+    expect(vi.mocked(mirrorCalendarSlot).mock.calls[0]?.[1]?.media).toBeUndefined();
     expect(rescheduleCalendarSlot).not.toHaveBeenCalled();
     expect(updateCalendarSlotContent).not.toHaveBeenCalled();
     expect(cancelCalendarSlot).not.toHaveBeenCalled();

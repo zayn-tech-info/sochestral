@@ -21,7 +21,8 @@
     "drizzle-orm": "^0.39.3",
     "nanoid": "^5.1.0",
     "postgres": "^3.4.5",
-    "tsx": "^4.19.2"
+    "tsx": "^4.19.2",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/node": "^22.13.4",

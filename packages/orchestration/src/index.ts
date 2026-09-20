@@ -230,3 +230,8 @@ export {
   processOneCampaignTick,
   publicCampaign,
 } from "./campaign-day.js";
+
+export { resolveScheduleTime } from "./schedule-time.js";
+
+export { withUsageContext, withUsageRole, measureModelAttempt } from "./usage.js";
+export { processOnePlanRevision } from "./plan-revision.js";

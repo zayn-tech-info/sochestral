@@ -1,3 +1,4 @@
+import { measureModelAttempt } from "./usage.js";
 import { isTransientError, OrchestrationError } from "./errors.js";
 import type {
   ModelCompletion,
@@ -39,6 +40,8 @@ type OpenAIChatResponse = {
   usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;
+    prompt_tokens_details?: { cached_tokens?: number };
+    completion_tokens_details?: { reasoning_tokens?: number };
   };
 };
 
@@ -195,6 +198,7 @@ export class TheseanOpenAIModelProvider implements ModelProvider {
   }): Promise<ModelCompletion> {
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       try {
+        return await measureModelAttempt({ provider: "thesean_openai", model: input.model, attempt }, async () => {
         const controller = new AbortController();
         const deadline = setTimeout(() => controller.abort(), this.timeoutMs);
         try {
@@ -224,10 +228,6 @@ export class TheseanOpenAIModelProvider implements ModelProvider {
             signal: controller.signal,
           });
           if (!response.ok) {
-            const errBody = await response.text().catch(() => "");
-            // #region agent log
-            fetch('http://127.0.0.1:7380/ingest/bba007c1-d719-434b-a717-ab19f91562f7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ebe5c0'},body:JSON.stringify({sessionId:'ebe5c0',runId:'pre-fix',hypothesisId:'F',location:'openai-model.ts:complete',message:'luna http error',data:{attempt,model:input.model,status:response.status,body:errBody.slice(0,300),toolCount:input.tools.length,maxTokens:input.maxTokens},timestamp:Date.now()})}).catch(()=>{});
-            // #endregion
             const err = new Error(`Thesean OpenAI request failed (${response.status})`) as Error & {
               status?: number;
               headers?: Headers;
@@ -239,9 +239,6 @@ export class TheseanOpenAIModelProvider implements ModelProvider {
           const payload = (await response.json()) as OpenAIChatResponse;
           const message = payload.choices?.[0]?.message;
           const content = message?.content?.trim() ? message.content : null;
-          // #region agent log
-          fetch('http://127.0.0.1:7380/ingest/bba007c1-d719-434b-a717-ab19f91562f7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ebe5c0'},body:JSON.stringify({sessionId:'ebe5c0',runId:'post-fix',hypothesisId:'F',location:'openai-model.ts:complete',message:'luna ok',data:{attempt,model:input.model,reasoningEffort,toolCallCount:message?.tool_calls?.length??0,finishReason:payload.choices?.[0]?.finish_reason??null,maxTokens:input.maxTokens},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
           if (content && input.stream?.onTextDelta) {
             input.stream.onTextDelta(content);
           }
@@ -249,6 +246,11 @@ export class TheseanOpenAIModelProvider implements ModelProvider {
             content,
             thinking: null,
             toolCalls: parseToolCalls(message?.tool_calls),
+            usage: {
+              inputTokens: payload.usage?.prompt_tokens, outputTokens: payload.usage?.completion_tokens,
+              cacheReadTokens: payload.usage?.prompt_tokens_details?.cached_tokens,
+              reasoningTokens: payload.usage?.completion_tokens_details?.reasoning_tokens,
+            },
             inputTokens: payload.usage?.prompt_tokens ?? 0,
             outputTokens: payload.usage?.completion_tokens ?? 0,
             attempts: attempt,
@@ -257,10 +259,8 @@ export class TheseanOpenAIModelProvider implements ModelProvider {
         } finally {
           clearTimeout(deadline);
         }
+        });
       } catch (error) {
-        // #region agent log
-        fetch('http://127.0.0.1:7380/ingest/bba007c1-d719-434b-a717-ab19f91562f7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ebe5c0'},body:JSON.stringify({sessionId:'ebe5c0',runId:'pre-fix',hypothesisId:'F',location:'openai-model.ts:complete',message:'luna request failed',data:{attempt,model:input.model,status:typeof error==='object'&&error&&'status' in error?(error as {status:unknown}).status:null,name:error instanceof Error?error.name:null,msg:error instanceof Error?error.message.slice(0,80):null,aborted:typeof error==='object'&&error&&'name' in error&&(error as {name:string}).name==='AbortError'},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         if (attempt === 2 || !isTransientError(error)) {
           throw new OrchestrationError(
             "MODEL_UNAVAILABLE",

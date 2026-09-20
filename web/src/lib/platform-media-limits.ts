@@ -9,7 +9,7 @@ export type PlatformImageLimits = {
 /**
  * Instagram Graph: carousel 1–10 (single image counts as 1; IG feed requires media).
  * Threads: text-only allowed; carousel 2–20, single image allowed as 1.
- * LinkedIn Personal: text-only allowed; multi-image posts up to 20 images.
+ * LinkedIn Personal adapter: text-only allowed; one image or one video.
  */
 export const PLATFORM_IMAGE_LIMITS: Record<
   ConnectorPlatform,
@@ -17,7 +17,7 @@ export const PLATFORM_IMAGE_LIMITS: Record<
 > = {
   instagram: { min: 1, max: 10 },
   threads: { min: 0, max: 20 },
-  linkedin_personal: { min: 0, max: 20 },
+  linkedin_personal: { min: 0, max: 1 },
 };
 
 export function platformImageLimits(

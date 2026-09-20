@@ -57,6 +57,20 @@ describe("profile API routes", () => {
     app = createApp(database.db);
   });
 
+  it("requires explicit timezone confirmation and keeps it scoped to the session", async () => {
+    const patch = (body: unknown) => app.request("/profile", {
+      method: "PATCH", headers: { Cookie: cookie, "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    for (const body of [{ timezone: "Africa/Lagos" }, { timezone: 10, confirmTimezone: true }, { timezone: "Not/AZone", confirmTimezone: true }]) {
+      expect((await patch(body)).status).toBe(422);
+    }
+    const saved = await patch({ timezone: "America/New_York", confirmTimezone: true });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ timezone: "America/New_York", timezoneConfirmedAt: expect.any(String) });
+    const other = await app.request("/profile", { headers: { Cookie: otherCookie } });
+    expect(await other.json()).toMatchObject({ timezone: null, timezoneConfirmedAt: null });
+  });
+
   it("requires a session for GET /profile", async () => {
     const response = await app.request("/profile");
     expect(response.status).toBe(401);

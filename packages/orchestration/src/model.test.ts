@@ -58,6 +58,7 @@ describe("TheseanModelProvider", () => {
       toolCalls: [],
       inputTokens: 12,
       outputTokens: 4,
+      usage: { inputTokens: 12, outputTokens: 4 },
       attempts: 1,
       thinking: null,
       stopReason: "end_turn",

@@ -1,4 +1,6 @@
+export type ResearchSource = { url: string; title: string; retrievedAt: string; summary: string; claim: string };
 export type DeepSeekSearchResult = {
+  sources?: ResearchSource[];
   ok: boolean;
   summary: string;
 };
@@ -17,7 +19,7 @@ const SEARCH_SUMMARY_CAP = 4_000;
 
 type SearchOutputItem = {
   type?: string;
-  content?: Array<{ type?: string; text?: string }>;
+  content?: Array<{ type?: string; text?: string; annotations?: Array<{ type?: string; url?: string; title?: string; start_index?: number; end_index?: number }> }>;
 };
 
 export function extractSearchSummary(payload: {
@@ -42,6 +44,25 @@ export function extractSearchSummary(payload: {
       .join("\n")
       .trim() ?? "";
   return (payload.output_text?.trim() || fromMessages || fromAnyText).trim();
+}
+
+/** Keep provider-linked citations only; bare URLs in generated prose are not provenance. */
+export function extractResearchSources(output: SearchOutputItem[] | undefined, retrievedAt: string): ResearchSource[] {
+  const sources: ResearchSource[] = [];
+  for (const item of output ?? []) for (const block of item.content ?? []) {
+    if (block.type === "reasoning_text" || !block.text) continue;
+    for (const citation of block.annotations ?? []) {
+      if (citation.type !== "url_citation" || !citation.url || !citation.title || !/^https?:\/\//.test(citation.url)) continue;
+      try { new URL(citation.url); } catch { continue; }
+      const start = citation.start_index, end = citation.end_index;
+      if (!Number.isInteger(start) || !Number.isInteger(end) || start! < 0 || end! <= start! || end! > block.text.length) continue;
+      const claim = block.text.slice(start, end).trim();
+      if (!claim || sources.some(source => source.url === citation.url)) continue;
+      sources.push({ url: citation.url, title: citation.title.slice(0, 1000), retrievedAt, summary: claim.slice(0, 4000), claim: claim.slice(0, 4000) });
+      if (sources.length === 30) return sources;
+    }
+  }
+  return sources;
 }
 
 export function createDeepSeekSearchClient(config: {
@@ -85,7 +106,8 @@ export function createDeepSeekSearchClient(config: {
         };
         const text = extractSearchSummary(payload);
         if (!text) return { ok: false, summary: FAIL_OPEN };
-        return { ok: true, summary: text.slice(0, SEARCH_SUMMARY_CAP) };
+        const sources = extractResearchSources(payload.output, new Date().toISOString());
+        return { ok: true, summary: text.slice(0, SEARCH_SUMMARY_CAP), ...(sources.length ? { sources } : {}) };
       } catch {
         return { ok: false, summary: FAIL_OPEN };
       } finally {

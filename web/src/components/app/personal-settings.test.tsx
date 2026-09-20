@@ -83,6 +83,15 @@ beforeEach(() => {
 });
 
 describe("PersonalSettings", () => {
+  it("suggests a timezone without saving until explicitly confirmed", async () => {
+    render(<ToastProvider><PersonalSettings /></ToastProvider>);
+    const field = await screen.findByRole("textbox", { name: "Scheduling timezone" });
+    expect(patchBusinessProfile).not.toHaveBeenCalled();
+    fireEvent.change(field, { target: { value: "Africa/Lagos" } });
+    await userEvent.click(screen.getByRole("button", { name: "Confirm timezone" }));
+    expect(patchBusinessProfile).toHaveBeenCalledWith({ timezone: "Africa/Lagos", confirmTimezone: true });
+  });
+
   it("loads identity fields and saves personal information", async () => {
     const user = userEvent.setup();
     render(

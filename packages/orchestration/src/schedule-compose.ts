@@ -1,6 +1,5 @@
 import { CalendarError } from "./calendar.js";
 import { playbookFor } from "./platform-playbooks.js";
-import { AUTONOMY_SCHEDULE_POST_CAP } from "./autonomy-brief.js";
 import type { ConnectorPlatform } from "./connectors.js";
 
 export type ComposeAssistTarget = {
@@ -35,7 +34,8 @@ const PLATFORM_ALIASES: Array<{ platform: ConnectorPlatform; needles: string[] }
     { platform: "threads", needles: ["threads", "thread"] },
     { platform: "instagram", needles: ["instagram", "insta", "ig"] },
   ];
-const MAX_COMPOSE_ASSIST_TARGETS = AUTONOMY_SCHEDULE_POST_CAP;
+// Bound one provider request independently of the number of posts in a campaign.
+const MAX_COMPOSE_ASSIST_TARGETS = 12;
 const MAX_COMPOSE_ASSIST_TEXT_LENGTH = 40_000;
 
 function positiveInteger(raw: string | undefined, fallback: number): number {

@@ -1,0 +1,102 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { createSession, SESSION_COOKIE_NAME } from "@sochestral/auth";
+import { createDb, provisionUser, requireTestDatabaseUrl, type Database } from "@sochestral/database";
+import { createApp } from "./app.js";
+
+const document = {
+  schemaVersion: 1,
+  sections: ["goal", "audience_voice", "direction", "calendar", "sources", "missing_inputs"].map(type => ({
+    id: `s_${type}`, type, title: type, blocks: [{ id: `b_${type}`, kind: "paragraph", text: `Plan ${type}` }],
+  })),
+};
+
+describe("plan API", () => {
+  let database: Database;
+  let app: ReturnType<typeof createApp>;
+  let cookie: string;
+  let otherCookie: string;
+  beforeAll(() => { database = createDb(requireTestDatabaseUrl()); });
+  afterAll(async () => { await database.client.end({ timeout: 5 }); });
+  beforeEach(async () => {
+    await database.client`delete from users`;
+    const owner = await provisionUser(database.db, "plan-api@example.com");
+    const other = await provisionUser(database.db, "plan-api-other@example.com");
+    cookie = `${SESSION_COOKIE_NAME}=${(await createSession(database.db, owner.id)).rawToken}`;
+    otherCookie = `${SESSION_COOKIE_NAME}=${(await createSession(database.db, other.id)).rawToken}`;
+    app = createApp(database.db);
+  });
+  const post = (path: string, value: unknown, session = cookie) => app.request(path, {
+    method: "POST", headers: { Cookie: session, Origin: "http://localhost:3000", "Content-Type": "application/json", "X-Sochestral-Request": "plan-action" }, body: JSON.stringify(value),
+  });
+  const create = async () => {
+    const response = await post("/plans", { title: "Launch", document });
+    expect(response.status).toBe(200);
+    return (await response.json() as { plan: { id: string } }).plan.id;
+  };
+
+  it("requires authentication and rejects a mutation without the browser action headers", async () => {
+    expect((await app.request("/plans")).status).toBe(401);
+    expect((await app.request("/plans", { method: "POST", headers: { Cookie: cookie, "Content-Type": "application/json" }, body: JSON.stringify({ title: "Launch", document }) })).status).toBe(403);
+  });
+
+  it("keeps plans, comments and approvals scoped to their owner", async () => {
+    const planId = await create();
+    expect((await app.request(`/plans/${planId}`, { headers: { Cookie: otherCookie } })).status).toBe(404);
+    expect((await post(`/plans/${planId}/comments`, { version: 1, blockId: "b_goal", body: "Change" }, otherCookie)).status).toBe(404);
+    expect((await post(`/plans/${planId}/approve`, { version: 1, confirm: true }, otherCookie)).status).toBe(404);
+    const list = await app.request("/plans", { headers: { Cookie: otherCookie } });
+    expect(await list.json()).toEqual({ plans: [] });
+  });
+
+  it("requires explicit version confirmation and invalidates approval after revision", async () => {
+    const planId = await create();
+    expect((await post(`/plans/${planId}/approve`, { version: 1 })).status).toBe(422);
+    const approved = await post(`/plans/${planId}/approve`, { version: 1, confirm: true });
+    expect(await approved.json()).toMatchObject({ scope: "plan_direction", revision: 1 });
+    expect((await post(`/plans/${planId}/versions`, { expectedVersion: 1, document })).status).toBe(200);
+    expect((await post(`/plans/${planId}/approve`, { version: 1, confirm: true })).status).toBe(409);
+    const result = await app.request(`/plans/${planId}`, { headers: { Cookie: cookie } });
+    expect(await result.json()).toMatchObject({ plan: { currentVersion: 2 }, approvals: [] });
+  });
+
+  it("reattaches feedback only to a validated current anchor owned by the caller", async () => {
+    const planId = await create();
+    const comment = await (await post(`/plans/${planId}/comments`, { version: 1, blockId: "b_goal", body: "Keep this idea", quote: "Plan goal" })).json() as { id: string };
+    const next = structuredClone(document);
+    next.sections[0]!.blocks[0]!.text = "Reach independent shops";
+    await post(`/plans/${planId}/versions`, { expectedVersion: 1, document: next });
+    const path = `/plans/${planId}/comments/${comment.id}/reattach`;
+    const input = { version: 2, blockId: "b_goal", quote: "independent shops" };
+    expect((await post(path, input, otherCookie)).status).toBe(404);
+    expect((await post(path, { ...input, version: 1 })).status).toBe(409);
+    expect((await post(path, { ...input, quote: "absent" })).status).toBe(422);
+    const saved = await post(path, input);
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ body: "Keep this idea", version: 2, reattachedFromId: comment.id, status: "pending" });
+  });
+
+  it("retrieves exact immutable versions and keeps history private", async () => {
+    const planId = await create();
+    const revised = structuredClone(document);
+    revised.sections[0]!.blocks[0]!.text = "A more specific goal";
+    expect((await post(`/plans/${planId}/versions`, { expectedVersion: 1, document: revised })).status).toBe(200);
+    const read = (suffix: string, session = cookie) => app.request(`/plans/${planId}${suffix}`, { headers: { Cookie: session } });
+    const previous = await read("?version=1");
+    expect(previous.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(await previous.json()).toMatchObject({ plan: { currentVersion: 2 }, version: { version: 1, document } });
+    expect(await (await read("")).json()).toMatchObject({ version: { version: 2, document: revised, parentVersion: 1, changedBlockIds: ["b_goal"] } });
+    expect((await read("?version=1", otherCookie)).status).toBe(404);
+    expect((await read("?version=3")).status).toBe(404);
+    for (const bad of ["0", "-1", "1.5", "1e0", "abc", "9007199254740992"]) expect((await read(`?version=${bad}`)).status).toBe(422);
+  });
+
+  it("stores comments immediately and rejects an anchor absent from the reviewed version", async () => {
+    const planId = await create();
+    expect((await post(`/plans/${planId}/comments`, { version: 1, blockId: "b_goal", quote: "fabricated quote", body: "Change" })).status).toBe(422);
+    const response = await post(`/plans/${planId}/comments`, { version: 1, blockId: "b_goal", quote: "Plan", rangeStart: 0, rangeEnd: 4, body: "Make this specific" });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ status: "pending", version: 1, quote: "Plan" });
+    const result = await app.request(`/plans/${planId}`, { headers: { Cookie: cookie } });
+    expect(await result.json()).toMatchObject({ comments: [expect.objectContaining({ body: "Make this specific" })] });
+  });
+});

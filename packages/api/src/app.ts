@@ -31,6 +31,7 @@ import { registerMediaRoutes } from "./media-routes.js";
 import { registerProfileRoutes } from "./profile-routes.js";
 import { registerCalendarRoutes } from "./calendar-routes.js";
 import { registerImageRoutes } from "./image-routes.js";
+import { registerPlanRoutes } from "./plan-routes.js";
 import { registerCampaignRoutes } from "./campaign-routes.js";
 import { allowedCorsOrigins } from "./cors-origin.js";
 import { MediaService } from "./media-storage.js";
@@ -209,6 +210,7 @@ export function createApp(
   registerMediaRoutes(app, db, getMediaService);
   registerImageRoutes(app, db, getImageService);
   registerCampaignRoutes(app, db);
+  registerPlanRoutes(app, db);
   registerProfileRoutes(app, db);
   registerCalendarRoutes(app, db, () => {
     resolvedCalendar ??= createCalendarService(resolvedConnectors, undefined, {

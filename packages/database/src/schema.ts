@@ -1,10 +1,12 @@
 import { relations, sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   boolean,
   check,
   date,
   index,
   integer,
+  numeric,
   jsonb,
   pgTable,
   primaryKey,
@@ -24,6 +26,120 @@ export const users = pgTable("users", {
     .notNull()
     .defaultNow(),
 });
+
+export const generationContexts = pgTable("generation_contexts", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  version: text("version").notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [uniqueIndex("generation_contexts_user_version_uidx").on(table.userId, table.version)]);
+
+export const generationContextUses = pgTable("generation_context_uses", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  contextId: text("context_id").notNull().references(() => generationContexts.id, { onDelete: "cascade" }),
+  role: text("role").notNull(),
+  parentId: text("parent_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [uniqueIndex("generation_context_uses_parent_uidx").on(table.userId, table.role, table.parentId, table.contextId)]);
+
+export const usageAttempts = pgTable("usage_attempts", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  parentId: text("parent_id").notNull(),
+  role: text("role").notNull(),
+  kind: text("kind").notNull().default("model"),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  attempt: integer("attempt").notNull(),
+  outcome: text("outcome").notNull().default("started"),
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
+  cacheReadTokens: integer("cache_read_tokens"),
+  cacheWriteTokens: integer("cache_write_tokens"),
+  reasoningTokens: integer("reasoning_tokens"),
+  durationMs: integer("duration_ms"),
+  internalCostUsd: numeric("internal_cost_usd", { precision: 20, scale: 9 }),
+  costStatus: text("cost_status").notNull().default("unresolved"),
+  rateCardVersion: text("rate_card_version"),
+  customerChargeStatus: text("customer_charge_status").notNull().default("unassessed"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+}, table => [index("usage_attempts_user_parent_idx").on(table.userId, table.parentId)]);
+
+export const plans = pgTable("plans", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  conversationId: text("conversation_id").references(() => orchestrationConversations.id, { onDelete: "set null" }),
+  title: text("title").notNull(),
+  currentVersion: integer("current_version").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [index("plans_user_updated_idx").on(table.userId, table.updatedAt)]);
+
+export const planInterviews = pgTable("plan_interviews", {
+  conversationId: text("conversation_id").primaryKey().references(() => orchestrationConversations.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  revision: integer("revision").notNull().default(1),
+  state: jsonb("state").$type<import("./plan-interview.js").PlanInterviewState>().notNull(),
+  planId: text("plan_id").references(() => plans.id, { onDelete: "set null" }),
+  contextId: text("context_id").references(() => generationContexts.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const planVersions = pgTable("plan_versions", {
+  id: text("id").primaryKey(),
+  planId: text("plan_id").notNull().references(() => plans.id, { onDelete: "cascade" }),
+  version: integer("version").notNull(),
+  parentVersion: integer("parent_version"),
+  document: jsonb("document").$type<import("./plan-document.js").PlanDocument>().notNull(),
+  contextId: text("context_id").references(() => generationContexts.id, { onDelete: "set null" }),
+  changedBlockIds: jsonb("changed_block_ids").$type<string[]>().notNull().default([]),
+  handledCommentIds: jsonb("handled_comment_ids").$type<string[]>().notNull().default([]),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [uniqueIndex("plan_versions_plan_version_uidx").on(table.planId, table.version)]);
+
+export const planRevisionBatches = pgTable("plan_revision_batches", {
+  id: text("id").primaryKey(),
+  planId: text("plan_id").notNull().references(() => plans.id, { onDelete: "cascade" }),
+  version: integer("version").notNull(),
+  status: text("status").notNull().default("submitted"),
+  commentIds: jsonb("comment_ids").$type<string[]>().notNull().default([]),
+  claimToken: text("claim_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  errorCode: text("error_code"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const planComments = pgTable("plan_comments", {
+  id: text("id").primaryKey(),
+  planId: text("plan_id").notNull().references(() => plans.id, { onDelete: "cascade" }),
+  version: integer("version").notNull(),
+  blockId: text("block_id").notNull(),
+  quote: text("quote"),
+  quoteContext: text("quote_context"),
+  rangeStart: integer("range_start"),
+  rangeEnd: integer("range_end"),
+  reattachedFromId: text("reattached_from_id").unique().references((): AnyPgColumn => planComments.id, { onDelete: "set null" }),
+  body: text("body").notNull(),
+  status: text("status").notNull().default("pending"),
+  batchId: text("batch_id").references(() => planRevisionBatches.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [index("plan_comments_plan_status_idx").on(table.planId, table.status)]);
+
+export const workflowApprovals = pgTable("workflow_approvals", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  planId: text("plan_id").notNull().references(() => plans.id, { onDelete: "cascade" }),
+  scope: text("scope").notNull(),
+  targetId: text("target_id").notNull(),
+  revision: integer("revision").notNull(),
+  invalidatedAt: timestamp("invalidated_at", { withTimezone: true }),
+  invalidationReason: text("invalidation_reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [uniqueIndex("workflow_approvals_exact_uidx").on(table.userId, table.scope, table.targetId, table.revision)]);
 
 export const sessions = pgTable(
   "sessions",
@@ -833,6 +949,8 @@ export const businessProfiles = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    timezone: text("timezone"),
+    timezoneConfirmedAt: timestamp("timezone_confirmed_at", { withTimezone: true }),
     businessName: text("business_name"),
     businessDescription: text("business_description"),
     websiteUrl: text("website_url"),

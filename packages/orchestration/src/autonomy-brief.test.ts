@@ -15,6 +15,8 @@ function profile(overrides: Partial<BusinessProfile> = {}): BusinessProfile {
   return {
     id: "bp_1",
     userId: "user_1",
+    timezone: null,
+    timezoneConfirmedAt: null,
     businessName: "Acme Tools",
     businessDescription: "Hand tools for makers",
     websiteUrl: null,

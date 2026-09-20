@@ -1,7 +1,12 @@
+import { runPlanInterview } from "./plan-interview.js";
+import { withUsageContext, withUsageRole } from "./usage.js";
 import {
   createHash,
 } from "node:crypto";
 import {
+  getPlanInterview,
+  assembleGenerationContext,
+  generationContextNote,
   appendConversationTurn,
   completeOrchestrationRun,
   createConversationTurn,
@@ -32,7 +37,6 @@ import {
   CampaignDatabaseError,
   enqueueCampaignJob,
   getInFlightCampaignJob,
-  getVoiceBible,
   refreshVoiceBibleHash,
   createPendingImageJob,
   fallbackBrandBriefText,
@@ -174,7 +178,6 @@ import type {
 } from "./stream.js";
 import { createSequenceSink } from "./stream.js";
 import {
-  brandDesignSystemSuffix,
   prependBrandBrief,
 } from "./brand-design.js";
 
@@ -682,9 +685,6 @@ async function selectContext(
     // Always keep the triggering turn. Tool schemas plus the system prompt can
     // leave a budget smaller than a normal content-plan message (AC-8).
     if (selected.length === 0) {
-      // #region agent log
-      fetch('http://127.0.0.1:7380/ingest/bba007c1-d719-434b-a717-ab19f91562f7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ebe5c0'},body:JSON.stringify({sessionId:'ebe5c0',runId:'post-fix',hypothesisId:'G',location:'service.ts:selectContext',message:'triggering context',data:{budget,fixed,contextLimit:config.contextTokenLimit,outputLimit:config.outputTokenLimit,textOnlyCost,newestChars:message.content.length,newestRole:message.role,wouldHaveThrown:budget>0&&textOnlyCost>budget,assetCount:assets.length},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
     }
     if (selected.length > 0 && used + cost > Math.max(budget, 0)) break;
     selected.push(item);
@@ -1412,29 +1412,11 @@ export class DefaultOrchestrationService implements OrchestrationService {
     const allowedMediaUrls = new Set(
       extractHttpsUrls(turn.userMessage.content),
     );
-    const compiledProfile = await getCompiledProfile(this.db, userId);
-    let baseSystem =
-      compiledProfile.profile.setupStatus === "complete" &&
-      compiledProfile.compiledNote.trim().length > 0
-        ? `${SYSTEM_MESSAGE}\n\n---\nBusiness profile note (authoritative):\n${compiledProfile.compiledNote}`
-        : SYSTEM_MESSAGE;
-    const brandBrief = await getBrandDesignBrief(this.db, userId);
-    if (brandBrief?.status === "ready" && brandBrief.briefText?.trim()) {
-      baseSystem += brandDesignSystemSuffix(brandBrief.briefText);
-    }
-    const storedPlan = await getConversationContentPlan(
-      this.db,
-      userId,
-      turn.conversation.id,
-    );
-    const planNote = formatContentPlanNote(storedPlan);
-    if (planNote) {
-      baseSystem += `\n\n---\n${planNote}`;
-    }
-    const voiceBible = await getVoiceBible(this.db, userId).catch(() => null);
-    if (voiceBible?.briefText?.trim()) {
-      baseSystem += `\n\n---\nVoice bible (how this brand talks):\n${voiceBible.briefText.trim()}`;
-    }
+    const assembled = await assembleGenerationContext(this.db, {
+      userId, conversationId: turn.conversation.id, role: "chat", parentId: turn.run.id,
+    });
+    const { compiledProfile, storedPlan } = assembled;
+    let baseSystem = `${SYSTEM_MESSAGE}\n\n${generationContextNote(assembled.context.payload)}`;
     if (storedPlan && isContentPlanLockComplete(storedPlan)) {
       baseSystem +=
         "\n\nDo not re ask start date, timezone, platforms, or cadence. Call schedule_post at most once. More than one post is booked by the campaign job.";
@@ -2761,7 +2743,12 @@ export class DefaultOrchestrationService implements OrchestrationService {
     }
   }
 
-  private async startTurn(
+  private async startTurn(userId: string, conversationId: string | null, rawInput: TurnMutationInput): Promise<TurnResponse> {
+    return withUsageContext({ db: this.db, userId, parentId: rawInput.requestId, role: "chat" },
+      () => this.startTurnMeasured(userId, conversationId, rawInput));
+  }
+
+  private async startTurnMeasured(
     userId: string,
     conversationId: string | null,
     rawInput: TurnMutationInput,
@@ -2904,6 +2891,27 @@ export class DefaultOrchestrationService implements OrchestrationService {
       ),
     };
 
+    const interview = conversationId ? await getPlanInterview(this.db, userId, conversationId) : null;
+    const planningTurn = async () => {
+      const turnInput = { ...common, provider: "thesean", model: this.config.theseanModel, publishingMode: "always_draft" as const, explicitLiveIntent: false };
+      const turn = conversationId ? await appendConversationTurn(this.db, conversationId, turnInput)
+        : await createConversationTurn(this.db, { ...turnInput, title: deriveInitialConversationTitle(input.message) });
+      if (!turn.run || turn.run.status !== "running") return this.existingResponse(turn);
+      const started = performance.now();
+      try {
+        const text = await runPlanInterview(this.db, { userId, conversationId: turn.conversation.id, runId: turn.run.id, message: effectiveMessage,
+          provider: this.model, model: this.config.theseanModel, maxTokens: this.config.outputTokenLimit, search: this.search, searchModel: this.config.deepseekModel,
+          onStep: (step, started) => this.emit({ type: started ? "step_started" : "step_completed", step }) });
+        const assistant = await completeOrchestrationRun(this.db, turn.run.id, text, Math.round(performance.now() - started));
+        return this.existingResponse({ ...turn, assistantMessage: assistant, run: { ...turn.run, status: "completed" } });
+      } catch (error) {
+        const assistant = await failOrchestrationRun(this.db, turn.run.id, "I couldn’t finish this planning step. Your saved answers are retained. Send another message to retry or clarify your direction.", stableErrorCode(error), Math.round(performance.now() - started));
+        return this.existingResponse({ ...turn, assistantMessage: assistant, run: { ...turn.run, status: "failed" } });
+      }
+    };
+    if (localPlanningIntent(effectiveMessage) || localAutonomousScheduleIntent(effectiveMessage) ||
+      (interview && !["planned", "canceled"].includes(interview.state.status))) return planningTurn();
+
     try {
       let targetPlatforms =
         answered?.platforms.length
@@ -2932,7 +2940,11 @@ export class DefaultOrchestrationService implements OrchestrationService {
       if (isGptTheseanModel(this.config.theseanIntentModel) && this.visionModel) {
         clerkRan = true;
         this.emit({ type: "step_started", step: "checking_plan" });
-        clerk = await runPlanClerk(this.visionModel, {
+        const clerkContext = await assembleGenerationContext(this.db, {
+          userId, conversationId, role: "plan_clerk", parentId: input.requestId,
+        });
+        clerk = await withUsageRole("plan_clerk", () => runPlanClerk(this.visionModel!, {
+          contextNote: generationContextNote(clerkContext.context.payload),
           message: effectiveMessage,
           priorMessages: priorUserMessages,
           modelName: this.config.theseanIntentModel,
@@ -2946,13 +2958,11 @@ export class DefaultOrchestrationService implements OrchestrationService {
                 plannedPosts: plannedPostCount(existingPlanRow),
               }
             : null,
-        });
+        }));
         this.emit({ type: "step_completed", step: "checking_plan" });
       }
+      if (clerk?.intent === "plan" || (interview?.planId && clerk && ["accept", "schedule_one"].includes(clerk.intent))) return planningTurn();
       const clerkFailed = clerkRan && !clerk;
-      // #region agent log
-      fetch('http://127.0.0.1:7380/ingest/bba007c1-d719-434b-a717-ab19f91562f7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ebe5c0'},body:JSON.stringify({sessionId:'ebe5c0',runId:'pre-fix',hypothesisId:'A',location:'service.ts:afterClerk',message:'clerk gate',data:{clerkRan,clerkFailed,hasVision:Boolean(this.visionModel),intentModel:this.config.theseanIntentModel,lockCompleteBefore:isContentPlanLockComplete(existingPlanRow),plannedPostsBefore:plannedPostCount(existingPlanRow),msgLen:effectiveMessage.trim().length,clerkIntent:clerk?.intent??null,isGo:clerk?.isGo??null,isIncomplete:clerk?.isIncomplete??null,isConversationMeta:clerk?.isConversationMeta??null},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       const mergedLock = clerk
         ? mergeClerkLock(existingPlanRow, clerk, {
             message: effectiveMessage,
@@ -3003,8 +3013,7 @@ export class DefaultOrchestrationService implements OrchestrationService {
           explicitLiveIntent = true;
         } else if (
           clerk.intent === "schedule_one" ||
-          clerk.intent === "accept" ||
-          clerk.intent === "plan"
+          clerk.intent === "accept"
         ) {
           liveIntentKind = "schedule";
           explicitLiveIntent = false;
@@ -3154,9 +3163,6 @@ export class DefaultOrchestrationService implements OrchestrationService {
         !clerkFailed &&
         clerk !== null &&
         clerkWantsCampaign(clerk, existingPlanRow);
-      // #region agent log
-      fetch('http://127.0.0.1:7380/ingest/bba007c1-d719-434b-a717-ab19f91562f7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ebe5c0'},body:JSON.stringify({sessionId:'ebe5c0',runId:'pre-fix',hypothesisId:'E',location:'service.ts:wantsCampaign',message:'enqueue decision',data:{wantsCampaign,clerkFailed,hasClerk:clerk!==null,lockCompleteAfter:isContentPlanLockComplete(existingPlanRow),plannedPostsAfter:plannedPostCount(existingPlanRow),hasStartDate:Boolean(existingPlanRow?.startDate),platformCount:existingPlanRow?.platforms.length??0,chatOnly:clerk!==null&&clerkIsChatOnly(clerk)},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
 
       if (wantsCampaign && existingPlanRow?.startDate) {
         this.emit({ type: "step_started", step: "booking_campaign" });

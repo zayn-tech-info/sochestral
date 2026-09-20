@@ -1,9 +1,11 @@
+import { withUsageContext, withUsageRole } from "./usage.js";
 import {
+  assembleGenerationContext,
+  generationContextNote,
   campaignDayIndex,
   dailyCadenceTotal,
   getConversationContentPlan,
   getOwnedCampaignJob,
-  getVoiceBible,
   patchCampaignJob,
   recordCampaignBooking,
   type CampaignJob,
@@ -21,6 +23,7 @@ import type { ModelProvider } from "./model.js";
 import type { SocialMcpGateway } from "./mcp.js";
 import type { OrchestrationConfig } from "./config.js";
 import { z } from "zod";
+import { resolveScheduleTime } from "./schedule-time.js";
 
 const dayCaptionsSchema = z.object({
   items: z.array(
@@ -47,21 +50,11 @@ function zonedHourToUtcIso(
   hour: number,
   timeZone: string,
 ): string | null {
-  const [y, m, d] = date.split("-").map(Number);
-  if (!y || !m || !d) return null;
-  const guess = new Date(Date.UTC(y, m - 1, d, hour, 0, 0));
   try {
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone,
-      hour: "2-digit",
-      hourCycle: "h23",
-    }).formatToParts(guess);
-    const shown = Number(parts.find((part) => part.type === "hour")?.value ?? hour);
-    const delta = hour - shown;
-    guess.setUTCHours(guess.getUTCHours() + delta);
-    return guess.toISOString();
+    return resolveScheduleTime(`${date}T${String(hour).padStart(2, "0")}:00`, timeZone);
   } catch {
-    return guess.toISOString();
+    // A missing or repeated local time must not silently become another instant.
+    return null;
   }
 }
 
@@ -112,15 +105,16 @@ async function completeJson<T>(
   user: string,
   schema: z.ZodType<T>,
   maxTokens: number,
+  role = "campaign_draft",
 ): Promise<T | null> {
-  const result = await model.complete({
+  const result = await withUsageRole(role, () => model.complete({
     system,
     messages: [{ role: "user", content: [{ type: "text", text: user }] }],
     tools: [],
     model: modelName,
     maxTokens,
     thinking: { enabled: false, budgetTokens: 0 },
-  });
+  }));
   const text = result.content?.trim();
   if (!text) return null;
   const start = text.indexOf("{");
@@ -148,7 +142,8 @@ export async function processOneCampaignTick(
   const job = await claimNextQueuedCampaignJob(db);
   if (!job) return "idle";
   try {
-    await runClaimedDay(db, job, input);
+    await withUsageContext({ db, userId: job.userId, parentId: job.id, role: "campaign_draft" },
+      () => runClaimedDay(db, job, input));
     return "worked";
   } catch (error) {
     console.error("[sochestral:campaign] tick failed", {
@@ -222,15 +217,16 @@ async function runClaimedDay(
     return;
   }
 
-  const voice = await getVoiceBible(db, fresh.userId);
-  const voiceNote = voice?.briefText?.trim()
-    ? `\nVoice bible:\n${voice.briefText.trim()}`
-    : "";
+  const assembled = await assembleGenerationContext(db, {
+    userId: fresh.userId, conversationId: fresh.conversationId,
+    role: "campaign_draft", parentId: `${fresh.id}:${fresh.nextDate}`,
+  });
+  const sharedContext = generationContextNote(assembled.context.payload);
   const written = await completeJson(
     input.writer,
     input.config.theseanModel,
-    "Write one human caption per slot. Return JSON only: {\"items\":[{\"platform\",\"publishAt\",\"text\"}]}. Match each publishAt. No hashtag dumps. Sound like this brand.",
-    `Plan: ${plan.direction ?? ""} ${plan.themes.join("; ")}\nResearch: ${plan.researchSummary ?? "none"}${voiceNote}\nSlots: ${JSON.stringify(slots)}`,
+    "Write one human caption per slot. Return JSON only: {\"items\":[{\"platform\",\"publishAt\",\"text\"}]}. Match each publishAt. No hashtag dumps. Sound like this brand.\n" + sharedContext,
+    `Plan: ${plan.direction ?? ""} ${plan.themes.join("; ")}\nResearch: ${plan.researchSummary ?? "none"}\nSlots: ${JSON.stringify(slots)}`,
     dayCaptionsSchema,
     2000,
   );
@@ -252,15 +248,17 @@ async function runClaimedDay(
     JSON.stringify({ items, yesterday: fresh.bookedPublishAts }),
     gradeSchema,
     200,
+    "campaign_grade",
   );
   if (grade?.fail) {
     const rewritten = await completeJson(
       input.writer,
       input.config.theseanModel,
-      "Rewrite only the weak captions. Same JSON shape. Keep publishAt values.",
+      "Rewrite only the weak captions. Same JSON shape. Keep publishAt values.\n" + sharedContext,
       `Reasons: ${grade.reasons.join(",")}\n${JSON.stringify(items)}`,
       dayCaptionsSchema,
       2000,
+      "campaign_revision",
     );
     if (rewritten) items = rewritten.items;
   }

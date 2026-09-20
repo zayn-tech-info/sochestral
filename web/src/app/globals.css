@@ -9273,12 +9273,12 @@
   }
 
   .cal-slot-time {
-    font-size: 0.74rem;
+    font-size: 0.875rem;
     font-weight: 700;
   }
 
   .cal-slot-status {
-    font-size: 0.65rem;
+    font-size: 0.75rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.03em;
@@ -9302,7 +9302,7 @@
 
   .cal-slot-account,
   .cal-slot-caption {
-    font-size: 0.72rem;
+    font-size: 0.875rem;
     line-height: 1.3;
     overflow: hidden;
     text-overflow: ellipsis;

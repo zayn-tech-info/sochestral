@@ -359,6 +359,8 @@ export type ProfileEntry = {
 };
 
 export type BusinessProfileResponse = {
+  timezone?: string | null;
+  timezoneConfirmedAt?: string | null;
   id: string | null;
   businessName: string | null;
   businessDescription: string | null;
@@ -385,6 +387,8 @@ export function getBusinessProfile() {
 
 export function patchBusinessProfile(
   body: Partial<{
+    timezone: string;
+    confirmTimezone: boolean;
     businessName: string | null;
     businessDescription: string | null;
     websiteUrl: string | null;
@@ -436,6 +440,8 @@ export function deleteProfileEntry(id: string) {
 
 export type CalendarStatusBucket =
   | "Scheduled"
+  | "Publishing"
+  | "Checking status"
   | "Done"
   | "Failed"
   | "Canceled";

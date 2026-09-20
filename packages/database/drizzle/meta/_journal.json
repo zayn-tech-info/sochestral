@@ -134,6 +134,55 @@
       "when": 1786644000000,
       "tag": "0018_campaign_handoff",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1789075478323,
+      "tag": "0019_confirmed_timezone",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1789077283688,
+      "tag": "0020_generation_context",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1789077554167,
+      "tag": "0021_usage_attempts",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1789118065360,
+      "tag": "0022_versioned_plans",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1789140490748,
+      "tag": "0023_keen_gauntlet",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1789140828939,
+      "tag": "0024_nappy_firedrake",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1789141155796,
+      "tag": "0025_chubby_psynapse",
+      "breakpoints": true
     }
   ]
 }
