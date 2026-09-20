@@ -18,5 +18,6 @@ function post<T>(id: string, suffix: string, body: unknown) {
 export const commentOnPlan = (id: string, input: { version: number; blockId: string; quote?: string; body: string }) => post<PlanComment>(id, "comments", input);
 export const submitPlanComments = (id: string, version: number, commentIds: string[]) => post(id, "comment-batches", { version, commentIds });
 export const approvePlan = (id: string, version: number) => post(id, "approve", { version, confirm: true });
+export const createPlanContent = (id: string, version: number) => post(id, "create-content", { version, confirm: true });
 
 export const reattachComment = (id: string, commentId: string, input: { version: number; blockId: string; quote?: string }) => post<PlanComment>(id, `comments/${encodeURIComponent(commentId)}/reattach`, input);

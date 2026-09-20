@@ -99,6 +99,7 @@ import {
 } from "./review.js";
 import {
   PublishingPreferenceService,
+  isCreateContentAsk,
   isSchedulePlanAcceptance,
   isSchedulePlanRejection,
   localAutonomousScheduleIntent,
@@ -2916,7 +2917,7 @@ export class DefaultOrchestrationService implements OrchestrationService {
       && (isInterviewResume(effectiveMessage) || localPlanningIntent(effectiveMessage)));
     if (localPlanningIntent(effectiveMessage) || localAutonomousScheduleIntent(effectiveMessage) ||
       interviewOpen || resumeCanceledInterview ||
-      (interview?.planId && (isSchedulePlanAcceptance(effectiveMessage) || localScheduleIntent(effectiveMessage) || localLiveIntent(effectiveMessage)))) {
+      (interview?.planId && (isCreateContentAsk(effectiveMessage) || isSchedulePlanAcceptance(effectiveMessage) || localScheduleIntent(effectiveMessage) || localLiveIntent(effectiveMessage) || /\b(?:schedule|publish|post\s+now)\b/i.test(effectiveMessage)))) {
       return planningTurn();
     }
 
@@ -2969,7 +2970,7 @@ export class DefaultOrchestrationService implements OrchestrationService {
         }));
         this.emit({ type: "step_completed", step: "checking_plan" });
       }
-      if (clerk?.intent === "plan" || (interview?.planId && clerk && ["accept", "schedule_one"].includes(clerk.intent))) return planningTurn();
+      if (clerk?.intent === "plan" || (interview?.planId && clerk && ["accept", "schedule_one", "live"].includes(clerk.intent))) return planningTurn();
       const clerkFailed = clerkRan && !clerk;
       const mergedLock = clerk
         ? mergeClerkLock(existingPlanRow, clerk, {

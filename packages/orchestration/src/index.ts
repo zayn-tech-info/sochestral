@@ -149,6 +149,7 @@ export {
   LIVE_PUBLISH_INTENT_USER_MESSAGE_END,
   LIVE_PUBLISH_INTENT_USER_MESSAGE_START,
   intentClarification,
+  isCreateContentAsk,
   isSchedulePlanAcceptance,
   localAutonomousScheduleIntent,
   isSchedulePlanRejection,

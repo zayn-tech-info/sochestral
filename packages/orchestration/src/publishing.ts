@@ -259,6 +259,17 @@ export function localAutonomousScheduleIntent(message: string): boolean {
   return true;
 }
 
+/** After a saved plan, create-content wording is review only until L5. */
+export function isCreateContentAsk(message: string): boolean {
+  const value = message.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!value) return false;
+  return (
+    /\bcreate(?:\s+the)?\s+content\b/.test(value) ||
+    /\bgenerate(?:\s+the)?\s+(?:captions?|posts?|content)\b/.test(value) ||
+    /\bwrite(?:\s+the)?\s+(?:finished\s+)?(?:captions?|posts?)\b/.test(value)
+  );
+}
+
 /** Clear schedule-for-later wording for a specific post or slot (not live now). */
 export function localScheduleIntent(message: string): boolean {
   const value = message.trim().toLowerCase().replace(/\s+/g, " ");

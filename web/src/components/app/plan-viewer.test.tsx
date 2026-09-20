@@ -2,10 +2,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PlanViewer } from "./plan-viewer";
-import { reattachComment, approvePlan, commentOnPlan, getPlan, type PlanDetail } from "@/lib/plans-api";
+import { reattachComment, approvePlan, commentOnPlan, createPlanContent, getPlan, type PlanDetail } from "@/lib/plans-api";
 import { ApiError } from "@/lib/product-api";
 
-vi.mock("@/lib/plans-api", () => ({ getPlan: vi.fn(), reattachComment: vi.fn(), approvePlan: vi.fn(), commentOnPlan: vi.fn(), submitPlanComments: vi.fn(), listPlans: vi.fn() }));
+vi.mock("@/lib/plans-api", () => ({ getPlan: vi.fn(), reattachComment: vi.fn(), approvePlan: vi.fn(), createPlanContent: vi.fn(), commentOnPlan: vi.fn(), submitPlanComments: vi.fn(), listPlans: vi.fn() }));
 vi.mock("./app-shell", () => ({ AppShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 const detail: PlanDetail = {
   plan: { id: "plan_1", title: "Workshop launch", currentVersion: 1, updatedAt: "2030-01-01T00:00:00Z" },
@@ -17,6 +17,7 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
   vi.mocked(getPlan).mockResolvedValue(structuredClone(detail));
   vi.mocked(approvePlan).mockResolvedValue({});
+  vi.mocked(createPlanContent).mockRejectedValue(new ApiError(409, "CONTENT_NOT_READY", {}));
 });
 
 describe("plan review", () => {
@@ -27,6 +28,16 @@ describe("plan review", () => {
     await userEvent.click(screen.getByRole("button", { name: "Approve plan direction" }));
     expect(approvePlan).toHaveBeenCalledWith("plan_1", 1);
     expect(await screen.findByRole("status")).toHaveTextContent("Content still needs review before scheduling");
+  });
+
+  it("shows Create content after direction approval and surfaces the L4 refuse notice", async () => {
+    vi.mocked(getPlan).mockResolvedValue({ ...structuredClone(detail), approvals: [{ scope: "plan_direction", revision: 1 }] });
+    vi.mocked(createPlanContent).mockRejectedValue(new ApiError(409, "CONTENT_NOT_READY", {}));
+    render(<PlanViewer planId="plan_1" />);
+    await screen.findByText("Version 1 · Direction approved");
+    await userEvent.click(screen.getByRole("button", { name: "Create content" }));
+    expect(createPlanContent).toHaveBeenCalledWith("plan_1", 1);
+    expect(await screen.findByRole("status")).toHaveTextContent("Direction approval does not create posts");
   });
 
   it("persists a block comment and keeps the editor empty until an anchor is selected", async () => {
@@ -75,6 +86,7 @@ describe("plan review", () => {
     expect(getPlan).toHaveBeenLastCalledWith("plan_1", 1);
     expect(await screen.findByText("Version 1 · Earlier version · Read only")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Approve plan direction" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Create content" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Your comment")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Comment on Reach workshop owners" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Previous version" })).toBeDisabled();

@@ -8,6 +8,7 @@ import {
   plans,
   provisionUser,
   requireTestDatabaseUrl,
+  approvePlanDirection,
   usageAttempts,
   type Database,
   type PlanDocument,
@@ -376,6 +377,35 @@ describe("plan interview chat routing", () => {
     });
     expect(goAhead.assistantMessage?.content).toContain(`/app/plans/${saved?.planId}`);
     expect(mcp.callTool).not.toHaveBeenCalled();
+    expect(await database.db.select().from(campaignJobs)).toHaveLength(0);
+  });
+
+  it("keeps create-content, schedule, and publish-now on review after a saved plan", async () => {
+    vi.mocked(model.complete).mockImplementation(async (input) => {
+      if (input.toolChoice?.type === "tool" && input.toolChoice.name === "create_plan_document") {
+        return completion("create_plan_document", { title: "Workshop plan", document: document() });
+      }
+      return ready();
+    });
+    const first = await service.createConversation(userId, {
+      message: PLAN_MESSAGE, requestId: "00000000-0000-4000-8000-00000000c031",
+    });
+    const planned = await service.addMessage(userId, first.conversation.id, {
+      message: "Sell workshop tools with practical shop-floor tips",
+      requestId: "00000000-0000-4000-8000-00000000c032",
+    });
+    const saved = await getPlanInterview(database.db, userId, first.conversation.id);
+    expect(planned.assistantMessage?.content).toContain(`/app/plans/${saved?.planId}`);
+    await approvePlanDirection(database.db, { userId, planId: saved!.planId!, version: 1 });
+    vi.mocked(model.complete).mockClear();
+    for (const [index, message] of ["create content", "the plan is approved, schedule it", "publish now"].entries()) {
+      const reply = await service.addMessage(userId, first.conversation.id, {
+        message, requestId: `00000000-0000-4000-8000-00000000c04${index}`,
+      });
+      expect(reply.assistantMessage?.content).toContain(`/app/plans/${saved?.planId}`);
+    }
+    expect(mcp.callTool).not.toHaveBeenCalled();
+    expect(vi.mocked(model.complete)).not.toHaveBeenCalled();
     expect(await database.db.select().from(campaignJobs)).toHaveLength(0);
   });
 

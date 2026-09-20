@@ -5,6 +5,7 @@ import {
   LIVE_PUBLISH_INTENT_USER_MESSAGE_END,
   LIVE_PUBLISH_INTENT_USER_MESSAGE_START,
   intentClarification,
+  isCreateContentAsk,
   isSchedulePlanAcceptance,
   isSchedulePlanRejection,
   localDraftIntent,
@@ -69,6 +70,21 @@ describe("localDraftIntent", () => {
   ])("does not treat affirmative or suggestion-only wording as local draft: %s", (message) => {
     expect(localDraftIntent(message)).toBe(false);
   });
+});
+
+describe("isCreateContentAsk", () => {
+  it.each(["create content", "Create the content now", "generate captions", "write the posts"])(
+    "recognizes finished-content wording: %s",
+    (message) => {
+      expect(isCreateContentAsk(message)).toBe(true);
+    },
+  );
+  it.each(["which accounts are connected?", "comment on the plan"])(
+    "does not treat ordinary review chat as create content: %s",
+    (message) => {
+      expect(isCreateContentAsk(message)).toBe(false);
+    },
+  );
 });
 
 describe("localLiveIntent", () => {
