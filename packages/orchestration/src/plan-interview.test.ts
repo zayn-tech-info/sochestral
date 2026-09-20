@@ -72,6 +72,23 @@ function delegated() {
   });
 }
 
+function askingWhileFilled() {
+  return completion("record_plan_interview", {
+    status: "asking",
+    answers: {
+      goal: "Posts for offers, websites, and AI automation",
+      newsAssets: "None specified",
+      direction: "Service showcases for business owners",
+    },
+    questions: [
+      { field: "goal", text: "What's the main goal for this content push?" },
+      { field: "newsAssets", text: "Any recent news?" },
+      { field: "direction", text: "Which platforms and content style?" },
+    ],
+    useExistingContext: false,
+  });
+}
+
 const config: OrchestrationConfig = {
   theseanApiKey: "unused",
   theseanModel: "contract-model",
@@ -153,6 +170,26 @@ describe("plan interview", () => {
     });
     expect(replay).toContain(`/app/plans/${saved?.planId}`);
     expect(complete.mock.calls.filter(call => call[0].toolChoice?.type === "tool" && call[0].toolChoice.name === "create_plan_document")).toHaveLength(1);
+  });
+
+  it("keeps Thesean answers when the model still re-asks those fields", async () => {
+    const conversationId = (await createConversationTurn(database.db, {
+      userId, requestId: crypto.randomUUID(), content: PLAN_MESSAGE, title: "Plan", assistantContent: "Ready",
+    })).conversation.id;
+    const complete = vi.fn(async (input: Parameters<ModelProvider["complete"]>[0]) => {
+      if (input.toolChoice?.type === "tool" && input.toolChoice.name === "create_plan_document") {
+        return completion("create_plan_document", { title: "Workshop plan", document: document() });
+      }
+      return askingWhileFilled();
+    });
+    const text = await runPlanInterview(database.db, {
+      userId, conversationId, runId: "run_repeat", message: "I want posts for offers and websites",
+      provider: { complete }, model: "contract-model", maxTokens: 1500, search: null, searchModel: "search-model",
+    });
+    const saved = await getPlanInterview(database.db, userId, conversationId);
+    expect(text).toContain(`/app/plans/${saved?.planId}`);
+    expect(saved?.state.answers.goal).toMatch(/offers/);
+    expect(await database.db.select().from(campaignJobs)).toHaveLength(0);
   });
 
   it("keeps saved answers when the model returns a truncated tool result", async () => {

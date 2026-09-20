@@ -126,18 +126,28 @@ export async function runPlanInterview(db: Database["db"], input: {
     const decision = result(completion, "record_plan_interview", decisionSchema);
     const answers = { ...retained.answers };
     for (const key of ["goal", "newsAssets", "direction"] as const) if (decision.answers[key]?.trim()) answers[key] = decision.answers[key]!.trim();
-    if (new Set(decision.questions.map(question => question.field)).size !== decision.questions.length || (decision.status === "asking" && decision.questions.some(question => answers[question.field]))) throw new OrchestrationError("INVALID_TOOL_ARGUMENTS", 422, "The interview repeated an answered question. Your previous answers are saved.");
-    if (["asking", "clarification_needed"].includes(decision.status) && !decision.questions.length) throw new OrchestrationError("INVALID_TOOL_ARGUMENTS", 422);
-    if (["ready", "delegated", "canceled"].includes(decision.status) && decision.questions.length) throw new OrchestrationError("INVALID_TOOL_ARGUMENTS", 422);
-    if (decision.status === "ready" && !decision.useExistingContext && (!answers.goal || !answers.direction)) throw new OrchestrationError("INVALID_TOOL_ARGUMENTS", 422, "The plan needs a goal and direction or explicit delegation.");
+    const seenFields = new Set<(typeof decision.questions)[number]["field"]>();
+    let questions = decision.questions.filter(question => {
+      if (seenFields.has(question.field)) return false;
+      seenFields.add(question.field);
+      return true;
+    });
+    let status = decision.status;
+    if (status === "asking" || status === "clarification_needed") {
+      questions = questions.filter(question => !answers[question.field]);
+      if (!questions.length && answers.goal && answers.direction) status = "ready";
+    }
+    if ((status === "asking" || status === "clarification_needed") && !questions.length) throw new OrchestrationError("INVALID_TOOL_ARGUMENTS", 422);
+    if (["ready", "delegated", "canceled"].includes(status) && questions.length) throw new OrchestrationError("INVALID_TOOL_ARGUMENTS", 422);
+    if (status === "ready" && !decision.useExistingContext && (!answers.goal || !answers.direction)) throw new OrchestrationError("INVALID_TOOL_ARGUMENTS", 422, "The plan needs a goal and direction or explicit delegation.");
     const request = mergeRequest(retained.request ?? emptyRequest, {
       message: input.message, mediaAssetIds: input.mediaAssetIds ?? [], patch: decision.request,
     });
     let state: PlanInterviewState = {
-      ...decision, answers, request,
+      ...decision, status, questions, answers, request,
       sources: decision.useExistingContext || JSON.stringify(answers) !== JSON.stringify(retained.answers) ? [] : retained.sources ?? [],
     };
-    const blockedAfterFailedResearch = retained.status === "research_unavailable" && !decision.useExistingContext && ["ready", "delegated"].includes(decision.status);
+    const blockedAfterFailedResearch = retained.status === "research_unavailable" && !decision.useExistingContext && ["ready", "delegated"].includes(status);
     if (blockedAfterFailedResearch) {
       state = { ...state, status: "research_unavailable", useExistingContext: false, questions: [], sources: [] };
       await savePlanInterview(db, { ...input, expectedRevision: saved?.revision ?? 0, state, contextId: context.id });
