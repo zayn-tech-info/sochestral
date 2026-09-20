@@ -2,7 +2,7 @@
 
 Started 10 September 2026. Status: in progress. This is a completion record, not a release claim.
 
-**Execution order from 20 September 2026:** follow [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md) one step at a time. Current step in that file is L4 (direction approval is only direction). This progress log remains the dated evidence record.
+**Execution order from 20 September 2026:** follow [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md) one step at a time. Current step in that file is L5 (durable finished content). This progress log remains the dated evidence record.
 
 ## Authority and baseline
 
@@ -34,7 +34,7 @@ Current verification evidence:
 
 ## Remaining work
 
-The ordered steps are L1–L18 in [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md). L1–L3 are done. Do not start L5 while L4 is open. Summary of what those steps cover:
+The ordered steps are L1–L18 in [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md). L1–L4 are done. Do not start L6 while L5 is open. Summary of what those steps cover:
 
 Phase 0: finish cross repository contract and fault harness coverage, isolated full test baselines, browser calendar check and delivery CI gate.
 
@@ -190,3 +190,41 @@ Verification:
 - Playwright `e2e/chat-plan.spec.ts`: 6 passing (five widths plus pause/resume). `e2e/plans.spec.ts`: 5 passing.
 
 Next: L4 direction approval is only direction.
+
+## L4 — Direction approval is only direction (20 September 2026)
+
+20 September 2026 on `cursor/v2-next-9bc5`. Pinned local `sochestral_test`. No production migrate. No live SocialMCP.
+
+`POST /plans/:id/approve` with confirm writes `workflowApprovals.scope = plan_direction` for that version. Stale version is 409. `campaignJobs` stays empty. The API has no MCP client.
+
+`POST /plans/:id/create-content` is a stub. Own plan, confirm, and version are required. Response is 409 `CONTENT_NOT_READY` even after direction approval. Unauthenticated 401. Other user 404. No captions and no new SQL.
+
+Plan viewer shows **Create content** only on the current direction-approved version. The click calls the stub and shows that direction approval does not create posts.
+
+After a saved interview plan, chat `create content`, `the plan is approved, schedule it`, and `publish now` stay on the review link. Clerk `accept` / `schedule_one` / `live` with `interview.planId` also stay on planning. `mcp.callTool` is not called.
+
+### Schedule and publish entry audit
+
+These are the live schedule or publish seams. L4 tests the ones that could treat plan direction as a grant.
+
+| Entry | File | L4 finding |
+| --- | --- | --- |
+| `schedule_post` in chat tool loop | `packages/orchestration/src/service.ts` `executeRun` | After `interview.planId`, schedule/publish/create-content wording and clerk accept/schedule_one/live return the review link and never reach this loop. |
+| `save_content_plan` / `enqueueCampaignJob` | `service.ts` then `packages/database/src/campaign-job.ts` | Same interview guard. Approve and create-content leave `campaignJobs` empty. |
+| `publish_now` in chat | `service.ts` tools | Same interview guard. `publish now` after a plan does not call MCP. |
+| `schedule_post` campaign tick | `packages/orchestration/src/campaign-day.ts` | Not started by plan approve or create-content. |
+| Calendar `schedule_post` | `packages/orchestration/src/calendar.ts` | Calendar mutations, not plan direction. Unchanged. |
+| Review `publish_now` | `packages/orchestration/src/review.ts` | Legacy review drafts, not `plan_direction`. Unchanged. |
+| Viewer approve | `web/src/components/app/plan-viewer.tsx` → `POST /plans/:id/approve` | Version-bound `plan_direction` only. |
+| Viewer create content | same → `POST /plans/:id/create-content` | Stub `CONTENT_NOT_READY`. |
+
+Verification (pinned `TEST_DATABASE_URL=postgresql://sochestral:sochestral@127.0.0.1:5433/sochestral_test`, `DATABASE_URL` on `sochestral`, `NODE_ENV=test`, `CORS_ORIGIN` unset):
+
+- Database `plans.test.ts`: 9 passing (approve does not enqueue jobs; create-content throws `CONTENT_NOT_READY`).
+- API profile + plan routes: 16 passing.
+- Orchestration interview + usage + revision: 21 passing (chat after plan never calls MCP).
+- Orchestration `publishing.test.ts`: 110 passing (`isCreateContentAsk`).
+- Web `plan-viewer.test.tsx`: 7 passing (Create content refuse notice).
+- Typecheck: database, api, orchestration.
+
+Fake provider only. Next: L5 durable finished content. Do not implement L5 in this commit.

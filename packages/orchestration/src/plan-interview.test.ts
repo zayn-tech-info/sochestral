@@ -385,10 +385,16 @@ describe("plan interview chat routing", () => {
       if (input.toolChoice?.type === "tool" && input.toolChoice.name === "create_plan_document") {
         return completion("create_plan_document", { title: "Workshop plan", document: document() });
       }
-      return ready();
+      return asking();
     });
     const first = await service.createConversation(userId, {
       message: PLAN_MESSAGE, requestId: "00000000-0000-4000-8000-00000000c031",
+    });
+    vi.mocked(model.complete).mockImplementation(async (input) => {
+      if (input.toolChoice?.type === "tool" && input.toolChoice.name === "create_plan_document") {
+        return completion("create_plan_document", { title: "Workshop plan", document: document() });
+      }
+      return ready();
     });
     const planned = await service.addMessage(userId, first.conversation.id, {
       message: "Sell workshop tools with practical shop-floor tips",

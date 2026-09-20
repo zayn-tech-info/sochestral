@@ -10,9 +10,9 @@
 
 | Field | Value |
 | --- | --- |
-| Current step | **L4** — direction approval is only direction |
-| Last completed | **L3** (20 Sep 2026): chat review link opens the plan, pause/resume, Playwright at five widths |
-| Do not start | Durable content generation, schedule confirmation, billing, WhatsApp, Phase 8 expansion |
+| Current step | **L5** — durable finished content |
+| Last completed | **L4** (20 Sep 2026): direction approval is only direction; create-content stub refuses until L5 |
+| Do not start | Schedule confirmation, billing, WhatsApp, Phase 8 expansion |
 | Stop if | A later step would invent a deferred commercial policy, publish live, migrate production Neon, or treat direction approval as schedule permission |
 
 Update this table at the end of every completed step. Do not mark a step complete from code review alone.
@@ -258,7 +258,7 @@ Relative size is guidance. Do the steps in order unless a later step is marked *
 
 ### L4 — Direction approval is only direction
 
-**Status:** Not started. Plan API already stores direction approval. This step is the product rule plus chat/API enforcement.  
+**Status:** Done 20 September 2026 on `cursor/v2-next-9bc5`. Direction approval writes `plan_direction` only. Create content is a `CONTENT_NOT_READY` stub. No new tables.  
 **Gold:** P05.6, A04 Phase 3 item 9, A14.
 
 **Build:**
