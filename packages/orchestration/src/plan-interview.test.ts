@@ -8,9 +8,11 @@ import {
   plans,
   provisionUser,
   requireTestDatabaseUrl,
+  usageAttempts,
   type Database,
   type PlanDocument,
 } from "@sochestral/database";
+import type { ResearchSource } from "./deepseek-search.js";
 import type { OrchestrationConfig } from "./config.js";
 import type { SocialMcpGateway } from "./mcp.js";
 import type { ModelCompletion, ModelProvider } from "./model.js";
@@ -19,9 +21,20 @@ import { runPlanInterview } from "./plan-interview.js";
 
 const PLAN_MESSAGE = "Plan the next 2 weeks";
 
-function document(): PlanDocument {
+const knownSource: ResearchSource = {
+  url: "https://example.com/shop", title: "Shop notes", retrievedAt: "2026-09-20T12:00:00.000Z",
+  summary: "Workshop benches", claim: "Workshop benches",
+};
+const extraSource: ResearchSource = {
+  url: "https://example.com/other", title: "Other", retrievedAt: "2026-09-20T12:00:00.000Z",
+  summary: "Unrelated", claim: "Unrelated",
+};
+
+function document(sources: ResearchSource[] = []): PlanDocument {
   return { schemaVersion: 1, sections: (["goal", "audience_voice", "direction", "calendar", "sources", "missing_inputs"] as const).map(type => ({
-    id: `section_${type}`, type, title: type, blocks: [{ id: `block_${type}`, kind: "paragraph" as const, text: `Discuss ${type}` }],
+    id: `section_${type}`, type, title: type, blocks: type === "sources" && sources.length
+      ? [{ id: "block_sources", kind: "sources" as const, sources: sources.map((source, index) => ({ id: `src_${index}`, ...source })) }]
+      : [{ id: `block_${type}`, kind: "paragraph" as const, text: `Discuss ${type}` }],
   })) };
 }
 
@@ -40,12 +53,21 @@ function asking(goal: string | null = null) {
   });
 }
 
-function ready() {
+function ready(useExistingContext = true) {
   return completion("record_plan_interview", {
     status: "ready",
     answers: { goal: "Sell workshop tools", newsAssets: "New bench series", direction: "Practical shop-floor tips" },
     questions: [],
-    useExistingContext: true,
+    useExistingContext,
+  });
+}
+
+function delegated() {
+  return completion("record_plan_interview", {
+    status: "delegated",
+    answers: { goal: "Sell workshop tools", newsAssets: null, direction: "Practical shop-floor tips" },
+    questions: [],
+    useExistingContext: false,
   });
 }
 
@@ -136,6 +158,127 @@ describe("plan interview", () => {
     expect((await getPlanInterview(database.db, userId, conversationId))?.state.answers.goal).toBe("Sell workshop tools");
     expect(await database.db.select().from(plans)).toHaveLength(0);
   });
+
+  it("keeps stated request constraints across a later partial turn", async () => {
+    const conversationId = (await createConversationTurn(database.db, {
+      userId, requestId: crypto.randomUUID(), content: "Plan 7 days", title: "Plan", assistantContent: "Ready",
+    })).conversation.id;
+    await runPlanInterview(database.db, {
+      userId, conversationId, runId: "run_constraints",
+      message: "Plan 7 days on Threads, about 10 posts",
+      mediaAssetIds: ["media_fixture_1"],
+      provider: { complete: vi.fn(async () => asking()) }, model: "contract-model", maxTokens: 1500, search: null, searchModel: "search-model",
+    });
+    await runPlanInterview(database.db, {
+      userId, conversationId, runId: "run_constraints_partial", message: "Sell workshop tools",
+      provider: { complete: vi.fn(async () => asking("Sell workshop tools")) }, model: "contract-model", maxTokens: 1500, search: null, searchModel: "search-model",
+    });
+    expect((await getPlanInterview(database.db, userId, conversationId))?.state.request).toMatchObject({
+      originalMessage: "Plan 7 days on Threads, about 10 posts",
+      horizonDays: 7, itemCount: 10, platforms: ["threads"], attachmentIds: ["media_fixture_1"],
+    });
+  });
+
+  it("records interview usage with unknown tokens when the provider omits them", async () => {
+    const conversationId = (await createConversationTurn(database.db, {
+      userId, requestId: crypto.randomUUID(), content: PLAN_MESSAGE, title: "Plan", assistantContent: "Ready",
+    })).conversation.id;
+    await runPlanInterview(database.db, {
+      userId, conversationId, runId: "run_usage", message: PLAN_MESSAGE,
+      provider: { complete: vi.fn(async () => asking()) }, model: "contract-model", maxTokens: 1500, search: null, searchModel: "search-model",
+    });
+    const rows = await database.db.select().from(usageAttempts);
+    expect(rows.some(row => row.role === "plan_interview" && row.parentId === "run_usage" && row.outcome === "succeeded"
+      && row.inputTokens === null && row.outputTokens === null)).toBe(true);
+    expect(rows.some(row => row.role === "plan_interview" && row.inputTokens === 0)).toBe(false);
+  });
+
+  it("persists delegated research sources and rejects a duplicate stand-in", async () => {
+    const conversationId = (await createConversationTurn(database.db, {
+      userId, requestId: crypto.randomUUID(), content: PLAN_MESSAGE, title: "Plan", assistantContent: "Ready",
+    })).conversation.id;
+    const search = { searchWeb: vi.fn(async () => ({ ok: true, summary: "notes", sources: [knownSource, extraSource] })) };
+    const complete = vi.fn(async (input: Parameters<ModelProvider["complete"]>[0]) => {
+      if (input.toolChoice?.type === "tool" && input.toolChoice.name === "create_plan_document") {
+        expect(JSON.parse(String(input.messages[0]?.content[0] && "text" in input.messages[0].content[0] ? input.messages[0].content[0].text : "{}")).request).toBeTruthy();
+        return completion("create_plan_document", { title: "Workshop plan", document: document([knownSource, extraSource]) });
+      }
+      return delegated();
+    });
+    const text = await runPlanInterview(database.db, {
+      userId, conversationId, runId: "run_research", message: "you decide",
+      provider: { complete }, model: "contract-model", maxTokens: 1500, search, searchModel: "search-model",
+    });
+    const saved = await getPlanInterview(database.db, userId, conversationId);
+    expect(text).toContain(`/app/plans/${saved?.planId}`);
+    expect(saved?.state.sources).toEqual([knownSource, extraSource]);
+    const researchUsage = (await database.db.select().from(usageAttempts)).find(row => row.role === "plan_research");
+    expect(researchUsage).toMatchObject({ outcome: "succeeded", inputTokens: null, outputTokens: null });
+
+    const otherConversation = (await createConversationTurn(database.db, {
+      userId, requestId: crypto.randomUUID(), content: PLAN_MESSAGE, title: "Dup", assistantContent: "Ready",
+    })).conversation.id;
+    const duplicate = vi.fn(async (input: Parameters<ModelProvider["complete"]>[0]) => {
+      if (input.toolChoice?.type === "tool" && input.toolChoice.name === "create_plan_document") {
+        return completion("create_plan_document", { title: "Bad", document: document([knownSource, knownSource]) });
+      }
+      return delegated();
+    });
+    await expect(runPlanInterview(database.db, {
+      userId, conversationId: otherConversation, runId: "run_dup", message: "you decide",
+      provider: { complete: duplicate }, model: "contract-model", maxTokens: 1500, search, searchModel: "search-model",
+    })).rejects.toMatchObject({ code: "INVALID_TOOL_ARGUMENTS" });
+    expect((await getPlanInterview(database.db, userId, otherConversation))?.state.answers.goal).toBe("Sell workshop tools");
+    expect((await getPlanInterview(database.db, userId, otherConversation))?.planId).toBeNull();
+  });
+
+  it("does not draft after failed research until the user chooses existing context", async () => {
+    const conversationId = (await createConversationTurn(database.db, {
+      userId, requestId: crypto.randomUUID(), content: PLAN_MESSAGE, title: "Plan", assistantContent: "Ready",
+    })).conversation.id;
+    const search = { searchWeb: vi.fn(async () => ({ ok: false, summary: "", sources: [] })) };
+    const unavailable = await runPlanInterview(database.db, {
+      userId, conversationId, runId: "run_unavail", message: "you decide",
+      provider: { complete: vi.fn(async () => delegated()) }, model: "contract-model", maxTokens: 1500, search, searchModel: "search-model",
+    });
+    expect(unavailable).toMatch(/existing business context/i);
+    expect((await getPlanInterview(database.db, userId, conversationId))?.state.status).toBe("research_unavailable");
+    const skipped = await runPlanInterview(database.db, {
+      userId, conversationId, runId: "run_skip", message: "just write it",
+      provider: { complete: vi.fn(async () => ready(false)) }, model: "contract-model", maxTokens: 1500, search, searchModel: "search-model",
+    });
+    expect(skipped).toMatch(/existing business context/i);
+    expect((await getPlanInterview(database.db, userId, conversationId))?.planId).toBeNull();
+    const complete = vi.fn(async (input: Parameters<ModelProvider["complete"]>[0]) => {
+      if (input.toolChoice?.type === "tool" && input.toolChoice.name === "create_plan_document") {
+        const payload = JSON.parse(String(input.messages[0]?.content[0] && "text" in input.messages[0].content[0] ? input.messages[0].content[0].text : "{}")) as { sources: unknown[] };
+        expect(payload.sources).toEqual([]);
+        return completion("create_plan_document", { title: "Workshop plan", document: document() });
+      }
+      return ready(true);
+    });
+    const drafted = await runPlanInterview(database.db, {
+      userId, conversationId, runId: "run_continue", message: "use existing context",
+      provider: { complete }, model: "contract-model", maxTokens: 1500, search, searchModel: "search-model",
+    });
+    const saved = await getPlanInterview(database.db, userId, conversationId);
+    expect(drafted).toContain(`/app/plans/${saved?.planId}`);
+    const sourcesSection = (await getPlan(database.db, userId, saved!.planId!)).version.document.sections.find(section => section.type === "sources");
+    expect(sourcesSection?.blocks.some(block => block.kind === "sources")).toBeFalsy();
+  });
+
+  it("does not treat a usage bookkeeping failure as missing research", async () => {
+    const conversationId = (await createConversationTurn(database.db, {
+      userId, requestId: crypto.randomUUID(), content: PLAN_MESSAGE, title: "Plan", assistantContent: "Ready",
+    })).conversation.id;
+    await expect(runPlanInterview(database.db, {
+      userId, conversationId, runId: "run_bookkeeping", message: "you decide",
+      provider: { complete: vi.fn(async () => delegated()) }, model: "contract-model", maxTokens: 1500,
+      search: { searchWeb: vi.fn(async () => { throw new Error("USAGE_PERSISTENCE_FAILED"); }) }, searchModel: "search-model",
+    })).rejects.toMatchObject({ message: "USAGE_PERSISTENCE_FAILED" });
+    expect((await getPlanInterview(database.db, userId, conversationId))?.state.status).toBe("delegated");
+    expect((await getPlanInterview(database.db, userId, conversationId))?.planId).toBeNull();
+  });
 });
 
 describe("plan interview chat routing", () => {
@@ -189,6 +332,11 @@ describe("plan interview chat routing", () => {
       requestId: "00000000-0000-4000-8000-00000000c003",
     });
     expect(accepted.assistantMessage?.content).toContain(`/app/plans/${saved?.planId}`);
+    const goAhead = await service.addMessage(userId, first.conversation.id, {
+      message: "go ahead",
+      requestId: "00000000-0000-4000-8000-00000000c004",
+    });
+    expect(goAhead.assistantMessage?.content).toContain(`/app/plans/${saved?.planId}`);
     expect(mcp.callTool).not.toHaveBeenCalled();
     expect(await database.db.select().from(campaignJobs)).toHaveLength(0);
   });

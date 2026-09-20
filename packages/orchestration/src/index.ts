@@ -187,6 +187,8 @@ export {
   buildPublishAtCandidates,
   coverageDayOffsets,
   parseHorizonDays,
+  parseStatedHorizonDays,
+  parseStatedItemCount,
   resolveAutonomyTimeZone,
 } from "./autonomy-brief.js";
 export {

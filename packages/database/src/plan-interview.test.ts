@@ -22,6 +22,7 @@ function asking(answers: PlanInterviewState["answers"] = { goal: null, newsAsset
     questions: [{ field: "goal", text: "What should this campaign achieve?" }],
     useExistingContext: false,
     sources: [],
+    request: { originalMessage: "", horizonDays: null, itemCount: null, platforms: [], cadence: null, attachmentIds: [] },
   };
 }
 

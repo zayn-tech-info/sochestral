@@ -2902,6 +2902,7 @@ export class DefaultOrchestrationService implements OrchestrationService {
       try {
         const text = await runPlanInterview(this.db, { userId, conversationId: turn.conversation.id, runId: turn.run.id, message: effectiveMessage,
           provider: this.model, model: this.config.theseanModel, maxTokens: this.config.outputTokenLimit, search: this.search, searchModel: this.config.deepseekModel,
+          mediaAssetIds: common.mediaAssetIds,
           onStep: (step, started) => this.emit({ type: started ? "step_started" : "step_completed", step }) });
         const assistant = await completeOrchestrationRun(this.db, turn.run.id, text, Math.round(performance.now() - started));
         return this.existingResponse({ ...turn, assistantMessage: assistant, run: { ...turn.run, status: "completed" } });

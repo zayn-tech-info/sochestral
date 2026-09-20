@@ -411,7 +411,7 @@ export function isSchedulePlanAcceptance(message: string): boolean {
     return true;
   }
   return (
-    /\b(?:go\s+(?:for\s+)?(?:it|this|that)|that'?s\s+what\s+i\s+want|looks\s+good|sounds\s+good|do\s+it|proceed|approve(?:\s+(?:it|this|that))?|lock\s+(?:it|this)\s+in)\b/.test(
+    /\b(?:go\s+ahead|go\s+(?:for\s+)?(?:it|this|that)|that'?s\s+what\s+i\s+want|looks\s+good|sounds\s+good|do\s+it|proceed|approve(?:\s+(?:it|this|that))?|lock\s+(?:it|this)\s+in)\b/.test(
       value,
     ) && !/\b(?:don'?t|do\s+not|never|cancel|not\s+yet)\b/.test(value)
   );

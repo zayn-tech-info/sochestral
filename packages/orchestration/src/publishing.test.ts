@@ -362,6 +362,8 @@ describe("resolveLivePublishIntent", () => {
     expect(
       isSchedulePlanAcceptance("Yeah, go for this, that's what I want"),
     ).toBe(true);
+    expect(isSchedulePlanAcceptance("go ahead")).toBe(true);
+    expect(isSchedulePlanAcceptance("go ahead and schedule")).toBe(true);
     expect(
       isSchedulePlanAcceptance("Yeah, that's what I want go for it"),
     ).toBe(true);
