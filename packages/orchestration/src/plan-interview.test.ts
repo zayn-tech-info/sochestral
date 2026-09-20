@@ -17,7 +17,7 @@ import type { OrchestrationConfig } from "./config.js";
 import type { SocialMcpGateway } from "./mcp.js";
 import type { ModelCompletion, ModelProvider } from "./model.js";
 import { DefaultOrchestrationService } from "./service.js";
-import { runPlanInterview } from "./plan-interview.js";
+import { isInterviewPause, isInterviewResume, runPlanInterview } from "./plan-interview.js";
 
 const PLAN_MESSAGE = "Plan the next 2 weeks";
 
@@ -94,6 +94,18 @@ const config: OrchestrationConfig = {
   externalTimeoutMs: 1000,
 };
 
+describe("interview pause wording", () => {
+  it("recognizes pause and resume without treating ordinary chat as cancel", () => {
+    expect(isInterviewPause("pause planning")).toBe(true);
+    expect(isInterviewPause("cancel planning")).toBe(true);
+    expect(isInterviewPause("never mind")).toBe(true);
+    expect(isInterviewPause("Which social accounts are connected?")).toBe(false);
+    expect(isInterviewPause("cancel the scheduled post")).toBe(false);
+    expect(isInterviewResume("continue planning")).toBe(true);
+    expect(isInterviewResume("back to the plan")).toBe(true);
+  });
+});
+
 describe("plan interview", () => {
   let database: Database;
   let userId: string;
@@ -157,6 +169,32 @@ describe("plan interview", () => {
     })).rejects.toMatchObject({ code: "INVALID_TOOL_ARGUMENTS" });
     expect((await getPlanInterview(database.db, userId, conversationId))?.state.answers.goal).toBe("Sell workshop tools");
     expect(await database.db.select().from(plans)).toHaveLength(0);
+  });
+
+  it("pauses on cancel wording without calling the model, then resumes saved answers", async () => {
+    const conversationId = (await createConversationTurn(database.db, {
+      userId, requestId: crypto.randomUUID(), content: PLAN_MESSAGE, title: "Plan", assistantContent: "Ready",
+    })).conversation.id;
+    const complete = vi.fn(async () => asking("Sell workshop tools"));
+    await runPlanInterview(database.db, {
+      userId, conversationId, runId: "run_ask_pause", message: PLAN_MESSAGE, provider: { complete }, model: "contract-model", maxTokens: 1500, search: null, searchModel: "search-model",
+    });
+    complete.mockClear();
+    const paused = await runPlanInterview(database.db, {
+      userId, conversationId, runId: "run_pause", message: "pause planning", provider: { complete }, model: "contract-model", maxTokens: 1500, search: null, searchModel: "search-model",
+    });
+    expect(paused).toMatch(/continue planning/i);
+    expect(complete).not.toHaveBeenCalled();
+    expect((await getPlanInterview(database.db, userId, conversationId))?.state).toMatchObject({
+      status: "canceled", answers: { goal: "Sell workshop tools" },
+    });
+    complete.mockImplementation(async () => asking("Sell workshop tools"));
+    const resumed = await runPlanInterview(database.db, {
+      userId, conversationId, runId: "run_resume", message: "continue planning", provider: { complete }, model: "contract-model", maxTokens: 1500, search: null, searchModel: "search-model",
+    });
+    expect(resumed).toContain("What voice should this take?");
+    expect((await getPlanInterview(database.db, userId, conversationId))?.state.status).toBe("asking");
+    expect((await getPlanInterview(database.db, userId, conversationId))?.state.answers.goal).toBe("Sell workshop tools");
   });
 
   it("keeps stated request constraints across a later partial turn", async () => {
@@ -339,6 +377,38 @@ describe("plan interview chat routing", () => {
     expect(goAhead.assistantMessage?.content).toContain(`/app/plans/${saved?.planId}`);
     expect(mcp.callTool).not.toHaveBeenCalled();
     expect(await database.db.select().from(campaignJobs)).toHaveLength(0);
+  });
+
+  it("stops capturing chat after pause until the user resumes planning", async () => {
+    vi.mocked(model.complete).mockImplementation(async () => asking("Sell workshop tools"));
+    const first = await service.createConversation(userId, {
+      message: PLAN_MESSAGE, requestId: "00000000-0000-4000-8000-00000000c021",
+    });
+    const paused = await service.addMessage(userId, first.conversation.id, {
+      message: "cancel planning", requestId: "00000000-0000-4000-8000-00000000c022",
+    });
+    expect(paused.assistantMessage?.content).toMatch(/continue planning/i);
+    expect((await getPlanInterview(database.db, userId, first.conversation.id))?.state.status).toBe("canceled");
+    vi.mocked(model.complete).mockClear();
+    vi.mocked(model.complete).mockImplementation(async (input) => {
+      if (input.tools?.some(tool => tool.name === "record_plan_interview")) return asking("Sell workshop tools");
+      return {
+        content: "Threads and LinkedIn Personal are the connected destinations I can check.",
+        thinking: null, toolCalls: [], inputTokens: 4, outputTokens: 8, attempts: 1,
+      };
+    });
+    const unrelated = await service.addMessage(userId, first.conversation.id, {
+      message: "Which social accounts are connected?", requestId: "00000000-0000-4000-8000-00000000c023",
+    });
+    expect(unrelated.assistantMessage?.content).toMatch(/connected/i);
+    expect((await getPlanInterview(database.db, userId, first.conversation.id))?.state.status).toBe("canceled");
+    expect(mcp.callTool).not.toHaveBeenCalled();
+    vi.mocked(model.complete).mockImplementation(async () => asking("Sell workshop tools"));
+    const resumed = await service.addMessage(userId, first.conversation.id, {
+      message: "continue planning", requestId: "00000000-0000-4000-8000-00000000c024",
+    });
+    expect(resumed.assistantMessage?.content).toContain("What voice should this take?");
+    expect((await getPlanInterview(database.db, userId, first.conversation.id))?.state.status).toBe("asking");
   });
 
   it("fails the run visibly on a malformed classifier without scheduling", async () => {

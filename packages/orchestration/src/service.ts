@@ -1,4 +1,4 @@
-import { runPlanInterview } from "./plan-interview.js";
+import { isInterviewResume, runPlanInterview } from "./plan-interview.js";
 import { withUsageContext, withUsageRole } from "./usage.js";
 import {
   createHash,
@@ -2911,8 +2911,11 @@ export class DefaultOrchestrationService implements OrchestrationService {
         return this.existingResponse({ ...turn, assistantMessage: assistant, run: { ...turn.run, status: "failed" } });
       }
     };
+    const interviewOpen = Boolean(interview && !["planned", "canceled"].includes(interview.state.status));
+    const resumeCanceledInterview = Boolean(interview && interview.state.status === "canceled" && !interview.planId
+      && (isInterviewResume(effectiveMessage) || localPlanningIntent(effectiveMessage)));
     if (localPlanningIntent(effectiveMessage) || localAutonomousScheduleIntent(effectiveMessage) ||
-      (interview && !["planned", "canceled"].includes(interview.state.status)) ||
+      interviewOpen || resumeCanceledInterview ||
       (interview?.planId && (isSchedulePlanAcceptance(effectiveMessage) || localScheduleIntent(effectiveMessage) || localLiveIntent(effectiveMessage)))) {
       return planningTurn();
     }

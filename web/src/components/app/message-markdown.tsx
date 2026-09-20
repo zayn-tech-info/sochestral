@@ -1,5 +1,4 @@
-"use client";
-
+import Link from "next/link";
 import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 
@@ -9,6 +8,13 @@ export interface MessageMarkdownProps {
 
 function MessageHeading({ children }: { children?: ReactNode }) {
   return <strong className="message-content-heading">{children}</strong>;
+}
+
+function MessageLink({ href, children }: { href?: string; children?: ReactNode }) {
+  if (href?.startsWith("/app/")) {
+    return <Link href={href}>{children}</Link>;
+  }
+  return <a href={href}>{children}</a>;
 }
 
 export function MessageMarkdown({ content }: MessageMarkdownProps) {
@@ -24,6 +30,7 @@ export function MessageMarkdown({ content }: MessageMarkdownProps) {
           h4: MessageHeading,
           h5: MessageHeading,
           h6: MessageHeading,
+          a: MessageLink,
         }}
       >
         {content}
