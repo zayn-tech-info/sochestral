@@ -2,6 +2,8 @@
 
 Started 10 September 2026. Status: in progress. This is a completion record, not a release claim.
 
+**Execution order from 20 September 2026:** follow [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md) one step at a time. Current step in that file is L1 (interview typecheck and tests). This progress log remains the dated evidence record.
+
 ## Authority and baseline
 
 The current request authorizes implementation and local verification. Use the repository copies of the reference and guide (v1.3), including scheduling only and one brand per user. Proposals and deferred commercial policies remain distinct from requirements. Phase 8 is conditional expansion.
@@ -32,13 +34,15 @@ Current verification evidence:
 
 ## Remaining work
 
+The ordered steps are L1–L18 in [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md). Do not start L5 while L1 is open. Summary of what those steps cover:
+
 Phase 0: finish cross repository contract and fault harness coverage, isolated full test baselines, browser calendar check and delivery CI gate.
 
-Phase 1: shared scoped context/provenance, all operation usage accounting, persistent confirmed timezone.
+Phase 1: remaining generation paths on shared context and usage accounting (timezone confirm already landed).
 
-Phase 2 and A11: transactional tenant scoped replay and conflict contract; claims, attempts, uncertainty and reconciliation; persisted content revisions and confirmed schedule operations; media lifetime; legacy campaign transition.
+Phase 2 and A11: durable content revisions, confirmed schedule operations, receipts, media lifetime, legacy campaign transition.
 
-Phase 3 and A12/A14: interview/delegation and persistent plan/comments/approvals; implemented responsive UI, appearance and schedule confirmation; retire immediate publishing and full access throughout product.
+Phase 3 and A12/A14: finish and test interview/delegation; content approval and schedule confirmation; remaining responsive UI; retire immediate publishing and full access.
 
 Phase 4: correction memory and source inbox.
 
