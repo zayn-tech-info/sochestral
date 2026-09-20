@@ -2,7 +2,7 @@
 
 Started 10 September 2026. Status: in progress. This is a completion record, not a release claim.
 
-**Execution order from 20 September 2026:** follow [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md) one step at a time. Current step in that file is L3 (chat to plan viewer). This progress log remains the dated evidence record.
+**Execution order from 20 September 2026:** follow [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md) one step at a time. Current step in that file is L4 (direction approval is only direction). This progress log remains the dated evidence record.
 
 ## Authority and baseline
 
@@ -34,7 +34,7 @@ Current verification evidence:
 
 ## Remaining work
 
-The ordered steps are L1–L18 in [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md). L1 and L2 are done. Do not start L5 while L3–L4 are open. Summary of what those steps cover:
+The ordered steps are L1–L18 in [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md). L1–L3 are done. Do not start L5 while L4 is open. Summary of what those steps cover:
 
 Phase 0: finish cross repository contract and fault harness coverage, isolated full test baselines, browser calendar check and delivery CI gate.
 
@@ -176,3 +176,17 @@ Verification (pinned `TEST_DATABASE_URL=postgresql://sochestral:sochestral@127.0
 - `pnpm --filter @sochestral/database typecheck` and `pnpm --filter @sochestral/orchestration typecheck` passed.
 
 Fake provider only. No live Thesean, DeepSeek, or SocialMCP. Next: L3 chat to plan viewer.
+
+## L3 — Chat to plan viewer (20 September 2026)
+
+20 September 2026 on `cursor/v2-next-9bc5`. Intercepted API only. No live model.
+
+Pause/cancel wording (`pause planning`, `cancel planning`, `never mind`) is code-owned and stops interview capture. `continue planning` or a new plan ask in the same thread resumes saved answers. Chat markdown routes `/app/plans/:id` in-app. Playwright: workspace composer → interview → review link → reload → comment → submit batch → direction approve at 360, 390, 768, 1024, and 1440. Existing `e2e/plans.spec.ts` stayed green.
+
+Verification:
+
+- Orchestration `plan-interview.test.ts`: 12 passing (includes pause/resume and unrelated chat after cancel).
+- Web `message-markdown.test.tsx`: 4 passing.
+- Playwright `e2e/chat-plan.spec.ts`: 5 passing. `e2e/plans.spec.ts`: 5 passing.
+
+Next: L4 direction approval is only direction.

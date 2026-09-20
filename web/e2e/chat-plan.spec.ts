@@ -178,13 +178,14 @@ for (const width of [360, 390, 768, 1024, 1440]) {
     await page.getByRole("button", { name: "Comment on Reach workshop owners" }).click();
     await page.getByLabel("Your comment").fill("Focus on independent shops");
     await page.getByRole("button", { name: "Save comment", exact: true }).click();
-    await expect(page.getByRole("status")).toContainText("Comment saved");
+    await expect(page.getByText("Comment saved.")).toBeVisible();
     await page.getByRole("button", { name: "Review comments (1)" }).click();
-    await expect(page.getByRole("status")).toContainText("Comments submitted");
+    await expect(page.getByText("Comments submitted for revision.")).toBeVisible();
     await page.getByRole("button", { name: "Approve plan direction" }).click();
     await expect(page.getByText("Version 1 · Direction approved")).toBeVisible();
     expect(comments[0]).toMatchObject({ version: 1, blockId: "b_goal", body: "Focus on independent shops", status: "submitted" });
     expect(approvals).toHaveLength(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: `test-results/chat-plan-${width}.png`, fullPage: true });
   });
 }

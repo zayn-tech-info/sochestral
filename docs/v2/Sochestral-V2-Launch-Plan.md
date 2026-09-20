@@ -10,8 +10,8 @@
 
 | Field | Value |
 | --- | --- |
-| Current step | **L3** — chat to plan viewer, browser proof |
-| Last completed | **L2** (20 Sep 2026): request constraints, research gates, source bijection, usage without zeros, go-ahead stays on review |
+| Current step | **L4** — direction approval is only direction |
+| Last completed | **L3** (20 Sep 2026): chat review link opens the plan, pause/resume, Playwright at five widths |
 | Do not start | Durable content generation, schedule confirmation, billing, WhatsApp, Phase 8 expansion |
 | Stop if | A later step would invent a deferred commercial policy, publish live, migrate production Neon, or treat direction approval as schedule permission |
 
@@ -238,7 +238,7 @@ Relative size is guidance. Do the steps in order unless a later step is marked *
 
 ### L3 — Chat to plan viewer, browser proof
 
-**Status:** Not started. Depends on L2.  
+**Status:** Done 20 September 2026 on `cursor/v2-next-9bc5`. Playwright fixture, no live model. Pause/resume is code-owned.  
 **Gold:** P05.4–5, A12 plan viewer, P17 responsive.
 
 **Build:**
