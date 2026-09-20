@@ -4,6 +4,9 @@ const API = "http://127.0.0.1:8789";
 const PLAN_ID = "plan_interview_1";
 const CONV_ID = "conv_plan_1";
 const NOW = "2026-09-20T12:00:00.000Z";
+const PAUSE_COPY = "Planning paused. Your earlier answers are saved. Say continue planning when you want to pick this up again.";
+const CONNECTED_COPY = "Threads and LinkedIn Personal are the connected destinations I can check.";
+const DIRECTION_QUESTION = "What voice should this take?";
 const publishingPreference = {
   currentMode: "always_draft",
   effectiveMode: "always_draft",
@@ -118,14 +121,24 @@ async function mockInterviewApi(page: Page) {
     }
     if (path === `/orchestration/conversations/${CONV_ID}/messages/stream` && method === "POST") {
       const body = route.request().postDataJSON() as { message: string };
-      const result = turn(
-        body.message,
-        `Your plan is ready: [Review plan](/app/plans/${PLAN_ID}). You can comment on the document and approve its direction.`,
-      );
+      const text = body.message.trim().toLowerCase();
+      let assistant = `Your plan is ready: [Review plan](/app/plans/${PLAN_ID}). You can comment on the document and approve its direction.`;
+      let step: "clarifying_intent" | "planning" = "planning";
+      if (text === "pause planning") {
+        assistant = PAUSE_COPY;
+        step = "clarifying_intent";
+      } else if (text === "which social accounts are connected?") {
+        assistant = CONNECTED_COPY;
+        step = "clarifying_intent";
+      } else if (text === "continue planning") {
+        assistant = DIRECTION_QUESTION;
+        step = "clarifying_intent";
+      }
+      const result = turn(body.message, assistant);
       return ndjson(route, [
         { type: "turn_started", sequence: 1 },
-        { type: "step_started", sequence: 2, step: "planning" },
-        { type: "step_completed", sequence: 3, step: "planning" },
+        { type: "step_started", sequence: 2, step },
+        { type: "step_completed", sequence: 3, step },
         { type: "turn_completed", sequence: 4, result },
       ]);
     }
@@ -189,3 +202,26 @@ for (const width of [360, 390, 768, 1024, 1440]) {
     await page.screenshot({ path: `test-results/chat-plan-${width}.png`, fullPage: true });
   });
 }
+
+test("pauses an interview, keeps unrelated chat off the plan, then resumes", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await mockInterviewApi(page);
+  await page.goto("/app/workspace");
+  await expect(page.getByRole("heading", { name: /Welcome back/ })).toBeVisible();
+  await page.getByLabel("Message Sochestral").fill("Plan the next 2 weeks");
+  await page.getByRole("button", { name: "Generate" }).click();
+  await expect(page.getByText("What should this campaign achieve?")).toBeVisible();
+  await page.getByLabel("Message Sochestral").fill("pause planning");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect(page.getByText(PAUSE_COPY)).toBeVisible();
+  await expect(page.getByRole("link", { name: "Review plan" })).toHaveCount(0);
+  await page.getByLabel("Message Sochestral").fill("Which social accounts are connected?");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect(page.getByText(CONNECTED_COPY)).toBeVisible();
+  await expect(page.getByRole("link", { name: "Review plan" })).toHaveCount(0);
+  await page.getByLabel("Message Sochestral").fill("continue planning");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect(page.getByText(DIRECTION_QUESTION)).toBeVisible();
+  await expect(page.getByRole("link", { name: "Review plan" })).toHaveCount(0);
+  await page.screenshot({ path: "test-results/chat-plan-pause-resume.png", fullPage: true });
+});
