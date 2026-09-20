@@ -238,7 +238,7 @@ Relative size is guidance. Do the steps in order unless a later step is marked *
 
 ### L3 — Chat to plan viewer, browser proof
 
-**Status:** Done 20 September 2026 on `cursor/v2-next-9bc5`. Playwright fixture, no live model. Pause/resume is code-owned.  
+**Status:** Done 20 September 2026 on `cursor/v2-next-9bc5`. Playwright fixture, no live model. Pause/resume is code-owned and browser-proven.  
 **Gold:** P05.4–5, A12 plan viewer, P17 responsive.
 
 **Build:**

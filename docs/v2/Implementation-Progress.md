@@ -181,12 +181,12 @@ Fake provider only. No live Thesean, DeepSeek, or SocialMCP. Next: L3 chat to pl
 
 20 September 2026 on `cursor/v2-next-9bc5`. Intercepted API only. No live model.
 
-Pause/cancel wording (`pause planning`, `cancel planning`, `never mind`) is code-owned and stops interview capture. `continue planning` or a new plan ask in the same thread resumes saved answers. Chat markdown routes `/app/plans/:id` in-app. Playwright: workspace composer → interview → review link → reload → comment → submit batch → direction approve at 360, 390, 768, 1024, and 1440. Existing `e2e/plans.spec.ts` stayed green.
+Pause/cancel wording (`pause planning`, `cancel planning`, `never mind`) is code-owned and stops interview capture. `continue planning` or a new plan ask in the same thread resumes saved answers. Chat markdown routes `/app/plans/:id` in-app. Playwright: workspace composer → interview → review link → reload → comment → submit batch → direction approve at 360, 390, 768, 1024, and 1440. Pause → unrelated chat → resume is browser-proven at 1440. Existing `e2e/plans.spec.ts` stayed green.
 
 Verification:
 
 - Orchestration `plan-interview.test.ts`: 12 passing (includes pause/resume and unrelated chat after cancel).
 - Web `message-markdown.test.tsx`: 4 passing.
-- Playwright `e2e/chat-plan.spec.ts`: 5 passing. `e2e/plans.spec.ts`: 5 passing.
+- Playwright `e2e/chat-plan.spec.ts`: 6 passing (five widths plus pause/resume). `e2e/plans.spec.ts`: 5 passing.
 
 Next: L4 direction approval is only direction.
