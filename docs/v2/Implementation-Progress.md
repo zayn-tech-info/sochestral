@@ -2,7 +2,7 @@
 
 Started 10 September 2026. Status: in progress. This is a completion record, not a release claim.
 
-**Execution order from 20 September 2026:** follow [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md). Current user-facing step is the **post board** (Review / Schedule posts). This progress log remains the dated evidence record.
+**Execution order from 20 September 2026:** follow [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md). L1–L7 are done. Current step is **L8** (receipts). This progress log remains the dated evidence record.
 
 ## Authority and baseline
 
@@ -34,7 +34,7 @@ Current verification evidence:
 
 ## Remaining work
 
-The ordered steps are L1–L18 in [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md). L1–L5 are done. Next user-facing work is the post board plus Review / Schedule posts (L6/L7 combined for the user). Summary of what those steps cover:
+The ordered steps are L1–L18 in [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md). L1–L7 are done. Next is L8 receipts. Summary of remaining steps:
 
 Phase 0: finish cross repository contract and fault harness coverage, isolated full test baselines, browser calendar check and delivery CI gate.
 
@@ -257,3 +257,19 @@ Verification (pinned `TEST_DATABASE_URL=postgresql://sochestral:sochestral@127.0
 - Typecheck: database, api, orchestration, web.
 
 Fake provider only. Next: post board (user-facing posts). Do not lead with Approve plan direction or Create content.
+
+## Post board — Review and Schedule posts (21 September 2026)
+
+21 September 2026 on `cursor/post-board-ux-9bc5`. Pinned local `sochestral` and `sochestral_test` at 127.0.0.1:5433. Applied `0027_post_board` there only. No production Neon migrate. No live SocialMCP. No `publish_now`.
+
+After `savePlanInterview` writes a versioned plan, the product auto-approves internal direction and enqueues captions when the calendar has items. Chat copy is “Open the post board.” `/app/plans/:id` defaults to post cards. Unsent `board` or `post` comments make the primary CTA Review; otherwise Schedule posts. Optional “View how this was planned.” Review batches use `kind=content` and `save_content_review` to rewrite captions in place. Schedule posts is one POST with `confirm: true`: timezone confirmed, owned connected accounts, future local times, excluded rows omitted, blocked non-excluded rows 422 `SCHEDULE_NOT_READY` with `itemIds`, then SocialMCP `schedule_post` per destination.
+
+Verification (pinned `TEST_DATABASE_URL=postgresql://sochestral:sochestral@127.0.0.1:5433/sochestral_test`, `DATABASE_URL` on local `sochestral`, `NODE_ENV=test`, `CORS_ORIGIN` unset):
+
+- Database `content.test.ts` + `plan-interview.test.ts`: 13 passing (auto-enqueue on calendar, content review revisions).
+- Orchestration `plan-interview.test.ts` + `plan-revision.test.ts` + `board-schedule.test.ts`: 23 passing (board chat copy, content review tool, fake MCP receipt, blocked sibling 422, no campaign jobs).
+- API `plan-routes.test.ts`: 8 passing (board comment, timezone 422, confirm omitted 422, ready row scheduled).
+- Web `plan-viewer.test.tsx` + `message-markdown.test.tsx`: 11 passing (Review vs Schedule posts, poll while writing, no Approve plan direction).
+- Typecheck: database, api, orchestration, web.
+
+Fake MCP only. Next: L8 receipts. Do not treat Schedule posts as publish now.

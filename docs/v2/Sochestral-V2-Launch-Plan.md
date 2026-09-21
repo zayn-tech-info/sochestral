@@ -10,8 +10,8 @@
 
 | Field | Value |
 | --- | --- |
-| Current step | **Post board** — Review comments and **Schedule posts** (user-facing P05.4–8). Internal strategy plan stays optional. |
-| Last completed | **L5** (21 Sep 2026): durable captions per calendar item. Direction approval and Create content are no longer the default user path. |
+| Current step | **L8** — Product operations plus SocialMCP receipts. |
+| Last completed | **Post board** (21 Sep 2026): auto captions after interview, Review / Schedule posts on `/app/plans/:id`, fake-MCP queue writes. Internal strategy plan stays optional. |
 | Do not start | Billing, WhatsApp, live publish, a third visual system, replacing Thesean |
 | Stop if | A later step would invent a deferred commercial policy, publish live, migrate production Neon, treat interview wording as schedule permission, or lead with the strategy document instead of posts |
 
@@ -295,13 +295,13 @@ Relative size is guidance. Do the steps in order unless a later step is marked *
 
 **Done when:** One plan can produce at least one persisted caption revision visible in UI or API, with no SocialMCP traffic.
 
-**Next:** Post board (user-facing Review / Schedule posts). L6/L7 are not a second strategy approval or a separate confirm wizard.
+**Next:** L6 and L7 shipped as the post board (below).
 
 ---
 
 ### L6 — Content review on the post board (user-facing posts)
 
-**Status:** In progress with the post board (replaces a separate content-approval wizard). Strategy comment/approve remains an internal/optional path.  
+**Status:** Done (21 September 2026) on `cursor/post-board-ux-9bc5`. Strategy comment/approve remains an internal/optional path.  
 **Gold:** P05.4–7 as **user-facing posts**, A04 Phase 3 items 10–12, A12 board not strategy chrome.
 
 **Build:**
@@ -316,13 +316,13 @@ Relative size is guidance. Do the steps in order unless a later step is marked *
 
 **Done when:** G5 is the board Review path, enforced server side.
 
-**Next:** L7 as on-board Schedule posts, not a second wizard.
+**Next:** L7 (shipped with this board).
 
 ---
 
 ### L7 — Schedule posts (on-board confirm)
 
-**Status:** In progress with the post board. Replaces L7 as a separate confirm sheet.  
+**Status:** Done (21 September 2026) on `cursor/post-board-ux-9bc5`. Confirm lives on the board, not a second sheet.  
 **Gold:** P05.8, A04 Phase 1 item 6, Phase 2 items 3–4, Phase 3 item 11, A14, Execution Contract.
 
 **Build:**
