@@ -24,8 +24,9 @@ export async function processOnePlanRevision(db: Database["db"], input: { provid
     if (batch.kind === "content") {
       const content = await loadContentForVersion(db, plan.id, batch.version);
       const { context } = await assembleGenerationContext(db, { userId: plan.userId, conversationId: plan.conversationId, role: "plan_revision", parentId: batch.id });
+      const maxTokens = Math.max(input.maxTokens, 8192, Math.min(16_384, content.contentItems.length * 500));
       const completion = await withUsageContext({ db, userId: plan.userId, parentId: batch.id, role: "plan_revision" }, () => input.provider.complete({
-        model: input.model, maxTokens: input.maxTokens, system: `${contentSystem}\n${generationContextNote(context.payload)}`,
+        model: input.model, maxTokens, system: `${contentSystem}\n${generationContextNote(context.payload)}`,
         messages: [{ role: "user", content: [{ type: "text", text: JSON.stringify({
           posts: content.contentItems.map(item => ({ itemId: item.id, caption: item.revision.caption, destinations: item.revision.destinations, format: item.revision.format })),
           submittedComments: comments.map(({ id, scope, blockId, quote, body }) => ({ id, scope, blockId, quote, body })),
@@ -46,7 +47,7 @@ export async function processOnePlanRevision(db: Database["db"], input: { provid
     }
     const { context } = await assembleGenerationContext(db, { userId: plan.userId, conversationId: plan.conversationId, role: "plan_revision", parentId: batch.id });
     const completion = await withUsageContext({ db, userId: plan.userId, parentId: batch.id, role: "plan_revision" }, () => input.provider.complete({
-      model: input.model, maxTokens: input.maxTokens, system: `${planSystem}\n${generationContextNote(context.payload)}`,
+      model: input.model, maxTokens: Math.max(input.maxTokens, 8192), system: `${planSystem}\n${generationContextNote(context.payload)}`,
       messages: [{ role: "user", content: [{ type: "text", text: JSON.stringify({ document: job.version.document, submittedComments: comments.map(({ id, blockId, quote, quoteContext, body }) => ({ id, blockId, quote, quoteContext, body })) }) }] }],
       tools: [{ name: "save_plan_revision", description: "Return the complete revised plan and IDs of feedback handled.", inputSchema: z.toJSONSchema(planResultSchema) as Record<string, unknown> }],
       toolChoice: { type: "tool", name: "save_plan_revision" }, thinking: { enabled: false, budgetTokens: 0 },

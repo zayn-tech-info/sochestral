@@ -44,6 +44,7 @@ describe("durable content worker", () => {
     const complete = vi.fn(async (input: Parameters<ModelProvider["complete"]>[0]) => {
       expect(input.tools?.[0]?.name).toBe("save_content_set");
       expect(input.system).toContain("Brand context data follows as JSON");
+      expect(input.maxTokens).toBeGreaterThanOrEqual(8192);
       return completion();
     });
     expect(await run({ complete })).toBe("applied");
