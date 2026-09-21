@@ -120,7 +120,24 @@ describe("post board", () => {
     vi.mocked(schedulePlanPosts).mockRejectedValue(new ApiError(422, "SCHEDULE_NOT_READY", {}));
     await userEvent.click(screen.getByRole("button", { name: "Schedule posts" }));
     await waitFor(() => expect(schedulePlanPosts).toHaveBeenCalled());
-    expect(await screen.findByRole("alert")).toHaveTextContent("A post is still blocked");
+    expect(await screen.findByRole("alert")).toHaveTextContent("No post is ready to schedule yet.");
     expect(screen.getByLabelText("General comment")).toHaveValue("Keep this");
+  });
+
+  it("explains a missing timezone without calling schedule", async () => {
+    vi.mocked(getPlan).mockResolvedValue({ ...structuredClone(detail), board: { timezone: null, timezoneConfirmed: false } });
+    render(<PlanViewer planId="plan_1" />);
+    await screen.findByText("A shop-floor caption for builders.");
+    expect(screen.getByText(/Confirm your timezone in settings/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Schedule posts" })).toBeDisabled();
+    expect(schedulePlanPosts).not.toHaveBeenCalled();
+  });
+
+  it("shows the server code when an action fails for an unknown reason", async () => {
+    render(<PlanViewer planId="plan_1" />);
+    await screen.findByText("A shop-floor caption for builders.");
+    vi.mocked(schedulePlanPosts).mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", {}));
+    await userEvent.click(screen.getByRole("button", { name: "Schedule posts" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("INTERNAL_ERROR");
   });
 });

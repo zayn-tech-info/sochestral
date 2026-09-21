@@ -86,16 +86,20 @@ describe("board schedule posts", () => {
     expect(await database.db.select().from(campaignJobs)).toHaveLength(0);
   });
 
-  it("refuses a blocked row that was not excluded and does not call MCP", async () => {
+  it("queues the ready row and leaves a blocked sibling on the board", async () => {
     const gateway = mcp();
-    await expect(confirmBoardSchedule(database.db, {
+    const result = await confirmBoardSchedule(database.db, {
       userId, planId, version: 1, confirm: true, connectors, mcp: gateway, now: new Date("2030-01-01T00:00:00Z"),
       rows: [
         { itemId: textItemId, localTime: "2031-01-02T09:00", accounts: { threads: "acct_threads" } },
         { itemId: imageItemId, localTime: "2031-01-02T10:00", accounts: { instagram: "acct_ig" } },
       ],
-    })).rejects.toMatchObject({ code: "SCHEDULE_NOT_READY", details: { itemIds: [imageItemId] } });
-    expect(gateway.callTool).not.toHaveBeenCalled();
+    });
+    expect(result.skippedItemIds).toEqual([imageItemId]);
+    expect(result.operations).toHaveLength(1);
+    expect(gateway.callTool).toHaveBeenCalledTimes(1);
+    const loaded = await getPlan(database.db, userId, planId);
+    expect(loaded.contentItems.find(item => item.id === imageItemId)?.excludedAt).toBeNull();
   });
 
   it("retries a needs_attention row without inserting a duplicate operation", async () => {

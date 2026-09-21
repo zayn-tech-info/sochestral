@@ -3,21 +3,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "./app-shell";
-import { ApiError, apiRequest, type ConnectorSummary } from "@/lib/product-api";
+import { PlatformAccountPicker } from "./platform-account-picker";
+import { ScheduleTimeCollapse } from "./schedule-time-collapse";
+import { InstagramPreview, LinkedInPreview, ThreadsPreview } from "@/components/preview";
+import { ApiError, apiRequest, type CalendarAccount, type ConnectorPlatform, type ConnectorSummary } from "@/lib/product-api";
 import {
   excludePlanItem, commentOnPlan, createPlanContent, getPlan, listPlans, schedulePlanPosts, submitPlanComments,
   type ContentItem, type PlanComment, type PlanDetail, type PlanItem, type PlanSummary,
 } from "@/lib/plans-api";
 
+const scheduleReasons: Record<string, string> = {
+  STALE_VERSION: "This board changed. Refresh before continuing.",
+  CONTENT_NOT_READY: "Wait for captions or review to finish before continuing.",
+  TIMEZONE_NOT_CONFIRMED: "Confirm your timezone in settings before scheduling.",
+  ACCOUNT_REQUIRED: "Connect the account for each destination before scheduling.",
+  SCHEDULE_NOT_READY: "No post is ready to schedule yet.",
+  INVALID_SCHEDULE: "Each included post needs a future local time and a connected account.",
+  INVALID_DOCUMENT: "This board could not be saved. Refresh and try again.",
+  INVALID_CONTENT: "A caption could not be saved. Refresh and try again.",
+  INTERNAL_ERROR: "Could not finish this action. The server reported INTERNAL_ERROR.",
+};
+
 function message(error: unknown) {
   if (!(error instanceof ApiError)) return "Could not finish this action. Please try again.";
-  if (error.code === "STALE_VERSION") return "This board changed. Refresh before continuing.";
-  if (error.code === "CONTENT_NOT_READY") return "Wait for captions or review to finish before continuing.";
-  if (error.code === "TIMEZONE_NOT_CONFIRMED") return "Confirm your timezone in settings before scheduling.";
-  if (error.code === "ACCOUNT_REQUIRED") return "Connect the account for each destination before scheduling.";
-  if (error.code === "SCHEDULE_NOT_READY") return "A post is still blocked. Exclude it or fix it before scheduling.";
-  if (error.code === "INVALID_SCHEDULE") return "Each included post needs a future local time and a connected account.";
-  return "Could not finish this action. Please try again.";
+  return scheduleReasons[error.code] ?? `Could not finish this action (${error.code}). Please try again.`;
 }
 
 function calendarItems(detail: PlanDetail): PlanItem[] {
@@ -30,6 +39,17 @@ function calendarItems(detail: PlanDetail): PlanItem[] {
 
 function proposedLocalTime(value: string | null): string {
   return value && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value) ? value : "";
+}
+
+function PostPreview({ platform, caption, account }: { platform: ConnectorPlatform; caption: string; account: { id: string; username: string | null; displayName: string | null } | null }) {
+  const props = {
+    platform, body: caption || " ", mediaItems: [], mediaPreviews: {},
+    account: account ? { ...account, state: "connected" as const } : null,
+    locked: true, live: false, onBodyChange: () => undefined, avatarUrl: null,
+  };
+  if (platform === "linkedin_personal") return <LinkedInPreview {...props} />;
+  if (platform === "instagram") return <InstagramPreview {...props} />;
+  return <ThreadsPreview {...props} />;
 }
 
 function blockLabel(item: ContentItem, calendar: PlanItem | undefined, timezoneConfirmed: boolean, accounts: ConnectorSummary[] | null) {
@@ -69,7 +89,7 @@ export function PlanViewer({ planId }: { planId: string }) {
   const [showPlan, setShowPlan] = useState(false);
   const [accounts, setAccounts] = useState<ConnectorSummary[] | null>(null);
   const [times, setTimes] = useState<Record<string, string>>({});
-  const [chosen, setChosen] = useState<Record<string, Record<string, string>>>({});
+  const [chosen, setChosen] = useState<Record<string, string[]>>({});
   const input = useRef<HTMLTextAreaElement>(null);
   const load = useCallback(async () => { setDetail(await getPlan(planId)); }, [planId]);
   useEffect(() => { void load().catch(() => setError("Could not load this board.")); }, [load]);
@@ -112,26 +132,36 @@ export function PlanViewer({ planId }: { planId: string }) {
   const pending = detail?.comments.filter(item => item.status === "pending" && (item.scope === "board" || item.scope === "post")) ?? [];
   const boardComments = detail?.comments.filter(item => item.scope === "board" || item.scope === "post") ?? [];
   const timezoneConfirmed = Boolean(detail?.board?.timezoneConfirmed);
-  function accountOptions(platform: string) {
-    return accounts?.find(connector => connector.platform === platform)?.accounts.filter(account => account.state === "connected") ?? [];
+  const calendarAccounts: CalendarAccount[] = (accounts ?? []).flatMap(connector => connector.accounts.filter(account => account.state === "connected").map(account => ({
+    id: account.id, platform: connector.platform, label: account.displayName || account.username || account.id, username: account.username, avatarHint: account.avatarUrl ?? null,
+  })));
+  function selectedIds(item: ContentItem): string[] {
+    if (Object.prototype.hasOwnProperty.call(chosen, item.id)) return chosen[item.id] ?? [];
+    return item.revision.destinations.flatMap(platform => {
+      const match = calendarAccounts.find(account => account.platform === platform);
+      return match ? [match.id] : [];
+    });
   }
-  function pickAccount(itemId: string, platform: string, accountId: string) {
-    setChosen(current => ({ ...current, [itemId]: { ...current[itemId], [platform]: accountId } }));
-  }
-  function selectedAccount(item: ContentItem, platform: string) {
-    const picked = chosen[item.id]?.[platform];
-    if (picked) return picked;
-    const options = accountOptions(platform);
-    return options.length === 1 ? options[0]!.id : "";
+  function accountsFor(item: ContentItem) {
+    const ids = new Set(selectedIds(item));
+    return Object.fromEntries(calendarAccounts.filter(account => ids.has(account.id)).map(account => [account.platform, account.id]));
   }
   function scheduleRows() {
     return (detail?.contentItems ?? []).map(item => ({
       itemId: item.id,
       excluded: Boolean(item.excludedAt),
       localTime: times[item.id] || undefined,
-      accounts: Object.fromEntries(item.revision.destinations.map(platform => [platform, selectedAccount(item, platform)]).filter(([, id]) => id)),
+      accounts: accountsFor(item),
     }));
   }
+  const readyItems = (detail?.contentItems ?? []).filter(item => !item.excludedAt && item.status === "ready");
+  const scheduleBlocker = !timezoneConfirmed
+    ? "Confirm your timezone in settings before scheduling."
+    : !readyItems.length
+      ? "No post is ready to schedule yet."
+      : readyItems.some(item => !times[item.id] || !Object.keys(accountsFor(item)).length)
+        ? "Each included post needs a future local time and a connected account."
+        : null;
   return <AppShell><div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6">
     <Link href="/app/plans" className="text-sm underline">All posts</Link>
     {error && <p role="alert" className="my-4 rounded-lg border border-destructive p-3">{error}</p>}
@@ -145,12 +175,14 @@ export function PlanViewer({ planId }: { planId: string }) {
         <div className="flex flex-wrap gap-2">
           <button className="min-h-11 rounded-lg border px-4" onClick={() => void action(() => load(), "Board refreshed.")} disabled={busy}>Refresh</button>
           {pending.length ? <button className="min-h-11 rounded-lg bg-primary px-4 text-primary-foreground disabled:opacity-50" disabled={busy || historical || revisionActive || contentActive || !detail.contentItems?.length} onClick={() => void action(() => submitPlanComments(planId, detail.plan.currentVersion, pending.map(item => item.id)), "Comments sent for review.")}>Review</button>
-            : <button className="min-h-11 rounded-lg bg-primary px-4 text-primary-foreground disabled:opacity-50" disabled={busy || historical || revisionActive || contentActive || !(detail.contentItems?.some(item => !item.excludedAt))} onClick={() => void action(() => schedulePlanPosts(planId, detail.plan.currentVersion, scheduleRows()), "Posts queued for the scheduled times.")}>Schedule posts</button>}
+            : <button className="min-h-11 rounded-lg bg-primary px-4 text-primary-foreground disabled:opacity-50" disabled={busy || historical || revisionActive || contentActive || Boolean(scheduleBlocker)} onClick={() => void action(() => schedulePlanPosts(planId, detail.plan.currentVersion, scheduleRows()), readyItems.length < (detail.contentItems ?? []).filter(item => !item.excludedAt).length ? "Ready posts queued. Blocked posts stayed on the board." : "Posts queued for the scheduled times.")}>Schedule posts</button>}
         </div>
       </header>
+      {!historical && !timezoneConfirmed && <p className="mb-5 rounded-lg border p-3 text-sm" role="status">Confirm your timezone in settings before scheduling. <Link className="underline" href="/app/settings/personal">Open settings</Link></p>}
+      {!historical && timezoneConfirmed && scheduleBlocker && !pending.length && <p className="mb-5 rounded-lg border p-3 text-sm" role="status">{scheduleBlocker}</p>}
       {detail.contentJob && (detail.contentJob.status === "submitted" || detail.contentJob.status === "running") && <p className="mb-5 rounded-lg border p-3 text-sm" role="status">{detail.contentJob.status === "running" ? "Writing these posts…" : "Writing these posts…"}</p>}
-      {detail.contentJob?.status === "needs_attention" && !detail.contentItems?.length && <div className="mb-5 rounded-lg border p-3 text-sm" role="status">
-        <p>Could not write these posts. Try again.</p>
+      {!contentActive && calendarItems(detail).some(item => !(detail.contentItems ?? []).some(row => row.calendarItemId === item.id)) && <div className="mb-5 rounded-lg border p-3 text-sm" role="status">
+        <p>{detail.contentItems?.length ? "Some posts are not written yet." : "Could not write these posts. Try again."}</p>
         {!historical && <button className="mt-3 min-h-11 rounded-lg border px-4" disabled={busy} onClick={() => void action(() => createPlanContent(planId, detail.plan.currentVersion), "Trying to write these posts again.")}>Try again</button>}
       </div>}
       {detail.batches?.filter(batch => batch.kind === "content" && ["submitted", "running", "needs_attention"].includes(batch.status)).map(batch => <p key={batch.id} className="mb-5 rounded-lg border p-3 text-sm" role="status">
@@ -159,35 +191,31 @@ export function PlanViewer({ planId }: { planId: string }) {
       <div className="grid min-w-0 gap-8 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="min-w-0 space-y-4">
           {!detail.contentItems?.length && !contentActive && detail.contentJob?.status !== "needs_attention" && <p className="rounded-xl border p-5 text-muted-foreground">Posts will show here as soon as captions are written.</p>}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {calendarItems(detail).filter(item => !(detail.contentItems ?? []).some(row => row.calendarItemId === item.id)).map(item => <article key={item.id} className="rounded-2xl border p-5" aria-label={item.angle}>
+            <h2 className="text-xl font-semibold">{item.angle}</h2>
+            <p className="mt-2 text-sm text-muted-foreground">Not written yet</p>
+          </article>)}
           {(detail.contentItems ?? []).map(item => {
             const meta = calendar.get(item.calendarItemId);
             const excluded = Boolean(item.excludedAt);
+            const picked = calendarAccounts.filter(account => selectedIds(item).includes(account.id));
+            const previewAccount = picked[0] ? { id: picked[0].id, username: picked[0].username, displayName: picked[0].label } : null;
+            const previewPlatform = (picked[0]?.platform ?? item.revision.destinations[0] ?? "threads") as ConnectorPlatform;
             return <article key={item.id} className={`rounded-2xl border p-5 ${excluded ? "opacity-60" : ""}`} aria-label={meta?.angle ?? item.calendarItemId}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-semibold">{meta?.angle ?? item.calendarItemId}</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">{item.revision.destinations.join(", ")} · {item.revision.format} · {excluded ? "Excluded" : blockLabel(item, meta, timezoneConfirmed, accounts)}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{item.revision.format} · {excluded ? "Excluded" : blockLabel(item, meta, timezoneConfirmed, accounts)}</p>
                 </div>
                 {!historical && <button type="button" className="min-h-11 rounded-md border px-3 text-sm" disabled={busy} onClick={() => void action(() => excludePlanItem(planId, item.id, detail.plan.currentVersion, !excluded), excluded ? "Post included again." : "Post excluded from Schedule posts.")}>{excluded ? "Include" : "Exclude"}</button>}
               </div>
-              <p className="mt-4 whitespace-pre-wrap break-words leading-7">{item.revision.caption}</p>
-              {!!item.revision.assetNeeds.length && <p className="mt-3 text-sm text-muted-foreground">Media needed: {item.revision.assetNeeds.join(", ")}</p>}
-              <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-                {item.revision.destinations.map(platform => {
-                  const options = accountOptions(platform);
-                  return <div key={platform}>
-                    <dt className="text-muted-foreground">{platform}</dt>
-                    <dd>{historical ? selectedAccount(item, platform) || "Account" : options.length ? <select className="mt-1 min-h-11 w-full rounded-md border bg-background px-2" aria-label={`Account for ${platform}`} value={selectedAccount(item, platform)} onChange={event => pickAccount(item.id, platform, event.target.value)} disabled={busy || excluded}>
-                      <option value="">Choose account</option>
-                      {options.map(account => <option key={account.id} value={account.id}>{account.displayName || account.username || account.id}</option>)}
-                    </select> : <Link className="underline" href="/app/settings/connectors">Connect {platform}</Link>}</dd>
-                  </div>;
-                })}
-                <div>
-                  <dt className="text-muted-foreground">Local time</dt>
-                  <dd>{historical ? times[item.id] || meta?.proposedTime || "To be confirmed" : <input className="mt-1 min-h-11 w-full rounded-md border bg-background px-2" aria-label={`Local time for ${meta?.angle ?? "post"}`} type="datetime-local" value={times[item.id] ?? ""} onChange={event => setTimes(current => ({ ...current, [item.id]: event.target.value }))} disabled={busy || excluded} />}</dd>
-                </div>
-              </dl>
+              <div className="mt-4"><PostPreview platform={previewPlatform} caption={item.revision.caption} account={previewAccount} /></div>
+              {item.status === "blocked" && !!item.revision.assetNeeds.length && <p className="mt-3 text-sm text-muted-foreground">Media needed: {item.revision.assetNeeds.join(", ")}</p>}
+              {!historical && <div className="mt-4 space-y-3">
+                <PlatformAccountPicker accounts={calendarAccounts} selectedAccountIds={selectedIds(item)} onChange={ids => setChosen(current => ({ ...current, [item.id]: ids }))} mode="target" aria-label={`Platforms for ${meta?.angle ?? "post"}`} />
+                <ScheduleTimeCollapse accountLabel={previewAccount?.displayName || meta?.angle || "this post"} value={times[item.id] ?? ""} onChange={value => setTimes(current => ({ ...current, [item.id]: value }))} disabled={busy || excluded} />
+              </div>}
               {!historical && <div className="mt-4 space-y-2">
                 {postComment?.id === item.id ? <form className="space-y-2" onSubmit={event => { event.preventDefault(); if (!postComment.body.trim()) return;
                   void action(async () => { await commentOnPlan(planId, { version: detail.plan.currentVersion, blockId: item.id, body: postComment.body, scope: "post" }); setPostComment(null); }, "Comment saved."); }}>
@@ -201,6 +229,7 @@ export function PlanViewer({ planId }: { planId: string }) {
               </div>}
             </article>;
           })}
+          </div>
           {!historical && <button type="button" className="min-h-11 rounded-lg border px-4" disabled={busy} onClick={() => { setComment(value => value || "Add a post: "); input.current?.focus(); }}>Add post</button>}
           <button type="button" className="block text-sm underline" onClick={() => setShowPlan(open => !open)}>{showPlan ? "Hide how this was planned" : "View how this was planned"}</button>
           {showPlan && <article className="space-y-6 rounded-2xl border p-5" aria-label="Internal plan">
