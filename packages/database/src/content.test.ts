@@ -89,6 +89,9 @@ describe("durable content generation", () => {
     expect(await database.db.select().from(contentItems)).toHaveLength(0);
     expect(await database.db.select().from(contentRevisions)).toHaveLength(0);
     expect((await getPlan(database.db, userId, planId)).contentItems.filter(item => item.status === "ready")).toHaveLength(0);
+    const retry = await enqueueCreateContent(database.db, { userId, planId, version: 1 });
+    expect(retry.contentJob).toMatchObject({ status: "submitted", errorCode: null, id: claimed!.job.id });
+    expect(await claimContentJob(database.db)).toMatchObject({ job: { id: claimed!.job.id, status: "running" } });
   });
 
   it("marks unverified placeholders on an otherwise ready text item", () => {

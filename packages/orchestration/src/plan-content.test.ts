@@ -63,6 +63,9 @@ describe("durable content worker", () => {
     expect(await database.db.select().from(contentItems)).toHaveLength(0);
     expect((await getPlan(database.db, userId, planId)).contentJob).toMatchObject({ status: "needs_attention", errorCode: "CONTENT_FAILED" });
     expect((await getPlan(database.db, userId, planId)).contentItems.filter(item => item.status === "ready")).toHaveLength(0);
+    await enqueueCreateContent(database.db, { userId, planId, version: 1 });
+    expect(await run({ complete: async () => completion() })).toBe("applied");
+    expect((await getPlan(database.db, userId, planId)).contentItems).toHaveLength(2);
   });
 
   it("rejects truncated captions without writing rows", async () => {
