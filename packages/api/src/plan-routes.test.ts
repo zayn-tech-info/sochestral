@@ -119,7 +119,7 @@ describe("plan API", () => {
     expect(await queued.json()).toMatchObject({ contentJob: { planVersion: 1, status: "submitted" }, contentItems: [] });
     const replay = await post(`/plans/${planId}/create-content`, { version: 1, confirm: true });
     expect(await replay.json()).toMatchObject({ contentJob: { status: "submitted" } });
-    const complete = vi.fn(async () => ({
+    const complete = vi.fn(async (_input: { tools?: Array<{ name: string }> }) => ({
       content: null, thinking: null, toolCalls: [{ id: "call_1", name: "save_content_set", input: { items: [
         { calendarItemId: "item_text", caption: "A shop-floor caption for builders." },
         { calendarItemId: "item_image", caption: "Show the clamp on the bench." },

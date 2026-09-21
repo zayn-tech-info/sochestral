@@ -10,8 +10,8 @@
 
 | Field | Value |
 | --- | --- |
-| Current step | **L5** — durable finished content |
-| Last completed | **L4** (20 Sep 2026): direction approval is only direction; create-content stub refuses until L5 |
+| Current step | **L6** — content review and content approval |
+| Last completed | **L5** (21 Sep 2026): durable captions per calendar item on a direction-approved plan version |
 | Do not start | Schedule confirmation, billing, WhatsApp, Phase 8 expansion |
 | Stop if | A later step would invent a deferred commercial policy, publish live, migrate production Neon, or treat direction approval as schedule permission |
 
@@ -277,7 +277,7 @@ Relative size is guidance. Do the steps in order unless a later step is marked *
 
 ### L5 — Durable finished content (first tracer)
 
-**Status:** Not started. This is the largest missing product core.  
+**Status:** Done (21 September 2026). Captions persist per calendar item after Create content. Content approval is L6.  
 **Gold:** A04 Phase 2 items 1–2, Phase 3 items 9–10, A05 content/revision/variant entities.
 
 **Build the thinnest vertical slice:**

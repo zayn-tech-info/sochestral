@@ -2,7 +2,7 @@
 
 Started 10 September 2026. Status: in progress. This is a completion record, not a release claim.
 
-**Execution order from 20 September 2026:** follow [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md) one step at a time. Current step in that file is L5 (durable finished content). This progress log remains the dated evidence record.
+**Execution order from 20 September 2026:** follow [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md) one step at a time. Current step in that file is L6 (content review and content approval). This progress log remains the dated evidence record.
 
 ## Authority and baseline
 
@@ -34,7 +34,7 @@ Current verification evidence:
 
 ## Remaining work
 
-The ordered steps are L1–L18 in [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md). L1–L4 are done. Do not start L6 while L5 is open. Summary of what those steps cover:
+The ordered steps are L1–L18 in [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md). L1–L5 are done. Do not start L7 while L6 is open. Summary of what those steps cover:
 
 Phase 0: finish cross repository contract and fault harness coverage, isolated full test baselines, browser calendar check and delivery CI gate.
 
@@ -228,3 +228,32 @@ Verification (pinned `TEST_DATABASE_URL=postgresql://sochestral:sochestral@127.0
 - Typecheck: database, api, orchestration.
 
 Fake provider only. Next: L5 durable finished content. Do not implement L5 in this commit.
+
+## L5 — Durable finished content (21 September 2026)
+
+21 September 2026 on `cursor/l5-durable-content-9bc5`. Pinned local `sochestral_test`. No production migrate. No live SocialMCP. Fly `release_command` will apply 0026 only on the next conscious product API deploy.
+
+`POST /plans/:id/create-content` with confirm enqueues one `content_generation_jobs` row for the current direction-approved version (`unique planId, planVersion`). Unapproved is 409 `DIRECTION_NOT_APPROVED`. Stale version is 409. Empty calendar is 422 `NO_CALENDAR_ITEMS`. Other user 404. Unauthenticated 401. A second POST returns the same job and does not start a second model run.
+
+The plan worker claims with skip-locked leases, snapshots generation context plus the approved `planVersions` document, and requires Thesean tool `save_content_set` with exactly one caption per calendar item id. Commit inserts `content_items` plus immutable revision 1, then marks the job `applied`. Truncation, invalid tools, or a crash before commit leave the job `needs_attention` with zero content rows. Image, carousel, video_script, or non-empty `assetNeeds` block that item (`missing_media`). Unverified placeholder markers block that item only. Text siblings can be `ready`. `campaignJobs` stays empty. No MCP client on this path.
+
+`GET /plans/:id` returns `contentJob` (claim token stripped) and `contentItems`. The viewer Create content action enqueues, polls submitted/running jobs, and lists read-only captions. Copy: captions still need content review before scheduling. Chat `create content` after a saved plan stays on the review link.
+
+### Schedule and publish entry audit
+
+| Entry | File | L5 finding |
+| --- | --- | --- |
+| Create content API | `packages/api/src/plan-routes.ts` | Enqueues a caption job. Does not call MCP or insert campaign jobs. |
+| Content worker | `packages/orchestration/src/plan-content.ts` | `save_content_set` only. No `schedule_post` or `publish_now`. |
+| Chat after a plan | `packages/orchestration/src/service.ts` `planningTurn` | Unchanged: create-content / schedule / publish-now wording stays on the review link. |
+| Viewer | `web/src/components/app/plan-viewer.tsx` | Read-only captions. No content approval and no schedule UI. |
+
+Verification (pinned `TEST_DATABASE_URL=postgresql://sochestral:sochestral@127.0.0.1:5433/sochestral_test`, `DATABASE_URL` on local `sochestral`, `NODE_ENV=test`, `CORS_ORIGIN` unset):
+
+- Database `content.test.ts` + `plans.test.ts`: 16 passing (authority, empty calendar, idempotent enqueue, blocked image sibling, crash leaves no ready rows).
+- API `plan-routes.test.ts`: 7 passing (including N calendar items to N revisions).
+- Orchestration `plan-content.test.ts` + interview create-content chat: 18 passing in the targeted rerun (`mcp.callTool` still unused after a plan).
+- Web `plan-viewer.test.tsx`: 7 passing (captions render; L4 refuse notice gone).
+- Typecheck: database, api, orchestration, web.
+
+Fake provider only. Next: L6 content review and content approval. Do not implement L6 in this commit.
