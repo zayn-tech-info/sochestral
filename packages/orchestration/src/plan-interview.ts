@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { assembleGenerationContext, generationContextNote, getPlanInterview, savePlanInterview,
+import { assembleGenerationContext, ensurePlanCaptions, generationContextNote, getPlanInterview, savePlanInterview,
   planInterviewStateSchema, planDocumentSchema, type Database, type PlanInterviewState } from "@sochestral/database";
 import type { ModelProvider, ModelCompletion } from "./model.js";
 import type { DeepSeekSearchClient, ResearchSource } from "./deepseek-search.js";
@@ -104,7 +104,10 @@ export async function runPlanInterview(db: Database["db"], input: {
 }): Promise<string> {
   return withUsageContext({ db, userId: input.userId, parentId: input.runId, role: "plan_interview" }, async () => {
     let saved = await getPlanInterview(db, input.userId, input.conversationId);
-    if (saved?.planId) return `Your plan is ready for review: [Open plan](/app/plans/${saved.planId}). Approve its direction there before creating content. Scheduling requires a separate review of content, accounts and dates.`;
+    if (saved?.planId) {
+      await ensurePlanCaptions(db, { userId: input.userId, planId: saved.planId }).catch(() => undefined);
+      return `Your posts are on the board: [Open the post board](/app/plans/${saved.planId}). Review captions there. Schedule posts on the board when they look right.`;
+    }
     const previous = saved?.state ?? initial;
     if (saved && previous.status !== "canceled" && isInterviewPause(input.message)) {
       const state: PlanInterviewState = { ...previous, status: "canceled", questions: [], useExistingContext: false };

@@ -18,6 +18,7 @@ import type { ResearchSource } from "./deepseek-search.js";
 import type { OrchestrationConfig } from "./config.js";
 import type { SocialMcpGateway } from "./mcp.js";
 import type { ModelCompletion, ModelProvider } from "./model.js";
+import { PublishingPreferenceService } from "./publishing.js";
 import { DefaultOrchestrationService } from "./service.js";
 import { isInterviewPause, isInterviewResume, runPlanInterview } from "./plan-interview.js";
 
@@ -170,6 +171,8 @@ describe("plan interview", () => {
       userId, conversationId, runId: "run_again", message: "looks good", provider: { complete }, model: "contract-model", maxTokens: 1500, search: null, searchModel: "search-model",
     });
     expect(replay).toContain(`/app/plans/${saved?.planId}`);
+    expect(replay).toContain("Open the post board");
+    expect(replay).not.toContain("Approve its direction");
     expect(complete.mock.calls.filter(call => call[0].toolChoice?.type === "tool" && call[0].toolChoice.name === "create_plan_document")).toHaveLength(1);
   });
 
@@ -410,7 +413,8 @@ describe("plan interview chat routing", () => {
       message: "looks good",
       requestId: "00000000-0000-4000-8000-00000000c003",
     });
-    expect(accepted.assistantMessage?.content).toContain(`/app/plans/${saved?.planId}`);
+    expect(accepted.assistantMessage?.content).toContain("Open the post board");
+    expect(accepted.assistantMessage?.content).not.toContain("Approve its direction");
     const goAhead = await service.addMessage(userId, first.conversation.id, {
       message: "go ahead",
       requestId: "00000000-0000-4000-8000-00000000c004",
@@ -418,6 +422,61 @@ describe("plan interview chat routing", () => {
     expect(goAhead.assistantMessage?.content).toContain(`/app/plans/${saved?.planId}`);
     expect(mcp.callTool).not.toHaveBeenCalled();
     expect(await database.db.select().from(campaignJobs)).toHaveLength(0);
+  });
+
+  it("keeps ordinary follow-up in chat after a saved plan", async () => {
+    const chat = new DefaultOrchestrationService(
+      database.db,
+      { ...config, theseanIntentModel: "gpt-intent" },
+      model,
+      mcp,
+      new PublishingPreferenceService(database.db),
+      undefined,
+      undefined,
+      model,
+    );
+    vi.mocked(model.complete).mockImplementation(async (input) => {
+      const name = input.toolChoice?.type === "tool" ? input.toolChoice.name : "";
+      if (name === "record_plan_clerk") {
+        return completion("record_plan_clerk", {
+          intent: "plan", startDate: null, timezone: null, cadence: {}, platforms: null, timeMode: null,
+          isGo: false, isIncomplete: false, isConversationMeta: false,
+        });
+      }
+      if (name === "create_plan_document") return completion("create_plan_document", { title: "Workshop plan", document: document() });
+      if (name === "record_plan_interview") return input.messages[0]?.content[0] && "text" in input.messages[0].content[0] && input.messages[0].content[0].text.includes("workshop") ? ready() : asking();
+      return { content: "What would you like to talk about?", thinking: null, toolCalls: [], inputTokens: 1, outputTokens: 1, attempts: 1 };
+    });
+    const first = await chat.createConversation(userId, {
+      message: PLAN_MESSAGE, requestId: "00000000-0000-4000-8000-00000000c091",
+    });
+    await chat.addMessage(userId, first.conversation.id, {
+      message: "Sell workshop tools with practical shop-floor tips",
+      requestId: "00000000-0000-4000-8000-00000000c092",
+    });
+    const hey = await chat.addMessage(userId, first.conversation.id, {
+      message: "Hey", requestId: "00000000-0000-4000-8000-00000000c093",
+    });
+    expect(hey.assistantMessage?.content).toContain("What would you like to talk about?");
+    expect(hey.assistantMessage?.content).not.toContain("Approve its direction");
+    expect(hey.assistantMessage?.content).not.toContain("Open the post board");
+    vi.mocked(model.complete).mockImplementation(async (input) => {
+      const name = input.toolChoice?.type === "tool" ? input.toolChoice.name : "";
+      if (name === "record_plan_clerk") {
+        return completion("record_plan_clerk", {
+          intent: "accept", startDate: null, timezone: null, cadence: {}, platforms: null, timeMode: null,
+          isGo: true, isIncomplete: false, isConversationMeta: false,
+        });
+      }
+      return { content: "We can talk about something else.", thinking: null, toolCalls: [], inputTokens: 1, outputTokens: 1, attempts: 1 };
+    });
+    const aside = await chat.addMessage(userId, first.conversation.id, {
+      message: "That's not what I want to talk about",
+      requestId: "00000000-0000-4000-8000-00000000c094",
+    });
+    expect(aside.assistantMessage?.content).toContain("We can talk about something else.");
+    expect(aside.assistantMessage?.content).not.toContain("Approve its direction");
+    expect(mcp.callTool).not.toHaveBeenCalled();
   });
 
   it("keeps create-content, schedule, and publish-now on review after a saved plan", async () => {

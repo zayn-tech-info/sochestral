@@ -289,7 +289,7 @@ export { generationContexts, generationContextUses } from "./schema.js";
 export { usageAttempts } from "./schema.js";
 
 export { planDocumentSchema, planAnchorText, planCalendarItems, type PlanDocument, type PlanCalendarItem } from "./plan-document.js";
-export { reattachPlanComment, claimPlanRevision, finishPlanRevisionFailure, recoverExpiredPlanRevisions, createPlan, getPlan, listPlans, addPlanComment, submitPlanComments, revisePlan, approvePlanDirection, PlanWorkflowError } from "./plans.js";
+export { reattachPlanComment, claimPlanRevision, finishPlanRevisionFailure, recoverExpiredPlanRevisions, createPlan, getPlan, listPlans, addPlanComment, submitPlanComments, revisePlan, approvePlanDirection, ensurePlanCaptions, PlanWorkflowError } from "./plans.js";
 export {
   enqueueCreateContent, claimContentJob, finishContentJobFailure, recoverExpiredContentJobs, applyContentSet, applyContentReview, setContentExcluded, loadContentForVersion, contentBlockState,
 } from "./content.js";
