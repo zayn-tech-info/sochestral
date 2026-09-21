@@ -22,6 +22,7 @@ import {
   type ConnectorService,
   type OrchestrationService,
   type ReviewService,
+  type SocialMcpGateway,
 } from "@sochestral/orchestration";
 import { registerConnectorRoutes } from "./connector-routes.js";
 import { registerOrchestrationRoutes } from "./orchestration-routes.js";
@@ -57,6 +58,7 @@ export function createApp(
   connectorService?: ConnectorService,
   reviewService?: ReviewService,
   calendarService?: CalendarService,
+  boardMcp?: SocialMcpGateway,
 ) {
   const app = new Hono<Env>();
   let resolvedOrchestration = orchestrationService;
@@ -210,7 +212,22 @@ export function createApp(
   registerMediaRoutes(app, db, getMediaService);
   registerImageRoutes(app, db, getImageService);
   registerCampaignRoutes(app, db);
-  registerPlanRoutes(app, db);
+  registerPlanRoutes(app, db, {
+    connectors: () => {
+      resolvedConnectors ??= createConnectorService();
+      return resolvedConnectors;
+    },
+    mcp: () => {
+      if (boardMcp) return boardMcp;
+      const url = process.env.SOCIALMCP_MCP_URL?.trim();
+      if (!url) throw new Error("SOCIALMCP_MCP_URL is required");
+      const timeout = Number(process.env.REVIEW_PUBLISH_TIMEOUT_MS ?? "30000");
+      return new StreamableHttpSocialMcpGateway(
+        url,
+        Number.isFinite(timeout) && timeout > 0 ? timeout : 30000,
+      );
+    },
+  });
   registerProfileRoutes(app, db);
   registerCalendarRoutes(app, db, () => {
     resolvedCalendar ??= createCalendarService(resolvedConnectors, undefined, {

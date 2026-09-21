@@ -7,19 +7,21 @@ export type PlanBlock =
   | { id: string; kind: "sources"; sources: Array<{ id: string; url: string; title: string; retrievedAt: string; summary: string; claim: string }> };
 export type PlanDocument = { schemaVersion: 1; sections: Array<{ id: string; type: string; title: string; blocks: PlanBlock[] }> };
 export type PlanSummary = { id: string; title: string; currentVersion: number; updatedAt: string };
-export type PlanComment = { id: string; version: number; blockId: string; quote: string | null; body: string; status: "pending" | "submitted" | "addressed" | "needs_reattachment" | "reattached"; reattachedFromId?: string | null; batchId: string | null };
-export type PlanRevisionBatch = { id: string; version: number; status: string; errorCode: string | null };
+export type PlanComment = { id: string; version: number; scope?: "plan" | "board" | "post"; blockId: string; quote: string | null; body: string; status: "pending" | "submitted" | "addressed" | "needs_reattachment" | "reattached"; reattachedFromId?: string | null; batchId: string | null };
+export type PlanRevisionBatch = { id: string; version: number; kind?: string; status: string; errorCode: string | null };
 export type ContentJob = { id: string; planVersion: number; status: string; errorCode: string | null };
 export type ContentItem = {
   id: string;
   calendarItemId: string;
   status: "blocked" | "ready";
-  revision: { revision: number; caption: string; destinations: string[]; format: string; assetNeeds: string[]; blockReason: string | null };
+  excludedAt?: string | null;
+  revision: { id?: string; revision: number; caption: string; destinations: string[]; format: string; assetNeeds: string[]; blockReason: string | null };
 };
 export type PlanDetail = {
   batches?: PlanRevisionBatch[];
   contentJob?: ContentJob | null;
   contentItems?: ContentItem[];
+  board?: { timezone: string | null; timezoneConfirmed: boolean };
   plan: PlanSummary;
   version: { version: number; document: PlanDocument; parentVersion?: number | null; createdAt?: string; changedBlockIds?: string[]; handledCommentIds?: string[] };
   comments: PlanComment[];
@@ -30,9 +32,12 @@ export const getPlan = (id: string, version?: number) => apiRequest<PlanDetail>(
 function post<T>(id: string, suffix: string, body: unknown) {
   return apiRequest<T>(`/plans/${encodeURIComponent(id)}/${suffix}`, { method: "POST", headers: { "X-Sochestral-Request": "plan-action" }, body: JSON.stringify(body) });
 }
-export const commentOnPlan = (id: string, input: { version: number; blockId: string; quote?: string; body: string }) => post<PlanComment>(id, "comments", input);
+export const commentOnPlan = (id: string, input: { version: number; blockId: string; quote?: string; body: string; scope?: "plan" | "board" | "post" }) => post<PlanComment>(id, "comments", input);
 export const submitPlanComments = (id: string, version: number, commentIds: string[]) => post(id, "comment-batches", { version, commentIds });
 export const approvePlan = (id: string, version: number) => post(id, "approve", { version, confirm: true });
 export const createPlanContent = (id: string, version: number) => post(id, "create-content", { version, confirm: true });
+export const excludePlanItem = (id: string, itemId: string, version: number, excluded: boolean) => post(id, `content-items/${encodeURIComponent(itemId)}`, { version, excluded });
+export const schedulePlanPosts = (id: string, version: number, rows: Array<{ itemId: string; excluded?: boolean; localTime?: string; accounts?: Record<string, string> }>) =>
+  post(id, "schedule-posts", { version, confirm: true, rows });
 
 export const reattachComment = (id: string, commentId: string, input: { version: number; blockId: string; quote?: string }) => post<PlanComment>(id, `comments/${encodeURIComponent(commentId)}/reattach`, input);

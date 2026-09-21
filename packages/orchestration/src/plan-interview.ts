@@ -202,6 +202,6 @@ export async function runPlanInterview(db: Database["db"], input: {
     }
     const planned = await savePlanInterview(db, { ...input, expectedRevision: saved.revision, state, contextId: context.id, generated });
     input.onStep?.("planning", false);
-    return `Your plan is ready: [Review plan](/app/plans/${planned.planId}). You can comment on the document and approve its direction. Content and scheduling still need their own review.`;
+    return `Your posts are being written: [Open the post board](/app/plans/${planned.planId}). Review captions there. Schedule posts only when they look right.`;
   });
 }

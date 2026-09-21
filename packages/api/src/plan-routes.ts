@@ -1,13 +1,18 @@
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
 import { SESSION_COOKIE_NAME, validateSessionToken } from "@sochestral/auth";
-import { reattachPlanComment, createPlan, getPlan, listPlans, addPlanComment, submitPlanComments, revisePlan, approvePlanDirection, enqueueCreateContent, PlanWorkflowError, type Database } from "@sochestral/database";
+import {
+  reattachPlanComment, createPlan, getPlan, listPlans, addPlanComment, submitPlanComments, revisePlan, approvePlanDirection,
+  enqueueCreateContent, setContentExcluded, PlanWorkflowError, isUniqueViolation, type Database,
+} from "@sochestral/database";
+import { confirmBoardSchedule, parseBoardScheduleRows, type ConnectorService, type SocialMcpGateway } from "@sochestral/orchestration";
 import { isAllowedCorsOrigin } from "./cors-origin.js";
 import type { Env } from "./app.js";
 
 type PlanEnv = { Variables: { userId: string } };
 const version = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) > 0;
 const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every(item => typeof item === "string");
+const scopes = ["plan", "board", "post"] as const;
 async function body(c: Context<PlanEnv>) {
   const value: unknown = await c.req.json().catch(() => null);
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new PlanWorkflowError("INVALID_DOCUMENT");
@@ -20,7 +25,7 @@ async function respond(c: Context<PlanEnv>, work: () => Promise<unknown>) {
       const status = error.code === "PLAN_NOT_FOUND" || error.code === "CONTEXT_NOT_FOUND" ? 404
         : error.code === "STALE_VERSION" || error.code === "CONTENT_NOT_READY" || error.code === "DIRECTION_NOT_APPROVED" ? 409
         : 422;
-      return c.json({ error: error.code }, status);
+      return c.json({ error: error.code, ...error.details }, status);
     }
     const message = error instanceof Error ? error.message : "INTERNAL_ERROR";
     console.error("[sochestral:plans] request failed", { error: message });
@@ -28,7 +33,10 @@ async function respond(c: Context<PlanEnv>, work: () => Promise<unknown>) {
   }
 }
 
-export function registerPlanRoutes(app: Hono<Env>, db: Database["db"]) {
+export function registerPlanRoutes(app: Hono<Env>, db: Database["db"], deps?: {
+  connectors?: () => ConnectorService;
+  mcp?: () => SocialMcpGateway;
+}) {
   const routes = new Hono<PlanEnv>();
   routes.use("*", async (c, next) => {
     const session = await validateSessionToken(db, getCookie(c, SESSION_COOKIE_NAME));
@@ -53,10 +61,12 @@ export function registerPlanRoutes(app: Hono<Env>, db: Database["db"]) {
   }));
   routes.post("/:id/comments", c => respond(c, async () => {
     const input = await body(c);
+    const scope = input.scope === undefined ? "plan" : input.scope;
     if (!version(input.version) || typeof input.blockId !== "string" || typeof input.body !== "string" ||
+      (typeof scope !== "string" || !scopes.includes(scope as typeof scopes[number])) ||
       (input.quote != null && typeof input.quote !== "string") || (input.quoteContext != null && typeof input.quoteContext !== "string") ||
       (input.rangeStart != null && !Number.isSafeInteger(input.rangeStart)) || (input.rangeEnd != null && !Number.isSafeInteger(input.rangeEnd))) throw new PlanWorkflowError("INVALID_COMMENT");
-    return addPlanComment(db, { userId: c.get("userId"), planId: c.req.param("id"), version: input.version, blockId: input.blockId, body: input.body,
+    return addPlanComment(db, { userId: c.get("userId"), planId: c.req.param("id"), version: input.version, blockId: input.blockId, body: input.body, scope: scope as typeof scopes[number],
       quote: input.quote as string | null, quoteContext: input.quoteContext as string | null, rangeStart: input.rangeStart as number | null, rangeEnd: input.rangeEnd as number | null });
   }));
   routes.post("/:id/comments/:commentId/reattach", c => respond(c, async () => {
@@ -87,6 +97,25 @@ export function registerPlanRoutes(app: Hono<Env>, db: Database["db"]) {
     const input = await body(c);
     if (input.confirm !== true || !version(input.version)) throw new PlanWorkflowError("INVALID_DOCUMENT");
     return enqueueCreateContent(db, { userId: c.get("userId"), planId: c.req.param("id"), version: input.version });
+  }));
+  routes.post("/:id/content-items/:itemId", c => respond(c, async () => {
+    const input = await body(c);
+    if (typeof input.excluded !== "boolean" || !version(input.version)) throw new PlanWorkflowError("INVALID_DOCUMENT");
+    return setContentExcluded(db, { userId: c.get("userId"), planId: c.req.param("id"), itemId: c.req.param("itemId"), version: input.version, excluded: input.excluded });
+  }));
+  routes.post("/:id/schedule-posts", c => respond(c, async () => {
+    const input = await body(c);
+    if (input.confirm !== true || !version(input.version)) throw new PlanWorkflowError("INVALID_DOCUMENT");
+    if (!deps?.connectors || !deps?.mcp) throw new PlanWorkflowError("INVALID_SCHEDULE");
+    try {
+      return await confirmBoardSchedule(db, {
+        userId: c.get("userId"), planId: c.req.param("id"), version: input.version, confirm: true,
+        rows: parseBoardScheduleRows(input.rows), connectors: deps.connectors(), mcp: deps.mcp(),
+      });
+    } catch (error) {
+      if (isUniqueViolation(error)) throw new PlanWorkflowError("INVALID_SCHEDULE");
+      throw error;
+    }
   }));
   app.route("/plans", routes);
 }

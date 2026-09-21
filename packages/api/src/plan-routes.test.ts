@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSession, SESSION_COOKIE_NAME } from "@sochestral/auth";
-import { campaignJobs, createDb, provisionUser, requireTestDatabaseUrl, type Database } from "@sochestral/database";
+import { campaignJobs, createDb, provisionUser, requireTestDatabaseUrl, patchBusinessProfile, type Database } from "@sochestral/database";
 import { processOneContentJob } from "@sochestral/orchestration";
 import { createApp } from "./app.js";
 
@@ -27,11 +27,13 @@ describe("plan API", () => {
   let app: ReturnType<typeof createApp>;
   let cookie: string;
   let otherCookie: string;
+  let ownerId: string;
   beforeAll(() => { database = createDb(requireTestDatabaseUrl()); });
   afterAll(async () => { await database.client.end({ timeout: 5 }); });
   beforeEach(async () => {
     await database.client`delete from users`;
     const owner = await provisionUser(database.db, "plan-api@example.com");
+    ownerId = owner.id;
     const other = await provisionUser(database.db, "plan-api-other@example.com");
     cookie = `${SESSION_COOKIE_NAME}=${(await createSession(database.db, owner.id)).rawToken}`;
     otherCookie = `${SESSION_COOKIE_NAME}=${(await createSession(database.db, other.id)).rawToken}`;
@@ -148,5 +150,52 @@ describe("plan API", () => {
     expect(await response.json()).toMatchObject({ status: "pending", version: 1, quote: "Plan" });
     const result = await app.request(`/plans/${planId}`, { headers: { Cookie: cookie } });
     expect(await result.json()).toMatchObject({ comments: [expect.objectContaining({ body: "Make this specific" })] });
+  });
+
+  it("accepts board comments and schedules only ready excluded-aware rows", async () => {
+    const created = await post("/plans", { title: "Launch", document: calendarDocument });
+    const planId = (await created.json() as { plan: { id: string } }).plan.id;
+    await post(`/plans/${planId}/approve`, { version: 1, confirm: true });
+    await post(`/plans/${planId}/create-content`, { version: 1, confirm: true });
+    await processOneContentJob(database.db, { provider: { complete: async () => ({
+      content: null, thinking: null, toolCalls: [{ id: "call_1", name: "save_content_set", input: { items: [
+        { calendarItemId: "item_text", caption: "A shop-floor caption for builders." },
+        { calendarItemId: "item_image", caption: "Show the clamp on the bench." },
+      ] } }], inputTokens: 0, outputTokens: 0, attempts: 1,
+    }) }, model: "test-model", maxTokens: 4000 });
+    const comment = await post(`/plans/${planId}/comments`, { version: 1, blockId: "board", scope: "board", body: "Sharper CTA" });
+    expect(comment.status).toBe(200);
+    expect(await comment.json()).toMatchObject({ scope: "board", blockId: "board" });
+    const snapshot = await (await app.request(`/plans/${planId}`, { headers: { Cookie: cookie } })).json() as { contentItems: Array<{ id: string; calendarItemId: string }>; board: { timezoneConfirmed: boolean } };
+    expect(snapshot.board.timezoneConfirmed).toBe(false);
+    const textId = snapshot.contentItems.find(item => item.calendarItemId === "item_text")!.id;
+    const imageId = snapshot.contentItems.find(item => item.calendarItemId === "item_image")!.id;
+    const mcp = { callTool: vi.fn(async () => ({ value: { ok: true, scheduled: [{ id: "s1" }] }, attempts: 1 })), listTools: vi.fn() };
+    const connectors = {
+      list: async () => ({ connectors: [
+        { platform: "threads" as const, state: "connected" as const, accounts: [{ id: "acct_1", username: "shop", displayName: "Shop", avatarUrl: null, state: "connected" as const }] },
+        { platform: "instagram" as const, state: "not_connected" as const, accounts: [] },
+        { platform: "linkedin_personal" as const, state: "not_connected" as const, accounts: [] },
+      ] }),
+      startConnect: vi.fn(),
+    };
+    const scheduledApp = createApp(database.db, undefined, connectors, undefined, undefined, mcp);
+    const schedule = (body: unknown, session = cookie) => scheduledApp.request(`/plans/${planId}/schedule-posts`, {
+      method: "POST", headers: { Cookie: session, Origin: "http://localhost:3000", "Content-Type": "application/json", "X-Sochestral-Request": "plan-action" }, body: JSON.stringify(body),
+    });
+    const rows = [
+      { itemId: textId, localTime: "2031-01-02T09:00", accounts: { threads: "acct_1" } },
+      { itemId: imageId, excluded: true },
+    ];
+    expect(await (await schedule({ version: 1, confirm: true, rows })).json()).toEqual({ error: "TIMEZONE_NOT_CONFIRMED" });
+    expect(mcp.callTool).not.toHaveBeenCalled();
+    await patchBusinessProfile(database.db, ownerId, { timezone: "UTC", confirmTimezone: true });
+    expect((await schedule({ version: 1, rows })).status).toBe(422);
+    const queued = await schedule({ version: 1, confirm: true, rows });
+    expect(queued.status).toBe(200);
+    expect(await queued.json()).toMatchObject({ operations: [expect.objectContaining({ status: "scheduled", destination: "threads" })] });
+    expect(mcp.callTool).toHaveBeenCalledWith(expect.objectContaining({ name: "schedule_post", arguments: expect.objectContaining({ confirm: true, connectedAccountId: "acct_1" }) }));
+    expect((await schedule({ version: 1, confirm: true, rows }, otherCookie)).status).toBe(404);
+    expect(await database.db.select().from(campaignJobs)).toHaveLength(0);
   });
 });
