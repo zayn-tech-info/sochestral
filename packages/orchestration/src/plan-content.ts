@@ -24,9 +24,10 @@ export async function processOneContentJob(db: Database["db"], input: { provider
   try {
     const calendar = planCalendarItems(version.document);
     if (!calendar.length) throw new PlanWorkflowError("NO_CALENDAR_ITEMS");
+    const maxTokens = Math.max(input.maxTokens, 8192, Math.min(16_384, calendar.length * 500));
     const { context } = await assembleGenerationContext(db, { userId: plan.userId, conversationId: plan.conversationId, role: "plan_content", parentId: job.id });
     const completion = await withUsageContext({ db, userId: plan.userId, parentId: job.id, role: "plan_content" }, () => input.provider.complete({
-      model: input.model, maxTokens: input.maxTokens, system: `${system}\n${generationContextNote(context.payload)}`,
+      model: input.model, maxTokens, system: `${system}\n${generationContextNote(context.payload)}`,
       messages: [{ role: "user", content: [{ type: "text", text: JSON.stringify({ document: version.document, calendarItemIds: calendar.map(item => item.id) }) }] }],
       tools: [{ name: "save_content_set", description: "Return one caption for each calendar item ID in the approved plan version.", inputSchema: z.toJSONSchema(resultSchema) as Record<string, unknown> }],
       toolChoice: { type: "tool", name: "save_content_set" }, thinking: { enabled: false, budgetTokens: 0 },
