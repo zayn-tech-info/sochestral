@@ -2,8 +2,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createDb, type Database } from "./client.js";
 import { requireTestDatabaseUrl } from "./env.js";
 import { provisionUser } from "./users.js";
-import { createPlan, getPlan, approvePlanDirection, revisePlan } from "./plans.js";
-import { enqueueCreateContent, claimContentJob, finishContentJobFailure, applyContentSet, contentBlockState } from "./content.js";
+import { createPlan, getPlan, approvePlanDirection, revisePlan, addPlanComment, submitPlanComments, claimPlanRevision } from "./plans.js";
+import { enqueueCreateContent, claimContentJob, finishContentJobFailure, applyContentSet, applyContentReview, setContentExcluded, contentBlockState } from "./content.js";
 import { campaignJobs, contentGenerationJobs, contentItems, contentRevisions } from "./schema.js";
 import type { PlanDocument } from "./plan-document.js";
 
@@ -110,5 +110,36 @@ describe("durable content generation", () => {
       captions: calendarItems.map(item => ({ calendarItemId: item.id, caption: "Late caption" })),
     })).rejects.toMatchObject({ code: "INVALID_CONTENT" });
     expect(await database.db.select().from(contentItems)).toHaveLength(0);
+  });
+
+  it("revises captions in place from board comments without changing the plan version", async () => {
+    await approvePlanDirection(database.db, { userId, planId, version: 1 });
+    await enqueueCreateContent(database.db, { userId, planId, version: 1 });
+    const claimed = await claimContentJob(database.db);
+    await applyContentSet(database.db, {
+      userId, planId, jobId: claimed!.job.id, claimToken: claimed!.job.claimToken!,
+      document: claimed!.version.document,
+      captions: [
+        { calendarItemId: "item_text", caption: "A concrete shop-floor caption." },
+        { calendarItemId: "item_image", caption: "Show the bench photo with the new clamp." },
+      ],
+    });
+    const loaded = await getPlan(database.db, userId, planId);
+    const text = loaded.contentItems.find(item => item.calendarItemId === "item_text")!;
+    const comment = await addPlanComment(database.db, { userId, planId, version: 1, scope: "post", blockId: text.id, body: "Shorter first line" });
+    const { batch } = await submitPlanComments(database.db, { userId, planId, version: 1, commentIds: [comment.id] });
+    expect(batch.kind).toBe("content");
+    const job = await claimPlanRevision(database.db);
+    await applyContentReview(database.db, {
+      userId, planId, batchId: job!.batch.id, claimToken: job!.batch.claimToken!,
+      captions: [{ itemId: text.id, caption: "Ship the clamp this week." }], handledCommentIds: [comment.id],
+    });
+    const next = await getPlan(database.db, userId, planId);
+    expect(next.plan.currentVersion).toBe(1);
+    expect(next.contentItems.find(item => item.id === text.id)).toMatchObject({ revision: { revision: 2, caption: "Ship the clamp this week." } });
+    expect(next.contentItems.find(item => item.calendarItemId === "item_image")?.revision.revision).toBe(1);
+    expect(next.comments[0]?.status).toBe("addressed");
+    await setContentExcluded(database.db, { userId, planId, version: 1, itemId: text.id, excluded: true });
+    expect((await getPlan(database.db, userId, planId)).contentItems.find(item => item.id === text.id)?.excludedAt).toBeInstanceOf(Date);
   });
 });

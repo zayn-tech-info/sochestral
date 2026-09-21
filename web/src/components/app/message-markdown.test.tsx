@@ -20,9 +20,9 @@ describe("MessageMarkdown", () => {
 
   it("routes in-app plan links through the product app", () => {
     render(
-      <MessageMarkdown content="Your plan is ready: [Review plan](/app/plans/plan_interview_1)." />,
+      <MessageMarkdown content="Your posts are being written: [Open the post board](/app/plans/plan_interview_1)." />,
     );
-    expect(screen.getByRole("link", { name: "Review plan" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Open the post board" })).toHaveAttribute(
       "href",
       "/app/plans/plan_interview_1",
     );

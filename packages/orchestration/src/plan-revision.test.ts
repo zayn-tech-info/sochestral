@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { createDb, requireTestDatabaseUrl, provisionUser, createPlan, addPlanComment, submitPlanComments, getPlan, revisePlan,
-  claimPlanRevision, recoverExpiredPlanRevisions, planRevisionBatches, type Database, type PlanDocument } from "@sochestral/database";
+  claimPlanRevision, recoverExpiredPlanRevisions, planRevisionBatches, approvePlanDirection, enqueueCreateContent, applyContentSet, claimContentJob, type Database, type PlanDocument } from "@sochestral/database";
 import { processOnePlanRevision } from "./plan-revision.js";
 import type { ModelCompletion, ModelProvider } from "./model.js";
 const document = (): PlanDocument => ({ schemaVersion: 1, sections: (["goal", "audience_voice", "direction", "calendar", "sources", "missing_inputs"] as const).map(type => ({
@@ -84,5 +84,38 @@ describe("durable plan revision", () => {
       batchId, claimToken: claimed!.batch.claimToken!, handledCommentIds: [commentId] })).rejects.toMatchObject({ code: "INVALID_BATCH" });
     expect((await getPlan(database.db, userId, planId)).batches[0]).toMatchObject({ status: "needs_attention", errorCode: "REVISION_INTERRUPTED" });
     expect(await claimPlanRevision(database.db)).toBeNull();
+  });
+
+  it("applies board comments to captions instead of rewriting the strategy document", async () => {
+    const calendar: PlanDocument = {
+      schemaVersion: 1,
+      sections: (["goal", "audience_voice", "direction", "calendar", "sources", "missing_inputs"] as const).map(type => ({
+        id: `s_${type}`, type, title: type, blocks: type === "calendar"
+          ? [{ id: "calendar_table", kind: "calendar", items: [{ id: "item_text", angle: "Shop tip", audience: "Builders", format: "text", destinations: ["threads"], proposedTime: null, assetNeeds: [] }] }]
+          : [{ id: `b_${type}`, kind: "paragraph", text: `Review ${type}` }],
+      })),
+    };
+    await database.client`delete from users`;
+    userId = (await provisionUser(database.db, "revision-board@example.test")).id;
+    planId = (await createPlan(database.db, { userId, title: "Launch", document: calendar, contextId: null })).plan.id;
+    await approvePlanDirection(database.db, { userId, planId, version: 1 });
+    await enqueueCreateContent(database.db, { userId, planId, version: 1 });
+    const content = await claimContentJob(database.db);
+    await applyContentSet(database.db, {
+      userId, planId, jobId: content!.job.id, claimToken: content!.job.claimToken!, document: calendar,
+      captions: [{ calendarItemId: "item_text", caption: "A shop-floor caption." }],
+    });
+    const itemId = (await getPlan(database.db, userId, planId)).contentItems[0]!.id;
+    commentId = (await addPlanComment(database.db, { userId, planId, version: 1, scope: "board", blockId: "board", body: "Sharper CTA" })).id;
+    batchId = (await submitPlanComments(database.db, { userId, planId, version: 1, commentIds: [commentId] })).batch.id;
+    const complete = vi.fn(async () => ({
+      content: null, thinking: null,
+      toolCalls: [{ id: "call_1", name: "save_content_review", input: { items: [{ itemId, caption: "Ship the clamp this week." }], handledCommentIds: [commentId] } }],
+      inputTokens: 0, outputTokens: 0, attempts: 1,
+    }));
+    expect(await run({ complete })).toBe("applied");
+    const result = await getPlan(database.db, userId, planId);
+    expect(result.plan.currentVersion).toBe(1);
+    expect(result.contentItems[0]).toMatchObject({ revision: { revision: 2, caption: "Ship the clamp this week." } });
   });
 });

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   campaignJobs,
+  contentGenerationJobs,
   createConversationTurn,
   createDb,
   getPlan,
@@ -401,6 +402,8 @@ describe("plan interview chat routing", () => {
     });
     const saved = await getPlanInterview(database.db, userId, first.conversation.id);
     expect(planned.assistantMessage?.content).toContain(`/app/plans/${saved?.planId}`);
+    expect(planned.assistantMessage?.content).toContain("Open the post board");
+    expect(await database.db.select().from(contentGenerationJobs)).toHaveLength(0);
     expect(mcp.callTool).not.toHaveBeenCalled();
 
     const accepted = await service.addMessage(userId, first.conversation.id, {

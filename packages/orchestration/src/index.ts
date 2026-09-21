@@ -239,4 +239,5 @@ export { resolveScheduleTime } from "./schedule-time.js";
 export { withUsageContext, withUsageRole, measureModelAttempt } from "./usage.js";
 export { processOnePlanRevision } from "./plan-revision.js";
 export { processOneContentJob } from "./plan-content.js";
+export { confirmBoardSchedule, parseBoardScheduleRows } from "./board-schedule.js";
 export { isInterviewPause, isInterviewResume, runPlanInterview } from "./plan-interview.js";

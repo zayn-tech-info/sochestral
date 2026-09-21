@@ -6,7 +6,7 @@ import { createConversationTurn } from "./orchestration.js";
 import { assembleGenerationContext } from "./generation-context.js";
 import { getPlanInterview, savePlanInterview, type PlanInterviewState } from "./plan-interview.js";
 import { getPlan } from "./plans.js";
-import { plans } from "./schema.js";
+import { plans, contentGenerationJobs, workflowApprovals } from "./schema.js";
 import type { PlanDocument } from "./plan-document.js";
 
 function document(): PlanDocument {
@@ -76,6 +76,8 @@ describe("plan interview persistence", () => {
     expect(created.state.status).toBe("planned");
     expect(created.planId).toMatch(/^plan_/);
     expect((await getPlan(database.db, userId, created.planId!)).plan.conversationId).toBe(conversationId);
+    expect(await database.db.select().from(workflowApprovals)).toHaveLength(1);
+    expect(await database.db.select().from(contentGenerationJobs)).toHaveLength(0);
     await expect(save({
       userId, conversationId, expectedRevision: created.revision, contextId: null, state: asking(),
       generated: { title: "Second", document: document() },
@@ -89,5 +91,16 @@ describe("plan interview persistence", () => {
     })).rejects.toMatchObject({ code: "INVALID_DOCUMENT" });
     expect(await getPlanInterview(database.db, userId, conversationId)).toBeNull();
     expect(await database.db.select().from(plans)).toHaveLength(0);
+  });
+
+  it("starts caption writing when the saved plan has calendar items", async () => {
+    const calendar = document();
+    calendar.sections.find(section => section.type === "calendar")!.blocks = [{
+      id: "calendar_table", kind: "calendar", items: [{
+        id: "item_text", angle: "Shop tip", audience: "Builders", format: "text", destinations: ["threads"], proposedTime: "2031-01-02T09:00", assetNeeds: [],
+      }],
+    }];
+    const created = await save({ userId, conversationId, expectedRevision: 0, contextId: null, state: asking(), generated: { title: "Workshop plan", document: calendar } });
+    expect(await database.db.select().from(contentGenerationJobs)).toMatchObject([{ planId: created.planId, status: "submitted" }]);
   });
 });

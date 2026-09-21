@@ -2,7 +2,9 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import type { Database } from "./client.js";
 import { planInterviews, orchestrationConversations, generationContexts } from "./schema.js";
-import { createPlan, PlanWorkflowError } from "./plans.js";
+import { createPlan, approvePlanDirection, PlanWorkflowError } from "./plans.js";
+import { enqueueCreateContent } from "./content.js";
+import { planCalendarItems, planDocumentSchema } from "./plan-document.js";
 
 const field = z.enum(["goal", "newsAssets", "direction"]);
 const platform = z.enum(["threads", "instagram", "linkedin_personal"]);
@@ -58,5 +60,13 @@ export async function savePlanInterview(db: Db, input: { userId: string; convers
       ? await tx.update(planInterviews).set(values).where(eq(planInterviews.conversationId, input.conversationId)).returning()
       : await tx.insert(planInterviews).values({ ...values, userId: input.userId, conversationId: input.conversationId }).returning();
     return row!;
+  }).then(async row => {
+    if (!input.generated || !row.planId) return row;
+    await approvePlanDirection(db, { userId: input.userId, planId: row.planId, version: 1 });
+    const parsed = planDocumentSchema.safeParse(input.generated.document);
+    if (parsed.success && planCalendarItems(parsed.data).length) {
+      await enqueueCreateContent(db, { userId: input.userId, planId: row.planId, version: 1 });
+    }
+    return row;
   });
 }

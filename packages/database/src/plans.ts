@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, isNull, lte, exists, notExists } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { getOwnedConversation } from "./orchestration.js";
-import { generationContexts, plans, planVersions, planComments, planRevisionBatches, workflowApprovals, contentGenerationJobs } from "./schema.js";
+import { generationContexts, plans, planVersions, planComments, planRevisionBatches, workflowApprovals, contentGenerationJobs, contentItems, businessProfiles } from "./schema.js";
 import { planAnchorText, planDocumentSchema, type PlanDocument } from "./plan-document.js";
 import { loadContentForVersion } from "./content.js";
 import { PlanWorkflowError } from "./plan-errors.js";
@@ -53,7 +53,16 @@ export async function getPlan(db: Db, userId: string, planId: string, requestedV
     const approvals = await tx.select().from(workflowApprovals).where(and(eq(workflowApprovals.planId, planId), isNull(workflowApprovals.invalidatedAt)));
     const batches = await tx.select().from(planRevisionBatches).where(eq(planRevisionBatches.planId, planId)).orderBy(desc(planRevisionBatches.createdAt));
     const content = await loadContentForVersion(tx as unknown as Db, planId, version.version);
-    return { plan, version, comments, approvals, batches: batches.map(({ claimToken: _token, ...batch }) => batch), ...content };
+    const [profile] = await tx.select({
+      timezone: businessProfiles.timezone, timezoneConfirmedAt: businessProfiles.timezoneConfirmedAt,
+    }).from(businessProfiles).where(eq(businessProfiles.userId, userId));
+    return {
+      plan, version, comments, approvals, batches: batches.map(({ claimToken: _token, ...batch }) => batch), ...content,
+      board: {
+        timezone: profile?.timezoneConfirmedAt ? profile.timezone : null,
+        timezoneConfirmed: Boolean(profile?.timezoneConfirmedAt),
+      },
+    };
   }, { isolationLevel: "repeatable read", accessMode: "read only" });
 }
 
@@ -61,8 +70,9 @@ export async function listPlans(db: Db, userId: string) {
   return db.select().from(plans).where(eq(plans.userId, userId)).orderBy(desc(plans.updatedAt)).limit(100);
 }
 
-type Anchor = { blockId: string; quote?: string | null; quoteContext?: string | null; rangeStart?: number | null; rangeEnd?: number | null };
-function anchorMatches(anchors: Map<string, string>, anchor: Anchor) {
+type CommentScope = "plan" | "board" | "post";
+type Anchor = { blockId: string; quote?: string | null; quoteContext?: string | null; rangeStart?: number | null; rangeEnd?: number | null; scope?: CommentScope };
+function anchorMatches(anchors: Map<string, string>, anchor: Omit<Anchor, "scope">) {
   const text = anchors.get(anchor.blockId);
   if (text === undefined) return false;
   if (anchor.quote != null && (!anchor.quote || !text.includes(anchor.quote))) return false;
@@ -75,12 +85,22 @@ function anchorMatches(anchors: Map<string, string>, anchor: Anchor) {
 
 export async function addPlanComment(db: Db, input: { userId: string; planId: string; version: number; body: string } & Anchor) {
   if (!input.body.trim() || input.body.length > 4000) throw new PlanWorkflowError("INVALID_COMMENT");
+  const scope = input.scope ?? "plan";
   return db.transaction(async tx => {
     await ownPlan(tx as unknown as Db, input.userId, input.planId, input.version);
-    const [version] = await tx.select().from(planVersions).where(and(eq(planVersions.planId, input.planId), eq(planVersions.version, input.version)));
-    if (!version || !anchorMatches(planAnchorText(version.document), input)) throw new PlanWorkflowError("INVALID_ANCHOR");
+    if (scope === "board") {
+      if (input.blockId !== "board") throw new PlanWorkflowError("INVALID_ANCHOR");
+    } else if (scope === "post") {
+      const [item] = await tx.select({ id: contentItems.id }).from(contentItems).where(and(
+        eq(contentItems.id, input.blockId), eq(contentItems.planId, input.planId), eq(contentItems.planVersion, input.version), eq(contentItems.userId, input.userId),
+      ));
+      if (!item) throw new PlanWorkflowError("INVALID_ANCHOR");
+    } else {
+      const [version] = await tx.select().from(planVersions).where(and(eq(planVersions.planId, input.planId), eq(planVersions.version, input.version)));
+      if (!version || !anchorMatches(planAnchorText(version.document), input)) throw new PlanWorkflowError("INVALID_ANCHOR");
+    }
     const [comment] = await tx.insert(planComments).values({
-      id: id("pcomment"), planId: input.planId, version: input.version, body: input.body.trim(),
+      id: id("pcomment"), planId: input.planId, version: input.version, scope, body: input.body.trim(),
       blockId: input.blockId, quote: input.quote, quoteContext: input.quoteContext, rangeStart: input.rangeStart, rangeEnd: input.rangeEnd,
     }).returning();
     return comment!;
@@ -92,10 +112,24 @@ export async function submitPlanComments(db: Db, input: { userId: string; planId
   return db.transaction(async tx => {
     await ownPlan(tx as unknown as Db, input.userId, input.planId, input.version);
     const comments = await tx.select().from(planComments).where(and(eq(planComments.planId, input.planId), inArray(planComments.id, input.commentIds), eq(planComments.status, "pending")));
-    const [version] = await tx.select().from(planVersions).where(and(eq(planVersions.planId, input.planId), eq(planVersions.version, input.version)));
     if (comments.length !== input.commentIds.length) throw new PlanWorkflowError("INVALID_BATCH");
-    if (!version || comments.some(comment => !anchorMatches(planAnchorText(version.document), comment))) throw new PlanWorkflowError("INVALID_ANCHOR");
-    const [batch] = await tx.insert(planRevisionBatches).values({ id: id("pbatch"), planId: input.planId, version: input.version, commentIds: input.commentIds }).returning();
+    const scopes = new Set(comments.map(comment => comment.scope));
+    if (scopes.has("plan") && (scopes.has("board") || scopes.has("post"))) throw new PlanWorkflowError("INVALID_BATCH");
+    const kind = scopes.has("board") || scopes.has("post") ? "content" : "plan";
+    if (kind === "plan") {
+      const [version] = await tx.select().from(planVersions).where(and(eq(planVersions.planId, input.planId), eq(planVersions.version, input.version)));
+      if (!version || comments.some(comment => !anchorMatches(planAnchorText(version.document), comment))) throw new PlanWorkflowError("INVALID_ANCHOR");
+    } else {
+      const items = await tx.select({ id: contentItems.id }).from(contentItems).where(and(
+        eq(contentItems.planId, input.planId), eq(contentItems.planVersion, input.version),
+      ));
+      if (!items.length) throw new PlanWorkflowError("CONTENT_NOT_READY");
+      for (const comment of comments) {
+        if (comment.scope === "board" && comment.blockId !== "board") throw new PlanWorkflowError("INVALID_ANCHOR");
+        if (comment.scope === "post" && !items.some(item => item.id === comment.blockId)) throw new PlanWorkflowError("INVALID_ANCHOR");
+      }
+    }
+    const [batch] = await tx.insert(planRevisionBatches).values({ id: id("pbatch"), planId: input.planId, version: input.version, kind, commentIds: input.commentIds }).returning();
     await tx.update(planComments).set({ status: "submitted", batchId: batch!.id }).where(inArray(planComments.id, input.commentIds));
     return { batch: batch!, comments };
   });
@@ -151,8 +185,11 @@ export async function revisePlan(db: Db, input: { userId: string; planId: string
     await tx.update(workflowApprovals).set({ invalidatedAt: new Date(), invalidationReason: "Plan revised" }).where(and(eq(workflowApprovals.planId, input.planId), eq(workflowApprovals.scope, "plan_direction"), isNull(workflowApprovals.invalidatedAt)));
     const pending = await tx.select().from(planComments).where(and(eq(planComments.planId, input.planId), inArray(planComments.status, ["pending", "submitted"])));
     for (const comment of pending) {
-      // A comment arriving after submission is never implicitly included or resolved.
       const addressed = effectiveHandled.includes(comment.id);
+      if (comment.scope === "board" || comment.scope === "post") {
+        await tx.update(planComments).set({ status: addressed ? "addressed" : "pending" }).where(eq(planComments.id, comment.id));
+        continue;
+      }
       const status = !newAnchors.has(comment.blockId) ? "needs_reattachment" : addressed ? "addressed" : anchorMatches(newAnchors, comment) ? "pending" : "needs_reattachment";
       await tx.update(planComments).set({ status }).where(eq(planComments.id, comment.id));
     }

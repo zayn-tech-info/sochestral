@@ -43,7 +43,7 @@ Instagram Graph version: `INSTAGRAM_GRAPH_API_VERSION` (default `v21.0`).
 
 Business-strict AI social operator for three ICPs: physical product sellers (relevance and customers), founders launching a product (steady updates), and developers/builders who want to be seen while shipping. Not for casual “anyone who posts.” Prefer professional implementation and better practice defaults (official APIs, validated tool execution, review before live publish). Full intent and bar: `docs/scope/scope.md` and `docs/MASTER_PLAN.md`.
 
-Progress lives in `docs/scope/scope.md` (Progress snapshot + At a glance) and `sochestral-master-plan.md` §2. Tracer Bullet path is proven on the cloud product URL. Slice 1 Features 4/5/14 are Done. Feature 7 (setup agent + business profile) is Done (SOC-12 / SOC-13). Feature 12 Done (SOC-9). Feature 13 intent clarify Done; Thesean Thinking close-out Canceled (SOC-8). Feature 6 tiers deferred. Channels wait. Next: Feature 10 remaining web surfaces / schedule calendar (SOC-14). Free beta access; billing is parallel and not a beta gate.
+Progress lives in `docs/scope/scope.md` (Progress snapshot + At a glance), `docs/v2/Sochestral-V2-Launch-Plan.md`, and `sochestral-master-plan.md` §2. Tracer Bullet path is proven on the cloud product URL. Slice 1 Features 4/5/14 are Done. Feature 7 (setup agent + business profile) is Done (SOC-12 / SOC-13). Feature 12 Done (SOC-9). Feature 13 intent clarify Done; Thesean Thinking close-out Canceled (SOC-8). Feature 6 tiers deferred. Channels wait. V2 L1–L7 are Done (post board is the user-facing plan surface). Next: V2 L8 receipts, then Feature 10 remaining calendar surfaces (SOC-14). Free beta access; billing is parallel and not a beta gate.
 
 ## Context files
 

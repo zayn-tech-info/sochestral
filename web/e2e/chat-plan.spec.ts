@@ -122,7 +122,7 @@ async function mockInterviewApi(page: Page) {
     if (path === `/orchestration/conversations/${CONV_ID}/messages/stream` && method === "POST") {
       const body = route.request().postDataJSON() as { message: string };
       const text = body.message.trim().toLowerCase();
-      let assistant = `Your plan is ready: [Review plan](/app/plans/${PLAN_ID}). You can comment on the document and approve its direction.`;
+      let assistant = `Your posts are being written: [Open the post board](/app/plans/${PLAN_ID}). Review captions there.`;
       let step: "clarifying_intent" | "planning" = "planning";
       if (text === "pause planning") {
         assistant = PAUSE_COPY;
@@ -142,6 +142,9 @@ async function mockInterviewApi(page: Page) {
         { type: "turn_completed", sequence: 4, result },
       ]);
     }
+    if (path === "/connectors") {
+      return json(route, { connectors: [{ platform: "threads", state: "connected", accounts: [{ id: "acct_1", username: "shop", displayName: "Shop", state: "connected" }] }] });
+    }
     if (path === `/plans/${PLAN_ID}/comments` && method === "POST") {
       comments.push({ id: "comment_1", ...route.request().postDataJSON(), status: "pending", batchId: null });
       return json(route, comments[0]);
@@ -149,11 +152,7 @@ async function mockInterviewApi(page: Page) {
     if (path === `/plans/${PLAN_ID}/comment-batches` && method === "POST") {
       comments[0]!.status = "submitted";
       comments[0]!.batchId = "batch_1";
-      return json(route, { id: "batch_1", version: 1, status: "submitted", errorCode: null });
-    }
-    if (path === `/plans/${PLAN_ID}/approve` && method === "POST") {
-      approvals.push({ scope: "plan_direction", revision: 1 });
-      return json(route, approvals[0]);
+      return json(route, { id: "batch_1", version: 1, kind: "content", status: "submitted", errorCode: null });
     }
     if (path === `/plans/${PLAN_ID}`) {
       return json(route, {
@@ -161,7 +160,10 @@ async function mockInterviewApi(page: Page) {
         version: { version: 1, document: { schemaVersion: 1, sections } },
         comments,
         approvals,
-        batches: comments[0]?.batchId ? [{ id: "batch_1", version: 1, status: "submitted", errorCode: null }] : [],
+        board: { timezone: "UTC", timezoneConfirmed: true },
+        contentJob: { id: "job_1", planVersion: 1, status: "applied", errorCode: null },
+        contentItems: [{ id: "citem_1", calendarItemId: "item_1", status: "ready", excludedAt: null, revision: { revision: 1, caption: "A shop-floor caption.", destinations: ["threads"], format: "text", assetNeeds: [], blockReason: null } }],
+        batches: comments[0]?.batchId ? [{ id: "batch_1", version: 1, kind: "content", status: "submitted", errorCode: null }] : [],
       });
     }
     return json(route, {});
@@ -180,24 +182,20 @@ for (const width of [360, 390, 768, 1024, 1440]) {
     await expect(page.getByText("What should this campaign achieve?")).toBeVisible();
     await page.getByLabel("Message Sochestral").fill("Sell workshop tools with practical shop-floor tips");
     await page.getByRole("button", { name: "Send message" }).click();
-    const reviewLink = page.getByRole("link", { name: "Review plan" });
+    const reviewLink = page.getByRole("link", { name: "Open the post board" });
     await expect(reviewLink).toBeVisible();
     await expect(reviewLink).toHaveAttribute("href", `/app/plans/${PLAN_ID}`);
     await page.reload();
-    await expect(page.getByRole("link", { name: "Review plan" })).toBeVisible();
-    await page.getByRole("link", { name: "Review plan" }).click();
+    await expect(page.getByRole("link", { name: "Open the post board" })).toBeVisible();
+    await page.getByRole("link", { name: "Open the post board" }).click();
     await expect(page).toHaveURL(`/app/plans/${PLAN_ID}`);
     await expect(page.getByRole("heading", { name: "Workshop launch", exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Comment on Reach workshop owners" }).click();
-    await page.getByLabel("Your comment").fill("Focus on independent shops");
+    await page.getByLabel("General comment").fill("Focus on independent shops");
     await page.getByRole("button", { name: "Save comment", exact: true }).click();
     await expect(page.getByText("Comment saved.")).toBeVisible();
-    await page.getByRole("button", { name: "Review comments (1)" }).click();
-    await expect(page.getByText("Comments submitted for revision.")).toBeVisible();
-    await page.getByRole("button", { name: "Approve plan direction" }).click();
-    await expect(page.getByText("Version 1 · Direction approved")).toBeVisible();
-    expect(comments[0]).toMatchObject({ version: 1, blockId: "b_goal", body: "Focus on independent shops", status: "submitted" });
-    expect(approvals).toHaveLength(1);
+    await page.getByRole("button", { name: "Review" }).click();
+    await expect(page.getByText("Comments sent for review.")).toBeVisible();
+    expect(comments[0]).toMatchObject({ version: 1, blockId: "board", body: "Focus on independent shops", status: "submitted" });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.screenshot({ path: `test-results/chat-plan-${width}.png`, fullPage: true });
   });
@@ -214,14 +212,14 @@ test("pauses an interview, keeps unrelated chat off the plan, then resumes", asy
   await page.getByLabel("Message Sochestral").fill("pause planning");
   await page.getByRole("button", { name: "Send message" }).click();
   await expect(page.getByText(PAUSE_COPY)).toBeVisible();
-  await expect(page.getByRole("link", { name: "Review plan" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Open the post board" })).toHaveCount(0);
   await page.getByLabel("Message Sochestral").fill("Which social accounts are connected?");
   await page.getByRole("button", { name: "Send message" }).click();
   await expect(page.getByText(CONNECTED_COPY)).toBeVisible();
-  await expect(page.getByRole("link", { name: "Review plan" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Open the post board" })).toHaveCount(0);
   await page.getByLabel("Message Sochestral").fill("continue planning");
   await page.getByRole("button", { name: "Send message" }).click();
   await expect(page.getByText(DIRECTION_QUESTION)).toBeVisible();
-  await expect(page.getByRole("link", { name: "Review plan" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Open the post board" })).toHaveCount(0);
   await page.screenshot({ path: "test-results/chat-plan-pause-resume.png", fullPage: true });
 });

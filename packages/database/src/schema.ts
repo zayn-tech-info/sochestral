@@ -104,6 +104,7 @@ export const planRevisionBatches = pgTable("plan_revision_batches", {
   id: text("id").primaryKey(),
   planId: text("plan_id").notNull().references(() => plans.id, { onDelete: "cascade" }),
   version: integer("version").notNull(),
+  kind: text("kind").notNull().default("plan"),
   status: text("status").notNull().default("submitted"),
   commentIds: jsonb("comment_ids").$type<string[]>().notNull().default([]),
   claimToken: text("claim_token"),
@@ -111,12 +112,13 @@ export const planRevisionBatches = pgTable("plan_revision_batches", {
   completedAt: timestamp("completed_at", { withTimezone: true }),
   errorCode: text("error_code"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, table => [check("plan_revision_batches_kind_check", sql`${table.kind} in ('plan', 'content')`)]);
 
 export const planComments = pgTable("plan_comments", {
   id: text("id").primaryKey(),
   planId: text("plan_id").notNull().references(() => plans.id, { onDelete: "cascade" }),
   version: integer("version").notNull(),
+  scope: text("scope").notNull().default("plan"),
   blockId: text("block_id").notNull(),
   quote: text("quote"),
   quoteContext: text("quote_context"),
@@ -127,7 +129,10 @@ export const planComments = pgTable("plan_comments", {
   status: text("status").notNull().default("pending"),
   batchId: text("batch_id").references(() => planRevisionBatches.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, table => [index("plan_comments_plan_status_idx").on(table.planId, table.status)]);
+}, table => [
+  index("plan_comments_plan_status_idx").on(table.planId, table.status),
+  check("plan_comments_scope_check", sql`${table.scope} in ('plan', 'board', 'post')`),
+]);
 
 export const workflowApprovals = pgTable("workflow_approvals", {
   id: text("id").primaryKey(),
@@ -165,6 +170,7 @@ export const contentItems = pgTable("content_items", {
   planVersion: integer("plan_version").notNull(),
   calendarItemId: text("calendar_item_id").notNull(),
   status: text("status").notNull(),
+  excludedAt: timestamp("excluded_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, table => [
   uniqueIndex("content_items_plan_version_calendar_uidx").on(table.planId, table.planVersion, table.calendarItemId),
@@ -185,6 +191,39 @@ export const contentRevisions = pgTable("content_revisions", {
 }, table => [
   uniqueIndex("content_revisions_item_revision_uidx").on(table.itemId, table.revision),
   check("content_revisions_block_reason_check", sql`${table.blockReason} is null or ${table.blockReason} in ('missing_media', 'unverified_placeholder')`),
+]);
+
+export const boardScheduleConfirmations = pgTable("board_schedule_confirmations", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  planId: text("plan_id").notNull().references(() => plans.id, { onDelete: "cascade" }),
+  planVersion: integer("plan_version").notNull(),
+  timezone: text("timezone").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const boardScheduleOperations = pgTable("board_schedule_operations", {
+  id: text("id").primaryKey(),
+  confirmationId: text("confirmation_id").notNull().references(() => boardScheduleConfirmations.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  planId: text("plan_id").notNull().references(() => plans.id, { onDelete: "cascade" }),
+  itemId: text("item_id").notNull().references(() => contentItems.id, { onDelete: "cascade" }),
+  revisionId: text("revision_id").notNull().references(() => contentRevisions.id, { onDelete: "restrict" }),
+  destination: text("destination").notNull(),
+  connectedAccountId: text("connected_account_id").notNull(),
+  localTime: text("local_time").notNull(),
+  publishAt: timestamp("publish_at", { withTimezone: true }).notNull(),
+  timezone: text("timezone").notNull(),
+  status: text("status").notNull().default("queued"),
+  idempotencyKey: text("idempotency_key").notNull(),
+  receipt: jsonb("receipt").$type<Record<string, unknown>>(),
+  errorCode: text("error_code"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  uniqueIndex("board_schedule_operations_idempotency_uidx").on(table.idempotencyKey),
+  index("board_schedule_operations_plan_idx").on(table.planId),
+  check("board_schedule_operations_status_check", sql`${table.status} in ('queued', 'scheduling', 'scheduled', 'needs_attention')`),
+  check("board_schedule_operations_destination_check", sql`${table.destination} in ('threads', 'instagram', 'linkedin_personal')`),
 ]);
 
 export const sessions = pgTable(
