@@ -135,6 +135,9 @@ describe("plan API", () => {
     expect(body.contentItems.find(item => item.calendarItemId === "item_image")?.status).toBe("blocked");
     expect(await database.db.select().from(campaignJobs)).toHaveLength(0);
     expect(complete.mock.calls[0]?.[0].tools?.[0]?.name).toBe("save_content_set");
+    const again = await post(`/plans/${planId}/create-content`, { version: 1, confirm: true });
+    expect(again.status).toBe(200);
+    expect(await again.json()).toMatchObject({ contentJob: { status: "applied" }, contentItems: expect.arrayContaining([expect.objectContaining({ calendarItemId: "item_text", status: "ready" })]) });
   });
 
   it("stores comments immediately and rejects an anchor absent from the reviewed version", async () => {

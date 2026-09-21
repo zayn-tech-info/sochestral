@@ -67,6 +67,8 @@ export async function enqueueCreateContent(db: Db, input: { userId: string; plan
     const [version] = await tx.select().from(planVersions).where(and(eq(planVersions.planId, input.planId), eq(planVersions.version, input.version)));
     if (!version) throw new PlanWorkflowError("PLAN_NOT_FOUND");
     if (!planCalendarItems(version.document).length) throw new PlanWorkflowError("NO_CALENDAR_ITEMS");
+    const existing = await loadContentForVersion(connection, input.planId, input.version);
+    if (existing.contentJob) return existing;
     await tx.insert(contentGenerationJobs).values({
       id: id("cjob"), userId: input.userId, planId: input.planId, planVersion: input.version,
     }).onConflictDoNothing({ target: [contentGenerationJobs.planId, contentGenerationJobs.planVersion] });

@@ -17,8 +17,8 @@ export function startPlanWorker(db: Database["db"]): () => void {
         await processOnePlanRevision(db, shared);
         await processOneContentJob(db, shared);
       }
-    } catch {
-      console.error("[sochestral:plan-worker] tick failed");
+    } catch (error) {
+      console.error("[sochestral:plan-worker] tick failed", error instanceof Error ? error.message : "unknown");
     } finally {
       if (!stopped) timer = setTimeout(tick, 3000);
     }

@@ -9,7 +9,7 @@ import { reattachComment, approvePlan, commentOnPlan, createPlanContent, getPlan
 function message(error: unknown) {
   return error instanceof ApiError && error.code === "STALE_VERSION"
     ? "This plan changed. Refresh to review the latest version before continuing."
-    : "Could not save this action. Your text is still here; please try again.";
+    : "Could not finish this action. Please try again.";
 }
 
 export function PlansList() {

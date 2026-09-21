@@ -22,7 +22,8 @@ async function respond(c: Context<PlanEnv>, work: () => Promise<unknown>) {
         : 422;
       return c.json({ error: error.code }, status);
     }
-    console.error("[sochestral:plans] request failed", { error: "INTERNAL_ERROR" });
+    const message = error instanceof Error ? error.message : "INTERNAL_ERROR";
+    console.error("[sochestral:plans] request failed", { error: message });
     return c.json({ error: "INTERNAL_ERROR" }, 500);
   }
 }
