@@ -10,12 +10,14 @@
 
 | Field | Value |
 | --- | --- |
-| Current step | **L6** — content review and content approval |
-| Last completed | **L5** (21 Sep 2026): durable captions per calendar item on a direction-approved plan version |
-| Do not start | Schedule confirmation, billing, WhatsApp, Phase 8 expansion |
-| Stop if | A later step would invent a deferred commercial policy, publish live, migrate production Neon, or treat direction approval as schedule permission |
+| Current step | **Post board** — Review comments and **Schedule posts** (user-facing P05.4–8). Internal strategy plan stays optional. |
+| Last completed | **L5** (21 Sep 2026): durable captions per calendar item. Direction approval and Create content are no longer the default user path. |
+| Do not start | Billing, WhatsApp, live publish, a third visual system, replacing Thesean |
+| Stop if | A later step would invent a deferred commercial policy, publish live, migrate production Neon, treat interview wording as schedule permission, or lead with the strategy document instead of posts |
 
 Update this table at the end of every completed step. Do not mark a step complete from code review alone.
+
+**Locked user loop:** interview or delegate → internal plan plus caption jobs → **post board** (captions, times, platforms, format, media) → **Review** when there are unsent comments → **Schedule posts** queues every ready, non-excluded row after on-board confirm (timezone, owned accounts, future local times). Optional “View how this was planned.” No second confirm sheet. No live publish.
 
 ---
 
@@ -53,7 +55,7 @@ Locked decisions (do not reopen inside a step):
 
 - Scheduling only. No product immediate publish. No full access / trusted autonomy. A14.
 - One brand per user at launch. A15. This is not a one social account limit.
-- Interview or delegate → versioned plan → comments → approve **direction** → finished content → content approval → confirm accounts/dates/timezone → queue → due time publish. P05, A02.
+- Interview or delegate → versioned **internal** plan → automatic captions → user-facing **post board** → Review (board/post comments) → **Schedule posts** (ready rows, timezone, owned accounts) → queue → due time publish. P05.4–8 are posts. Strategy comment/approve is optional/internal. A02, A14.
 - No arbitrary 30 post commercial ceiling.
 - Paddle working prices exist for sandbox later. Trial, expiry, rollover, account limits, auto top up, cancellation, refunds remain **deferred**. Do not invent them.
 - SocialMCP owns tokens, schedule receipts, and due time publication. Sochestral owns brand context, plans, content, review, timezone conversion, credits, and confirmation.
@@ -64,17 +66,16 @@ Locked decisions (do not reopen inside a step):
 
 Plain outcome from P02 / P05:
 
-Sochestral is an AI content partner. A user brings a brand and real work. The product interviews or accepts delegation, writes a persistent plan, takes comments, generates finished posts after direction approval, lets the user review those posts, then schedules only after explicit confirmation. Posts publish when due through SocialMCP.
+Sochestral is an AI content partner. A user brings a brand and real work. The product interviews or accepts delegation, writes a persistent **internal** plan, starts captions automatically, lands the user on a **post board**, takes general and per-post comments (Review), then queues every ready non-excluded row with **Schedule posts**. Posts publish when due through SocialMCP.
 
 The demonstration that must eventually work (P13):
 
 1. User supplies brand context (and later a short voice note or examples).
 2. Product asks two useful questions or proceeds on delegation.
-3. A focused persistent plan appears.
-4. User highlights a comment; the same document revises.
-5. User approves direction; finished captions and variants appear.
-6. User approves content, reviews destinations and timezone, confirms schedule.
-7. Queue shows truthful status. Due time publication happens without keeping the page open.
+3. Captions, suggested times, platforms, format, and media appear on a post board. Internal plan is optional.
+4. User comments on a post or the whole set; Review revises those captions in place.
+5. Schedule posts confirms platform, account, and local time on each ready row. No second sheet.
+6. Queue shows truthful status. Due time publication happens without keeping the page open.
 
 Until that loop is real, launch copy must describe only what exists.
 
@@ -294,46 +295,45 @@ Relative size is guidance. Do the steps in order unless a later step is marked *
 
 **Done when:** One plan can produce at least one persisted caption revision visible in UI or API, with no SocialMCP traffic.
 
-**Next:** L6.
+**Next:** Post board (user-facing Review / Schedule posts). L6/L7 are not a second strategy approval or a separate confirm wizard.
 
 ---
 
-### L6 — Content review and content approval
+### L6 — Content review on the post board (user-facing posts)
 
-**Status:** Not started. Depends on L5.  
-**Gold:** P05.7, A04 Phase 3 items 10–12.
+**Status:** In progress with the post board (replaces a separate content-approval wizard). Strategy comment/approve remains an internal/optional path.  
+**Gold:** P05.4–7 as **user-facing posts**, A04 Phase 3 items 10–12, A12 board not strategy chrome.
 
 **Build:**
 
-1. User can edit, comment, regenerate a selected part, or exclude an item. One bad caption must not force full campaign regeneration.
-2. Content approval is a separate record: revision id, actor, timestamp. It is not direction approval.
-3. Edit to unscheduled approved content invalidates that content approval.
-4. Unsupported claims and missing assets stay visible.
-5. Short requests (single post) use a compact flow but still require content review and later schedule confirmation.
+1. Default `/app/plans/:id` is a post board: caption, destinations, suggested time, format, media/preview, ready or blocked, exclude, per-post comment. Right column is one general comment thread.
+2. Unsent board or post comments make the primary CTA **Review**. Otherwise **Schedule posts**.
+3. Review submits comments with scope `post` (content item id) or `board` (plan). The worker revises **content revisions** in place. It does not lead with a strategy rewrite.
+4. Exclude omits a row from Schedule posts. Blocked rows (missing image, unverified claim, disconnected account, missing timezone) stay visible. A blocked row that is not excluded 422s Schedule posts and names the row.
+5. Optional “View how this was planned.” Copy is about posts and the queue, not “direction” or “create content.”
 
-**Tests:** Approval does not survive an edit; excluded item cannot be selected for schedule later; regenerate one item leaves siblings intact.
+**Tests:** Board comments do not schedule; Review edits captions without granting queue writes; excluded rows are omitted; siblings stay intact.
 
-**Done when:** G5 exists in the database and API, enforced server side.
+**Done when:** G5 is the board Review path, enforced server side.
 
-**Next:** L7.
+**Next:** L7 as on-board Schedule posts, not a second wizard.
 
 ---
 
-### L7 — Confirm schedule (accounts, dates, timezone)
+### L7 — Schedule posts (on-board confirm)
 
-**Status:** Not started. Depends on L6. Timezone columns and `resolveScheduleTime` already exist.  
+**Status:** In progress with the post board. Replaces L7 as a separate confirm sheet.  
 **Gold:** P05.8, A04 Phase 1 item 6, Phase 2 items 3–4, Phase 3 item 11, A14, Execution Contract.
 
 **Build:**
 
-1. Schedule UI lists selected approved revisions, destination connected account ids, local times, confirmed IANA timezone, and computed UTC instants.
-2. Confirm schedule is an explicit user action. Server checks: content approval current, timezone confirmed on profile, accounts owned by tenant, future instant, no silent “now.”
-3. “Publish now” language routes into this review. It must not create a schedule for the current instant to fake immediate posting.
-4. Unconfirmed timezone cannot bind. Browser detection remains a suggestion (already true on profile).
+1. **Schedule posts** is one POST with `confirm: true`. It queues every ready, non-excluded row. Confirm lives on the board (platform, account, local time on each row).
+2. Server checks: session owns the plan; timezone confirmed on the profile; each included row has the current caption revision, a connected account they own, a future local time, and a destination allowed for that post. No silent “now.” No `publish_now`.
+3. Persist the confirmation payload, then SocialMCP `schedule_post` per row.
+4. Interview wording never grants this write. Schedule posts is the only queue write from the board.
 5. DST gaps and overlaps use existing `resolveScheduleTime` rules.
-6. Persist the confirmation payload (revision, account, UTC, timezone, logical operation id) before calling SocialMCP.
 
-**Tests:** Missing timezone confirmation 422; stale content approval 409; confirm false or omitted does not write; dry run does not persist remote receipts.
+**Tests:** Missing timezone confirmation 422; confirm false or omitted does not write; blocked non-excluded row 422 names the row; fake MCP stores a receipt; no live publish.
 
 **Done when:** G6 is real for at least one destination in tests with a fake MCP client.
 

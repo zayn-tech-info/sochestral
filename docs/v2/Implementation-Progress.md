@@ -2,7 +2,7 @@
 
 Started 10 September 2026. Status: in progress. This is a completion record, not a release claim.
 
-**Execution order from 20 September 2026:** follow [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md) one step at a time. Current step in that file is L6 (content review and content approval). This progress log remains the dated evidence record.
+**Execution order from 20 September 2026:** follow [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md). Current user-facing step is the **post board** (Review / Schedule posts). This progress log remains the dated evidence record.
 
 ## Authority and baseline
 
@@ -34,7 +34,7 @@ Current verification evidence:
 
 ## Remaining work
 
-The ordered steps are L1–L18 in [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md). L1–L5 are done. Do not start L7 while L6 is open. Summary of what those steps cover:
+The ordered steps are L1–L18 in [`Sochestral-V2-Launch-Plan.md`](./Sochestral-V2-Launch-Plan.md). L1–L5 are done. Next user-facing work is the post board plus Review / Schedule posts (L6/L7 combined for the user). Summary of what those steps cover:
 
 Phase 0: finish cross repository contract and fault harness coverage, isolated full test baselines, browser calendar check and delivery CI gate.
 
@@ -256,4 +256,4 @@ Verification (pinned `TEST_DATABASE_URL=postgresql://sochestral:sochestral@127.0
 - Web `plan-viewer.test.tsx`: 7 passing (captions render; L4 refuse notice gone).
 - Typecheck: database, api, orchestration, web.
 
-Fake provider only. Next: L6 content review and content approval. Do not implement L6 in this commit.
+Fake provider only. Next: post board (user-facing posts). Do not lead with Approve plan direction or Create content.
