@@ -183,6 +183,13 @@
       "when": 1789141155796,
       "tag": "0025_chubby_psynapse",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1789952973224,
+      "tag": "0026_sweet_blazing_skull",
+      "breakpoints": true
     }
   ]
 }

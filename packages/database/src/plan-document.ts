@@ -51,6 +51,16 @@ export const planDocumentSchema = z.object({
 });
 
 export type PlanDocument = z.infer<typeof planDocumentSchema>;
+export type PlanCalendarItem = z.infer<typeof planCalendarItemSchema>;
+
+export function planCalendarItems(document: PlanDocument): PlanCalendarItem[] {
+  const items: PlanCalendarItem[] = [];
+  for (const section of document.sections) {
+    if (section.type !== "calendar") continue;
+    for (const block of section.blocks) if (block.kind === "calendar") items.push(...block.items);
+  }
+  return items;
+}
 
 /** Exact rendered text used to validate selection anchors. */
 export function planAnchorText(document: PlanDocument): Map<string, string> {

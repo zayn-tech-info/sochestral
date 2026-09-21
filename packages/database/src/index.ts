@@ -288,7 +288,10 @@ export { generationContexts, generationContextUses } from "./schema.js";
 
 export { usageAttempts } from "./schema.js";
 
-export { planDocumentSchema, planAnchorText, type PlanDocument } from "./plan-document.js";
-export { reattachPlanComment, claimPlanRevision, finishPlanRevisionFailure, recoverExpiredPlanRevisions, createPlan, getPlan, listPlans, addPlanComment, submitPlanComments, revisePlan, approvePlanDirection, refuseCreateContent, PlanWorkflowError } from "./plans.js";
-export { plans, planVersions, planComments, planRevisionBatches, workflowApprovals } from "./schema.js";
+export { planDocumentSchema, planAnchorText, planCalendarItems, type PlanDocument, type PlanCalendarItem } from "./plan-document.js";
+export { reattachPlanComment, claimPlanRevision, finishPlanRevisionFailure, recoverExpiredPlanRevisions, createPlan, getPlan, listPlans, addPlanComment, submitPlanComments, revisePlan, approvePlanDirection, PlanWorkflowError } from "./plans.js";
+export {
+  enqueueCreateContent, claimContentJob, finishContentJobFailure, recoverExpiredContentJobs, applyContentSet, loadContentForVersion, contentBlockState,
+} from "./content.js";
+export { plans, planVersions, planComments, planRevisionBatches, workflowApprovals, contentGenerationJobs, contentItems, contentRevisions } from "./schema.js";
 export { getPlanInterview, savePlanInterview, planInterviewStateSchema, planInterviewRequestSchema, type PlanInterviewState } from "./plan-interview.js";

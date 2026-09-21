@@ -141,6 +141,52 @@ export const workflowApprovals = pgTable("workflow_approvals", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, table => [uniqueIndex("workflow_approvals_exact_uidx").on(table.userId, table.scope, table.targetId, table.revision)]);
 
+export const contentGenerationJobs = pgTable("content_generation_jobs", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  planId: text("plan_id").notNull().references(() => plans.id, { onDelete: "cascade" }),
+  planVersion: integer("plan_version").notNull(),
+  status: text("status").notNull().default("submitted"),
+  claimToken: text("claim_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  errorCode: text("error_code"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  uniqueIndex("content_generation_jobs_plan_version_uidx").on(table.planId, table.planVersion),
+  index("content_generation_jobs_status_idx").on(table.status),
+  check("content_generation_jobs_status_check", sql`${table.status} in ('submitted', 'running', 'applied', 'needs_attention')`),
+]);
+
+export const contentItems = pgTable("content_items", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  planId: text("plan_id").notNull().references(() => plans.id, { onDelete: "cascade" }),
+  planVersion: integer("plan_version").notNull(),
+  calendarItemId: text("calendar_item_id").notNull(),
+  status: text("status").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  uniqueIndex("content_items_plan_version_calendar_uidx").on(table.planId, table.planVersion, table.calendarItemId),
+  check("content_items_status_check", sql`${table.status} in ('blocked', 'ready')`),
+]);
+
+export const contentRevisions = pgTable("content_revisions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  itemId: text("item_id").notNull().references(() => contentItems.id, { onDelete: "cascade" }),
+  revision: integer("revision").notNull(),
+  caption: text("caption").notNull(),
+  destinations: jsonb("destinations").$type<Array<"threads" | "instagram" | "linkedin_personal">>().notNull(),
+  format: text("format").notNull(),
+  assetNeeds: jsonb("asset_needs").$type<string[]>().notNull().default([]),
+  blockReason: text("block_reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  uniqueIndex("content_revisions_item_revision_uidx").on(table.itemId, table.revision),
+  check("content_revisions_block_reason_check", sql`${table.blockReason} is null or ${table.blockReason} in ('missing_media', 'unverified_placeholder')`),
+]);
+
 export const sessions = pgTable(
   "sessions",
   {

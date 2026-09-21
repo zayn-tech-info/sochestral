@@ -2,15 +2,13 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, isNull, lte, exists, notExists } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { getOwnedConversation } from "./orchestration.js";
-import { generationContexts, plans, planVersions, planComments, planRevisionBatches, workflowApprovals } from "./schema.js";
+import { generationContexts, plans, planVersions, planComments, planRevisionBatches, workflowApprovals, contentGenerationJobs } from "./schema.js";
 import { planAnchorText, planDocumentSchema, type PlanDocument } from "./plan-document.js";
+import { loadContentForVersion } from "./content.js";
+import { PlanWorkflowError } from "./plan-errors.js";
 
 type Db = Database["db"];
-export class PlanWorkflowError extends Error {
-  constructor(public readonly code: "PLAN_NOT_FOUND" | "STALE_VERSION" | "INVALID_DOCUMENT" | "INVALID_ANCHOR" | "INVALID_COMMENT" | "INVALID_BATCH" | "CONTEXT_NOT_FOUND" | "CONTENT_NOT_READY") {
-    super(code);
-  }
-}
+export { PlanWorkflowError };
 const id = (prefix: string) => `${prefix}_${randomUUID()}`;
 function documentFrom(value: unknown): PlanDocument {
   const parsed = planDocumentSchema.safeParse(value);
@@ -54,7 +52,8 @@ export async function getPlan(db: Db, userId: string, planId: string, requestedV
     const comments = await tx.select().from(planComments).where(eq(planComments.planId, planId)).orderBy(planComments.createdAt);
     const approvals = await tx.select().from(workflowApprovals).where(and(eq(workflowApprovals.planId, planId), isNull(workflowApprovals.invalidatedAt)));
     const batches = await tx.select().from(planRevisionBatches).where(eq(planRevisionBatches.planId, planId)).orderBy(desc(planRevisionBatches.createdAt));
-    return { plan, version, comments, approvals, batches: batches.map(({ claimToken: _token, ...batch }) => batch) };
+    const content = await loadContentForVersion(tx as unknown as Db, planId, version.version);
+    return { plan, version, comments, approvals, batches: batches.map(({ claimToken: _token, ...batch }) => batch), ...content };
   }, { isolationLevel: "repeatable read", accessMode: "read only" });
 }
 
@@ -158,6 +157,7 @@ export async function revisePlan(db: Db, input: { userId: string; planId: string
       await tx.update(planComments).set({ status }).where(eq(planComments.id, comment.id));
     }
     await tx.update(planRevisionBatches).set({ status: "stale" }).where(and(eq(planRevisionBatches.planId, input.planId), inArray(planRevisionBatches.status, ["submitted", "running"])));
+    await tx.update(contentGenerationJobs).set({ status: "needs_attention", errorCode: "STALE_VERSION", completedAt: new Date(), claimToken: null, leaseExpiresAt: null }).where(and(eq(contentGenerationJobs.planId, input.planId), inArray(contentGenerationJobs.status, ["submitted", "running"])));
     if (input.batchId) await tx.update(planRevisionBatches).set({ status: "applied", completedAt: new Date(), claimToken: null, leaseExpiresAt: null }).where(eq(planRevisionBatches.id, input.batchId));
     return version!;
   });
@@ -171,12 +171,6 @@ export async function approvePlanDirection(db: Db, input: { userId: string; plan
     const [approval] = await tx.select().from(workflowApprovals).where(and(eq(workflowApprovals.userId, input.userId), eq(workflowApprovals.targetId, input.planId), eq(workflowApprovals.scope, "plan_direction"), eq(workflowApprovals.revision, input.version)));
     return approval!;
   });
-}
-
-/** L4 stub: direction approval never generates captions. L5 owns creation. */
-export async function refuseCreateContent(db: Db, input: { userId: string; planId: string; version: number }): Promise<never> {
-  await ownPlan(db, input.userId, input.planId, input.version);
-  throw new PlanWorkflowError("CONTENT_NOT_READY");
 }
 
 /** Claim one plan at a time; every plan mutation takes this same parent lock first. */

@@ -2,7 +2,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createDb, type Database } from "./client.js";
 import { requireTestDatabaseUrl } from "./env.js";
 import { provisionUser } from "./users.js";
-import { reattachPlanComment, claimPlanRevision, finishPlanRevisionFailure, createPlan, getPlan, addPlanComment, submitPlanComments, revisePlan, approvePlanDirection, refuseCreateContent } from "./plans.js";
+import { reattachPlanComment, claimPlanRevision, finishPlanRevisionFailure, createPlan, getPlan, addPlanComment, submitPlanComments, revisePlan, approvePlanDirection } from "./plans.js";
+import { enqueueCreateContent } from "./content.js";
 import { campaignJobs, planVersions, workflowApprovals } from "./schema.js";
 import type { PlanDocument } from "./plan-document.js";
 
@@ -38,7 +39,7 @@ describe("versioned plan workflow", () => {
     expect(versions.find(row => row.version === 1)?.document.sections[0]?.blocks[0]).toMatchObject({ text: "Discuss goal" });
     expect((await database.db.select().from(workflowApprovals))[0]?.invalidationReason).toBe("Plan revised");
     await expect(approvePlanDirection(database.db, { userId, planId, version: 1 })).rejects.toMatchObject({ code: "STALE_VERSION" });
-    await expect(refuseCreateContent(database.db, { userId, planId, version: 2 })).rejects.toMatchObject({ code: "CONTENT_NOT_READY" });
+    await expect(enqueueCreateContent(database.db, { userId, planId, version: 2 })).rejects.toMatchObject({ code: "DIRECTION_NOT_APPROVED" });
     expect(await database.db.select().from(campaignJobs)).toHaveLength(0);
   });
 
