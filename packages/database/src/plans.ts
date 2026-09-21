@@ -120,14 +120,13 @@ export async function submitPlanComments(db: Db, input: { userId: string; planId
       const [version] = await tx.select().from(planVersions).where(and(eq(planVersions.planId, input.planId), eq(planVersions.version, input.version)));
       if (!version || comments.some(comment => !anchorMatches(planAnchorText(version.document), comment))) throw new PlanWorkflowError("INVALID_ANCHOR");
     } else {
+      const items = await tx.select({ id: contentItems.id }).from(contentItems).where(and(
+        eq(contentItems.planId, input.planId), eq(contentItems.planVersion, input.version),
+      ));
+      if (!items.length) throw new PlanWorkflowError("CONTENT_NOT_READY");
       for (const comment of comments) {
         if (comment.scope === "board" && comment.blockId !== "board") throw new PlanWorkflowError("INVALID_ANCHOR");
-        if (comment.scope === "post") {
-          const [item] = await tx.select({ id: contentItems.id }).from(contentItems).where(and(
-            eq(contentItems.id, comment.blockId), eq(contentItems.planId, input.planId), eq(contentItems.planVersion, input.version),
-          ));
-          if (!item) throw new PlanWorkflowError("INVALID_ANCHOR");
-        }
+        if (comment.scope === "post" && !items.some(item => item.id === comment.blockId)) throw new PlanWorkflowError("INVALID_ANCHOR");
       }
     }
     const [batch] = await tx.insert(planRevisionBatches).values({ id: id("pbatch"), planId: input.planId, version: input.version, kind, commentIds: input.commentIds }).returning();

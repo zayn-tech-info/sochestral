@@ -107,10 +107,13 @@ export function registerPlanRoutes(app: Hono<Env>, db: Database["db"], deps?: {
     const input = await body(c);
     if (input.confirm !== true || !version(input.version)) throw new PlanWorkflowError("INVALID_DOCUMENT");
     if (!deps?.connectors || !deps?.mcp) throw new PlanWorkflowError("INVALID_SCHEDULE");
+    let mcp;
+    try { mcp = deps.mcp(); }
+    catch { throw new PlanWorkflowError("INVALID_SCHEDULE"); }
     try {
       return await confirmBoardSchedule(db, {
         userId: c.get("userId"), planId: c.req.param("id"), version: input.version, confirm: true,
-        rows: parseBoardScheduleRows(input.rows), connectors: deps.connectors(), mcp: deps.mcp(),
+        rows: parseBoardScheduleRows(input.rows), connectors: deps.connectors(), mcp,
       });
     } catch (error) {
       if (isUniqueViolation(error)) throw new PlanWorkflowError("INVALID_SCHEDULE");

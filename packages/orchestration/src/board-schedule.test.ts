@@ -70,7 +70,16 @@ describe("board schedule posts", () => {
     expect(result.operations[0]).toMatchObject({ status: "scheduled", destination: "threads" });
     expect(gateway.callTool).toHaveBeenCalledWith(expect.objectContaining({
       name: "schedule_post",
-      arguments: expect.objectContaining({ confirm: true, connectedAccountId: "acct_threads", platforms: ["threads"], text: "A shop-floor caption." }),
+      arguments: expect.objectContaining({
+        confirm: true,
+        connectedAccountId: "acct_threads",
+        platforms: ["threads"],
+        text: "A shop-floor caption.",
+        scheduledAt: expect.stringMatching(/^2031-01-02T09:00:00/),
+      }),
+    }));
+    expect(gateway.callTool).not.toHaveBeenCalledWith(expect.objectContaining({
+      arguments: expect.objectContaining({ publishAt: expect.anything() }),
     }));
     expect(gateway.callTool).not.toHaveBeenCalledWith(expect.objectContaining({ name: "publish_now" }));
     expect(await database.db.select().from(boardScheduleOperations)).toHaveLength(1);
@@ -87,6 +96,26 @@ describe("board schedule posts", () => {
       ],
     })).rejects.toMatchObject({ code: "SCHEDULE_NOT_READY", details: { itemIds: [imageItemId] } });
     expect(gateway.callTool).not.toHaveBeenCalled();
+  });
+
+  it("retries a needs_attention row without inserting a duplicate operation", async () => {
+    const gateway = mcp();
+    vi.mocked(gateway.callTool).mockRejectedValueOnce(new Error("down"));
+    const rows = [
+      { itemId: textItemId, localTime: "2031-01-02T09:00", accounts: { threads: "acct_threads" } },
+      { itemId: imageItemId, excluded: true },
+    ];
+    const failed = await confirmBoardSchedule(database.db, {
+      userId, planId, version: 1, confirm: true, connectors, mcp: gateway, now: new Date("2030-01-01T00:00:00Z"), rows,
+    });
+    expect(failed.operations[0]).toMatchObject({ status: "needs_attention", errorCode: "SOCIALMCP_UNAVAILABLE" });
+    vi.mocked(gateway.callTool).mockResolvedValue({ value: { ok: true, scheduled: [{ id: "sched_retry" }] }, attempts: 1 });
+    const retried = await confirmBoardSchedule(database.db, {
+      userId, planId, version: 1, confirm: true, connectors, mcp: gateway, now: new Date("2030-01-01T00:00:00Z"), rows,
+    });
+    expect(retried.operations).toHaveLength(1);
+    expect(retried.operations[0]).toMatchObject({ status: "scheduled", destination: "threads" });
+    expect(await database.db.select().from(boardScheduleOperations)).toHaveLength(1);
   });
 
   it("requires confirmed timezone and confirm true", async () => {

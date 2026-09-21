@@ -39,11 +39,17 @@ export async function persistBoardSchedule(db: Db, input: {
     }).returning();
     const operations = [];
     for (const row of input.destinations) {
+      const idempotencyKey = `board:${row.itemId}:${row.revisionId}:${row.destination}:${row.publishAt.toISOString()}`;
+      const [existing] = await tx.select().from(boardScheduleOperations).where(eq(boardScheduleOperations.idempotencyKey, idempotencyKey));
+      if (existing) {
+        operations.push(existing);
+        continue;
+      }
       const [operation] = await tx.insert(boardScheduleOperations).values({
         id: id("bop"), confirmationId: confirmation!.id, userId: input.userId, planId: input.planId,
         itemId: row.itemId, revisionId: row.revisionId, destination: row.destination,
         connectedAccountId: row.connectedAccountId, localTime: row.localTime, publishAt: row.publishAt,
-        timezone: row.timezone, status: "queued", idempotencyKey: `board:${row.itemId}:${row.revisionId}:${row.destination}:${row.publishAt.toISOString()}`,
+        timezone: row.timezone, status: "queued", idempotencyKey,
       }).returning();
       operations.push(operation!);
     }

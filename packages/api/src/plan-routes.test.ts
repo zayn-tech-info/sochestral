@@ -194,7 +194,7 @@ describe("plan API", () => {
     const queued = await schedule({ version: 1, confirm: true, rows });
     expect(queued.status).toBe(200);
     expect(await queued.json()).toMatchObject({ operations: [expect.objectContaining({ status: "scheduled", destination: "threads" })] });
-    expect(mcp.callTool).toHaveBeenCalledWith(expect.objectContaining({ name: "schedule_post", arguments: expect.objectContaining({ confirm: true, connectedAccountId: "acct_1" }) }));
+    expect(mcp.callTool).toHaveBeenCalledWith(expect.objectContaining({ name: "schedule_post", arguments: expect.objectContaining({ confirm: true, connectedAccountId: "acct_1", scheduledAt: expect.any(String) }) }));
     expect((await schedule({ version: 1, confirm: true, rows }, otherCookie)).status).toBe(404);
     expect(await database.db.select().from(campaignJobs)).toHaveLength(0);
   });

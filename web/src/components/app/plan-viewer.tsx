@@ -12,6 +12,7 @@ import {
 function message(error: unknown) {
   if (!(error instanceof ApiError)) return "Could not finish this action. Please try again.";
   if (error.code === "STALE_VERSION") return "This board changed. Refresh before continuing.";
+  if (error.code === "CONTENT_NOT_READY") return "Wait for captions or review to finish before continuing.";
   if (error.code === "TIMEZONE_NOT_CONFIRMED") return "Confirm your timezone in settings before scheduling.";
   if (error.code === "ACCOUNT_REQUIRED") return "Connect the account for each destination before scheduling.";
   if (error.code === "SCHEDULE_NOT_READY") return "A post is still blocked. Exclude it or fix it before scheduling.";
@@ -143,8 +144,8 @@ export function PlanViewer({ planId }: { planId: string }) {
         </div>
         <div className="flex flex-wrap gap-2">
           <button className="min-h-11 rounded-lg border px-4" onClick={() => void action(() => load(), "Board refreshed.")} disabled={busy}>Refresh</button>
-          {pending.length ? <button className="min-h-11 rounded-lg bg-primary px-4 text-primary-foreground disabled:opacity-50" disabled={busy || historical} onClick={() => void action(() => submitPlanComments(planId, detail.plan.currentVersion, pending.map(item => item.id)), "Comments sent for review.")}>Review</button>
-            : <button className="min-h-11 rounded-lg bg-primary px-4 text-primary-foreground disabled:opacity-50" disabled={busy || historical || !(detail.contentItems?.some(item => !item.excludedAt))} onClick={() => void action(() => schedulePlanPosts(planId, detail.plan.currentVersion, scheduleRows()), "Posts queued for the scheduled times.")}>Schedule posts</button>}
+          {pending.length ? <button className="min-h-11 rounded-lg bg-primary px-4 text-primary-foreground disabled:opacity-50" disabled={busy || historical || revisionActive || contentActive || !detail.contentItems?.length} onClick={() => void action(() => submitPlanComments(planId, detail.plan.currentVersion, pending.map(item => item.id)), "Comments sent for review.")}>Review</button>
+            : <button className="min-h-11 rounded-lg bg-primary px-4 text-primary-foreground disabled:opacity-50" disabled={busy || historical || revisionActive || contentActive || !(detail.contentItems?.some(item => !item.excludedAt))} onClick={() => void action(() => schedulePlanPosts(planId, detail.plan.currentVersion, scheduleRows()), "Posts queued for the scheduled times.")}>Schedule posts</button>}
         </div>
       </header>
       {detail.contentJob && (detail.contentJob.status === "submitted" || detail.contentJob.status === "running") && <p className="mb-5 rounded-lg border p-3 text-sm" role="status">{detail.contentJob.status === "running" ? "Writing these posts…" : "Writing these posts…"}</p>}

@@ -94,6 +94,17 @@ describe("post board", () => {
     expect(createPlanContent).toHaveBeenCalledWith("plan_1", 1);
   });
 
+  it("disables Schedule posts while review is running", async () => {
+    vi.mocked(getPlan).mockResolvedValue({
+      ...structuredClone(detail),
+      batches: [{ id: "b1", version: 1, kind: "content", status: "running", errorCode: null }],
+    });
+    render(<PlanViewer planId="plan_1" />);
+    await screen.findByText("A shop-floor caption for builders.");
+    expect(screen.getByRole("button", { name: "Schedule posts" })).toBeDisabled();
+    expect(schedulePlanPosts).not.toHaveBeenCalled();
+  });
+
   it("polls while captions are writing", async () => {
     const writing = { ...structuredClone(detail), contentJob: { id: "job_1", planVersion: 1, status: "running", errorCode: null }, contentItems: [] };
     vi.mocked(getPlan).mockResolvedValueOnce(writing).mockResolvedValue(detail);

@@ -33,9 +33,17 @@ export async function confirmBoardSchedule(db: Database["db"], input: {
   const detail = await getPlan(db, input.userId, input.planId, input.version);
   if (detail.plan.currentVersion !== input.version) throw new PlanWorkflowError("STALE_VERSION");
   if (!detail.board.timezoneConfirmed || !detail.board.timezone) throw new PlanWorkflowError("TIMEZONE_NOT_CONFIRMED");
+  if (detail.contentJob && (detail.contentJob.status === "submitted" || detail.contentJob.status === "running")) {
+    throw new PlanWorkflowError("CONTENT_NOT_READY");
+  }
+  if (detail.batches.some(batch => batch.kind === "content" && (batch.status === "submitted" || batch.status === "running"))) {
+    throw new PlanWorkflowError("CONTENT_NOT_READY");
+  }
   const byItem = new Map(detail.contentItems.map(item => [item.id, item]));
   const byRow = new Map(input.rows.map(row => [row.itemId, row]));
-  if (byRow.size !== input.rows.length || input.rows.some(row => !byItem.has(row.itemId))) throw new PlanWorkflowError("INVALID_SCHEDULE");
+  if (byRow.size !== input.rows.length || byRow.size !== byItem.size || input.rows.some(row => !byItem.has(row.itemId))) {
+    throw new PlanWorkflowError("INVALID_SCHEDULE");
+  }
   const listed = await input.connectors.list(input.userId);
   const owned = new Map<string, { platform: Platform; connected: boolean }>();
   for (const connector of listed.connectors) {
@@ -78,6 +86,10 @@ export async function confirmBoardSchedule(db: Database["db"], input: {
   });
   const operations = [];
   for (const operation of persisted.operations) {
+    if (operation.status === "scheduled") {
+      operations.push(operation);
+      continue;
+    }
     await markBoardScheduleOperation(db, { operationId: operation.id, status: "scheduling" });
     const item = byItem.get(operation.itemId)!;
     try {
@@ -89,12 +101,12 @@ export async function confirmBoardSchedule(db: Database["db"], input: {
           text: item.revision.caption,
           confirm: true,
           connectedAccountId: operation.connectedAccountId,
-          publishAt: operation.publishAt.toISOString(),
+          scheduledAt: operation.publishAt.toISOString(),
           idempotencyKey: operation.idempotencyKey,
         },
       });
       const value = result.value && typeof result.value === "object" ? result.value as Record<string, unknown> : { value: result.value };
-      if (value.ok === false) {
+      if (value.ok === false || !mcpAccepted(value)) {
         const failed = await markBoardScheduleOperation(db, {
           operationId: operation.id, status: "needs_attention", receipt: value,
           errorCode: typeof value.code === "string" ? value.code : "MCP_TOOL_ERROR",
@@ -108,6 +120,18 @@ export async function confirmBoardSchedule(db: Database["db"], input: {
     }
   }
   return { confirmation: persisted.confirmation, operations };
+}
+
+function mcpAccepted(value: Record<string, unknown>) {
+  if (value.ok === true) return true;
+  const scheduled = Array.isArray(value.scheduled) ? value.scheduled : [];
+  return scheduled.some(item => item && typeof item === "object" && typeof (item as { id?: unknown }).id === "string");
+}
+
+function localTime(value: unknown) {
+  if (typeof value !== "string") return undefined;
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value)) return value.slice(0, 16);
+  return value;
 }
 
 export function parseBoardScheduleRows(value: unknown): BoardScheduleRow[] {
@@ -127,7 +151,7 @@ export function parseBoardScheduleRows(value: unknown): BoardScheduleRow[] {
     return {
       itemId: record.itemId,
       excluded: record.excluded === true,
-      localTime: typeof record.localTime === "string" ? record.localTime : undefined,
+      localTime: localTime(record.localTime),
       accounts,
     };
   });
