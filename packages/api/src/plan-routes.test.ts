@@ -1,12 +1,24 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSession, SESSION_COOKIE_NAME } from "@sochestral/auth";
 import { campaignJobs, createDb, provisionUser, requireTestDatabaseUrl, type Database } from "@sochestral/database";
+import { processOneContentJob } from "@sochestral/orchestration";
 import { createApp } from "./app.js";
 
 const document = {
   schemaVersion: 1,
   sections: ["goal", "audience_voice", "direction", "calendar", "sources", "missing_inputs"].map(type => ({
     id: `s_${type}`, type, title: type, blocks: [{ id: `b_${type}`, kind: "paragraph", text: `Plan ${type}` }],
+  })),
+};
+const calendarDocument = {
+  schemaVersion: 1,
+  sections: ["goal", "audience_voice", "direction", "calendar", "sources", "missing_inputs"].map(type => ({
+    id: `s_${type}`, type, title: type, blocks: type === "calendar"
+      ? [{ id: "calendar_table", kind: "calendar", items: [
+        { id: "item_text", angle: "Shop tip", audience: "Builders", format: "text", destinations: ["threads"], proposedTime: null, assetNeeds: [] },
+        { id: "item_image", angle: "Clamp photo", audience: "Builders", format: "image", destinations: ["instagram"], proposedTime: null, assetNeeds: ["hero photo"] },
+      ] }]
+      : [{ id: `b_${type}`, kind: "paragraph", text: `Plan ${type}` }],
   })),
 };
 
@@ -55,8 +67,8 @@ describe("plan API", () => {
     const approved = await post(`/plans/${planId}/approve`, { version: 1, confirm: true });
     expect(await approved.json()).toMatchObject({ scope: "plan_direction", revision: 1 });
     expect(await database.db.select().from(campaignJobs)).toHaveLength(0);
-    expect((await post(`/plans/${planId}/create-content`, { version: 1, confirm: true })).status).toBe(409);
-    expect(await (await post(`/plans/${planId}/create-content`, { version: 1, confirm: true })).json()).toEqual({ error: "CONTENT_NOT_READY" });
+    expect((await post(`/plans/${planId}/create-content`, { version: 1, confirm: true })).status).toBe(422);
+    expect(await (await post(`/plans/${planId}/create-content`, { version: 1, confirm: true })).json()).toEqual({ error: "NO_CALENDAR_ITEMS" });
     expect((await post(`/plans/${planId}/versions`, { expectedVersion: 1, document })).status).toBe(200);
     expect((await post(`/plans/${planId}/approve`, { version: 1, confirm: true })).status).toBe(409);
     const result = await app.request(`/plans/${planId}`, { headers: { Cookie: cookie } });
@@ -94,15 +106,35 @@ describe("plan API", () => {
     for (const bad of ["0", "-1", "1.5", "1e0", "abc", "9007199254740992"]) expect((await read(`?version=${bad}`)).status).toBe(422);
   });
 
-  it("refuses create-content until captions exist and never inserts campaign jobs", async () => {
-    const planId = await create();
+  it("creates captions from a direction-approved calendar and never inserts campaign jobs", async () => {
+    const created = await post("/plans", { title: "Launch", document: calendarDocument });
+    const planId = (await created.json() as { plan: { id: string } }).plan.id;
     expect((await app.request(`/plans/${planId}/create-content`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: 1, confirm: true }) })).status).toBe(401);
     expect((await post(`/plans/${planId}/create-content`, { version: 1 })).status).toBe(422);
-    await post(`/plans/${planId}/approve`, { version: 1, confirm: true });
-    const refused = await post(`/plans/${planId}/create-content`, { version: 1, confirm: true });
-    expect(refused.status).toBe(409);
-    expect(await refused.json()).toEqual({ error: "CONTENT_NOT_READY" });
+    expect((await post(`/plans/${planId}/create-content`, { version: 1, confirm: true })).status).toBe(409);
+    expect(await (await post(`/plans/${planId}/create-content`, { version: 1, confirm: true })).json()).toEqual({ error: "DIRECTION_NOT_APPROVED" });
+    expect((await post(`/plans/${planId}/approve`, { version: 1, confirm: true })).status).toBe(200);
+    const queued = await post(`/plans/${planId}/create-content`, { version: 1, confirm: true });
+    expect(queued.status).toBe(200);
+    expect(await queued.json()).toMatchObject({ contentJob: { planVersion: 1, status: "submitted" }, contentItems: [] });
+    const replay = await post(`/plans/${planId}/create-content`, { version: 1, confirm: true });
+    expect(await replay.json()).toMatchObject({ contentJob: { status: "submitted" } });
+    const complete = vi.fn(async () => ({
+      content: null, thinking: null, toolCalls: [{ id: "call_1", name: "save_content_set", input: { items: [
+        { calendarItemId: "item_text", caption: "A shop-floor caption for builders." },
+        { calendarItemId: "item_image", caption: "Show the clamp on the bench." },
+      ] } }], inputTokens: 0, outputTokens: 0, attempts: 1,
+    }));
+    expect(await processOneContentJob(database.db, { provider: { complete }, model: "test-model", maxTokens: 4000 })).toBe("applied");
+    const result = await app.request(`/plans/${planId}`, { headers: { Cookie: cookie } });
+    const body = await result.json() as { contentJob: { status: string }; contentItems: Array<{ calendarItemId: string; status: string }> };
+    expect(body.contentJob.status).toBe("applied");
+    expect(body).not.toEqual(expect.objectContaining({ contentJob: expect.objectContaining({ claimToken: expect.anything() }) }));
+    expect(body.contentItems).toHaveLength(2);
+    expect(body.contentItems.find(item => item.calendarItemId === "item_text")?.status).toBe("ready");
+    expect(body.contentItems.find(item => item.calendarItemId === "item_image")?.status).toBe("blocked");
     expect(await database.db.select().from(campaignJobs)).toHaveLength(0);
+    expect(complete.mock.calls[0]?.[0].tools?.[0]?.name).toBe("save_content_set");
   });
 
   it("stores comments immediately and rejects an anchor absent from the reviewed version", async () => {

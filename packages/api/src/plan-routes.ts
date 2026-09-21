@@ -1,7 +1,7 @@
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
 import { SESSION_COOKIE_NAME, validateSessionToken } from "@sochestral/auth";
-import { reattachPlanComment, createPlan, getPlan, listPlans, addPlanComment, submitPlanComments, revisePlan, approvePlanDirection, refuseCreateContent, PlanWorkflowError, type Database } from "@sochestral/database";
+import { reattachPlanComment, createPlan, getPlan, listPlans, addPlanComment, submitPlanComments, revisePlan, approvePlanDirection, enqueueCreateContent, PlanWorkflowError, type Database } from "@sochestral/database";
 import { isAllowedCorsOrigin } from "./cors-origin.js";
 import type { Env } from "./app.js";
 
@@ -17,7 +17,9 @@ async function respond(c: Context<PlanEnv>, work: () => Promise<unknown>) {
   try { return c.json(await work()); }
   catch (error) {
     if (error instanceof PlanWorkflowError) {
-      const status = error.code === "PLAN_NOT_FOUND" || error.code === "CONTEXT_NOT_FOUND" ? 404 : error.code === "STALE_VERSION" || error.code === "CONTENT_NOT_READY" ? 409 : 422;
+      const status = error.code === "PLAN_NOT_FOUND" || error.code === "CONTEXT_NOT_FOUND" ? 404
+        : error.code === "STALE_VERSION" || error.code === "CONTENT_NOT_READY" || error.code === "DIRECTION_NOT_APPROVED" ? 409
+        : 422;
       return c.json({ error: error.code }, status);
     }
     console.error("[sochestral:plans] request failed", { error: "INTERNAL_ERROR" });
@@ -83,7 +85,7 @@ export function registerPlanRoutes(app: Hono<Env>, db: Database["db"]) {
   routes.post("/:id/create-content", c => respond(c, async () => {
     const input = await body(c);
     if (input.confirm !== true || !version(input.version)) throw new PlanWorkflowError("INVALID_DOCUMENT");
-    return refuseCreateContent(db, { userId: c.get("userId"), planId: c.req.param("id"), version: input.version });
+    return enqueueCreateContent(db, { userId: c.get("userId"), planId: c.req.param("id"), version: input.version });
   }));
   app.route("/plans", routes);
 }

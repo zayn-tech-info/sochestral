@@ -17,7 +17,7 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
   vi.mocked(getPlan).mockResolvedValue(structuredClone(detail));
   vi.mocked(approvePlan).mockResolvedValue({});
-  vi.mocked(createPlanContent).mockRejectedValue(new ApiError(409, "CONTENT_NOT_READY", {}));
+  vi.mocked(createPlanContent).mockResolvedValue({});
 });
 
 describe("plan review", () => {
@@ -30,14 +30,30 @@ describe("plan review", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("Content still needs review before scheduling");
   });
 
-  it("shows Create content after direction approval and surfaces the L4 refuse notice", async () => {
-    vi.mocked(getPlan).mockResolvedValue({ ...structuredClone(detail), approvals: [{ scope: "plan_direction", revision: 1 }] });
-    vi.mocked(createPlanContent).mockRejectedValue(new ApiError(409, "CONTENT_NOT_READY", {}));
+  it("shows Create content after direction approval and lists captions after the job applies", async () => {
+    const approved = {
+      ...structuredClone(detail),
+      approvals: [{ scope: "plan_direction", revision: 1 }],
+      version: { ...detail.version, document: { schemaVersion: 1 as const, sections: [
+        { id: "goal", type: "goal", title: "Goal", blocks: [{ id: "goal_text", kind: "paragraph" as const, text: "Reach workshop owners" }] },
+        { id: "calendar", type: "calendar", title: "Calendar", blocks: [{ id: "cal", kind: "calendar" as const, items: [{ id: "item_text", angle: "Shop tip", audience: "Builders", format: "text", destinations: ["threads"], proposedTime: null, assetNeeds: [] }] }] },
+      ] } },
+    };
+    const withCaptions = {
+      ...approved,
+      contentJob: { id: "job_1", planVersion: 1, status: "applied", errorCode: null },
+      contentItems: [{ id: "citem_1", calendarItemId: "item_text", status: "ready" as const, revision: { revision: 1, caption: "A shop-floor caption for builders.", destinations: ["threads"], format: "text", assetNeeds: [], blockReason: null } }],
+    };
+    vi.mocked(getPlan).mockResolvedValueOnce(approved).mockResolvedValue(withCaptions);
+    vi.mocked(createPlanContent).mockResolvedValue(withCaptions);
     render(<PlanViewer planId="plan_1" />);
     await screen.findByText("Version 1 · Direction approved");
     await userEvent.click(screen.getByRole("button", { name: "Create content" }));
     expect(createPlanContent).toHaveBeenCalledWith("plan_1", 1);
-    expect(await screen.findByRole("status")).toHaveTextContent("Direction approval does not create posts");
+    expect(await screen.findByRole("status")).toHaveTextContent("Captions still need content review before scheduling");
+    expect(screen.queryByText("Direction approval does not create posts")).not.toBeInTheDocument();
+    expect(await screen.findByText("A shop-floor caption for builders.")).toBeInTheDocument();
+    expect(screen.getByText(/Ready/)).toBeInTheDocument();
   });
 
   it("persists a block comment and keeps the editor empty until an anchor is selected", async () => {

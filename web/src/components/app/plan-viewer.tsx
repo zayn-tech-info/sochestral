@@ -39,8 +39,9 @@ export function PlanViewer({ planId }: { planId: string }) {
   useEffect(() => { void load().catch(() => setError("Could not load this plan.")); }, [load]);
   const historical = Boolean(detail && detail.version.version !== detail.plan.currentVersion);
   const revisionActive = Boolean(detail?.batches?.some(batch => batch.status === "submitted" || batch.status === "running"));
+  const contentActive = Boolean(detail?.contentJob && (detail.contentJob.status === "submitted" || detail.contentJob.status === "running"));
   useEffect(() => {
-    if (!revisionActive || historical || busy) return;
+    if ((!revisionActive && !contentActive) || historical || busy) return;
     let active = true;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
@@ -50,7 +51,7 @@ export function PlanViewer({ planId }: { planId: string }) {
     };
     timer = setTimeout(poll, 3000);
     return () => { active = false; clearTimeout(timer); };
-  }, [revisionActive, historical, busy, planId]);
+  }, [revisionActive, contentActive, historical, busy, planId]);
   const chooseAnchor = (blockId: string, text: string) => {
     if (!detail || historical || busy) return;
     const selected = window.getSelection()?.toString().trim();
@@ -92,13 +93,7 @@ export function PlanViewer({ planId }: { planId: string }) {
   async function action(work: () => Promise<unknown>, success: string) {
     setBusy(true); setError(null);
     try { await work(); await load(); setNotice(success); }
-    catch (err) {
-      if (err instanceof ApiError && err.code === "CONTENT_NOT_READY") {
-        setNotice("Direction approval does not create posts. Finished captions come later.");
-      } else {
-        setError(message(err));
-      }
-    }
+    catch (err) { setError(message(err)); }
     finally { setBusy(false); }
   }
   async function viewVersion(version?: number) {
@@ -109,6 +104,10 @@ export function PlanViewer({ planId }: { planId: string }) {
   }
   const approved = detail?.approvals.some(approval => approval.scope === "plan_direction" && approval.revision === detail.plan.currentVersion);
   const pending = detail?.comments.filter(item => item.status === "pending") ?? [];
+  const calendarAngles = new Map<string, string>();
+  if (detail) for (const section of detail.version.document.sections) for (const block of section.blocks) {
+    if (block.kind === "calendar") for (const item of block.items) calendarAngles.set(item.id, item.angle);
+  }
   return <AppShell><div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6">
     <Link href="/app/plans" className="text-sm underline">All plans</Link>
     {error && <p role="alert" className="my-4 rounded-lg border border-destructive p-3">{error}</p>}
@@ -118,7 +117,7 @@ export function PlanViewer({ planId }: { planId: string }) {
         <div><h1 className="text-3xl font-semibold tracking-tight">{detail.plan.title}</h1><p className="mt-2 text-sm text-muted-foreground">Version {detail.version.version} · {historical ? "Earlier version · Read only" : approved ? "Direction approved" : "Needs review"}</p></div>
         <div className="flex flex-wrap gap-2"><button className="min-h-11 rounded-lg border px-4" onClick={() => void viewVersion()} disabled={busy}>Refresh</button>
           <button className="min-h-11 rounded-lg bg-primary px-4 text-primary-foreground disabled:opacity-50" disabled={busy || approved || historical} onClick={() => void action(() => approvePlan(planId, detail.plan.currentVersion), "Plan direction approved. Content still needs review before scheduling.")}>Approve plan direction</button>
-          {approved && !historical && <button className="min-h-11 rounded-lg border px-4 disabled:opacity-50" disabled={busy} onClick={() => void action(() => createPlanContent(planId, detail.plan.currentVersion), "Direction approval does not create posts. Finished captions come later.")}>Create content</button>}</div>
+          {approved && !historical && <button className="min-h-11 rounded-lg border px-4 disabled:opacity-50" disabled={busy} onClick={() => void action(() => createPlanContent(planId, detail.plan.currentVersion), "Captions still need content review before scheduling.")}>Create content</button>}</div>
       </header>
       <nav aria-label="Plan version history" className="mb-6 flex flex-wrap items-center gap-3">
         <button className="min-h-11 rounded-lg border px-4 disabled:opacity-50" disabled={busy || detail.version.version <= 1} onClick={() => void viewVersion(detail.version.version - 1)}>Previous version</button>
@@ -126,6 +125,17 @@ export function PlanViewer({ planId }: { planId: string }) {
         {historical && <button className="min-h-11 rounded-lg border px-4" disabled={busy} onClick={() => void viewVersion()}>Back to latest</button>}
       </nav>
       {detail.version.parentVersion != null && <p className="mb-5 text-sm text-muted-foreground">Revised from version {detail.version.parentVersion}. {detail.version.changedBlockIds?.length ?? 0} changed sections or items. {detail.version.handledCommentIds?.length ?? 0} comments handled.</p>}
+      {detail.contentJob && (detail.contentJob.status === "submitted" || detail.contentJob.status === "running") && <p className="mb-5 rounded-lg border p-3 text-sm" role="status">{detail.contentJob.status === "running" ? "Creating captions…" : "Caption generation queued."}</p>}
+      {detail.contentJob?.status === "needs_attention" && <p className="mb-5 rounded-lg border p-3 text-sm" role="status">Caption generation needs attention. Your plan is unchanged. Review it before creating content again.</p>}
+      {!!detail.contentItems?.length && <section className="mb-8 space-y-4" aria-label="Generated captions">
+        <h2 className="text-2xl font-semibold">Captions</h2>
+        <p className="text-sm text-muted-foreground">Captions still need content review before scheduling.</p>
+        <ul className="space-y-4">{detail.contentItems.map(item => <li key={item.id} className="rounded-xl border p-4">
+          <p className="font-medium">{calendarAngles.get(item.calendarItemId) ?? item.calendarItemId}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{item.revision.destinations.join(", ")} · {item.status === "ready" ? "Ready" : item.revision.blockReason === "unverified_placeholder" ? "Blocked: unverified placeholder" : "Blocked: missing media"}</p>
+          <p className="mt-3 whitespace-pre-wrap break-words leading-7">{item.revision.caption}</p>
+        </li>)}</ul>
+      </section>}
       <div className="grid min-w-0 gap-8 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <article className="min-w-0 space-y-8 rounded-2xl border bg-background p-5 sm:p-8" aria-label="Plan document">{detail.version.document.sections.map(section => <section key={section.id} className="space-y-4" aria-labelledby={section.id}>
           <h2 id={section.id} className="text-2xl font-semibold">{section.title}</h2>{section.blocks.map(renderBlock)}

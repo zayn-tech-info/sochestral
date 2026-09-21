@@ -9,7 +9,22 @@ export type PlanDocument = { schemaVersion: 1; sections: Array<{ id: string; typ
 export type PlanSummary = { id: string; title: string; currentVersion: number; updatedAt: string };
 export type PlanComment = { id: string; version: number; blockId: string; quote: string | null; body: string; status: "pending" | "submitted" | "addressed" | "needs_reattachment" | "reattached"; reattachedFromId?: string | null; batchId: string | null };
 export type PlanRevisionBatch = { id: string; version: number; status: string; errorCode: string | null };
-export type PlanDetail = { batches?: PlanRevisionBatch[]; plan: PlanSummary; version: { version: number; document: PlanDocument; parentVersion?: number | null; createdAt?: string; changedBlockIds?: string[]; handledCommentIds?: string[] }; comments: PlanComment[]; approvals: Array<{ scope: string; revision: number }> };
+export type ContentJob = { id: string; planVersion: number; status: string; errorCode: string | null };
+export type ContentItem = {
+  id: string;
+  calendarItemId: string;
+  status: "blocked" | "ready";
+  revision: { revision: number; caption: string; destinations: string[]; format: string; assetNeeds: string[]; blockReason: string | null };
+};
+export type PlanDetail = {
+  batches?: PlanRevisionBatch[];
+  contentJob?: ContentJob | null;
+  contentItems?: ContentItem[];
+  plan: PlanSummary;
+  version: { version: number; document: PlanDocument; parentVersion?: number | null; createdAt?: string; changedBlockIds?: string[]; handledCommentIds?: string[] };
+  comments: PlanComment[];
+  approvals: Array<{ scope: string; revision: number }>;
+};
 export const listPlans = () => apiRequest<{ plans: PlanSummary[] }>("/plans");
 export const getPlan = (id: string, version?: number) => apiRequest<PlanDetail>(`/plans/${encodeURIComponent(id)}${version === undefined ? "" : `?version=${version}`}`);
 function post<T>(id: string, suffix: string, body: unknown) {
