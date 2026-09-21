@@ -3,8 +3,8 @@ import { and, desc, eq, inArray, isNull, lte, exists, notExists } from "drizzle-
 import type { Database } from "./client.js";
 import { getOwnedConversation } from "./orchestration.js";
 import { generationContexts, plans, planVersions, planComments, planRevisionBatches, workflowApprovals, contentGenerationJobs, contentItems, businessProfiles } from "./schema.js";
-import { planAnchorText, planDocumentSchema, type PlanDocument } from "./plan-document.js";
-import { loadContentForVersion } from "./content.js";
+import { planAnchorText, planCalendarItems, planDocumentSchema, type PlanDocument } from "./plan-document.js";
+import { enqueueCreateContent, loadContentForVersion } from "./content.js";
 import { PlanWorkflowError } from "./plan-errors.js";
 
 type Db = Database["db"];
@@ -198,6 +198,16 @@ export async function revisePlan(db: Db, input: { userId: string; planId: string
     if (input.batchId) await tx.update(planRevisionBatches).set({ status: "applied", completedAt: new Date(), claimToken: null, leaseExpiresAt: null }).where(eq(planRevisionBatches.id, input.batchId));
     return version!;
   });
+}
+
+/** Older saved plans predate automatic captions. Start them once, without a second interview. */
+export async function ensurePlanCaptions(db: Db, input: { userId: string; planId: string }) {
+  const detail = await getPlan(db, input.userId, input.planId);
+  if (detail.version.version !== detail.plan.currentVersion) return detail;
+  if (detail.contentJob || !planCalendarItems(detail.version.document).length) return detail;
+  await approvePlanDirection(db, { userId: input.userId, planId: input.planId, version: detail.plan.currentVersion });
+  await enqueueCreateContent(db, { userId: input.userId, planId: input.planId, version: detail.plan.currentVersion });
+  return getPlan(db, input.userId, input.planId);
 }
 
 /** Direction approval grants no content approval or scheduling authority. */

@@ -2912,7 +2912,7 @@ export class DefaultOrchestrationService implements OrchestrationService {
         return this.existingResponse({ ...turn, assistantMessage: assistant, run: { ...turn.run, status: "failed" } });
       }
     };
-    const interviewOpen = Boolean(interview && !["planned", "canceled"].includes(interview.state.status));
+    const interviewOpen = Boolean(interview && !interview.planId && !["planned", "canceled"].includes(interview.state.status));
     const resumeCanceledInterview = Boolean(interview && interview.state.status === "canceled" && !interview.planId
       && (isInterviewResume(effectiveMessage) || localPlanningIntent(effectiveMessage)));
     if (localPlanningIntent(effectiveMessage) || localAutonomousScheduleIntent(effectiveMessage) ||
@@ -2970,7 +2970,7 @@ export class DefaultOrchestrationService implements OrchestrationService {
         }));
         this.emit({ type: "step_completed", step: "checking_plan" });
       }
-      if (clerk?.intent === "plan" || (interview?.planId && clerk && ["accept", "schedule_one", "live"].includes(clerk.intent))) return planningTurn();
+      if (!interview?.planId && clerk?.intent === "plan") return planningTurn();
       const clerkFailed = clerkRan && !clerk;
       const mergedLock = clerk
         ? mergeClerkLock(existingPlanRow, clerk, {
@@ -3003,6 +3003,13 @@ export class DefaultOrchestrationService implements OrchestrationService {
           explicitLiveIntent = false;
         }
       } else if (clerkFailed || (clerk !== null && clerkIsChatOnly(clerk))) {
+        const preference = await this.publishingPreferences.get(userId);
+        authorityMode = preference.effectiveMode;
+        consentVersion = preference.consentVersion;
+        authorityEventId = preference.authorityEventId;
+        liveIntentKind = null;
+        explicitLiveIntent = false;
+      } else if (clerk && interview?.planId) {
         const preference = await this.publishingPreferences.get(userId);
         authorityMode = preference.effectiveMode;
         consentVersion = preference.consentVersion;

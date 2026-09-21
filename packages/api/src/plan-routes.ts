@@ -3,7 +3,7 @@ import { getCookie } from "hono/cookie";
 import { SESSION_COOKIE_NAME, validateSessionToken } from "@sochestral/auth";
 import {
   reattachPlanComment, createPlan, getPlan, listPlans, addPlanComment, submitPlanComments, revisePlan, approvePlanDirection,
-  enqueueCreateContent, setContentExcluded, PlanWorkflowError, isUniqueViolation, type Database,
+  enqueueCreateContent, ensurePlanCaptions, setContentExcluded, PlanWorkflowError, isUniqueViolation, type Database,
 } from "@sochestral/database";
 import { confirmBoardSchedule, parseBoardScheduleRows, type ConnectorService, type SocialMcpGateway } from "@sochestral/orchestration";
 import { isAllowedCorsOrigin } from "./cors-origin.js";
@@ -52,7 +52,11 @@ export function registerPlanRoutes(app: Hono<Env>, db: Database["db"], deps?: {
   routes.get("/:id", c => respond(c, async () => {
     const requested = c.req.query("version");
     if (requested !== undefined && (!/^[1-9]\d*$/.test(requested) || !version(Number(requested)))) throw new PlanWorkflowError("INVALID_DOCUMENT");
-    return getPlan(db, c.get("userId"), c.req.param("id"), requested === undefined ? undefined : Number(requested));
+    const requestedVersion = requested === undefined ? undefined : Number(requested);
+    const detail = await getPlan(db, c.get("userId"), c.req.param("id"), requestedVersion);
+    if (requestedVersion !== undefined && requestedVersion !== detail.plan.currentVersion) return detail;
+    if (detail.contentJob) return detail;
+    return ensurePlanCaptions(db, { userId: c.get("userId"), planId: c.req.param("id") });
   }));
   routes.post("/", c => respond(c, async () => {
     const input = await body(c);

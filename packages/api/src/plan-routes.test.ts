@@ -152,6 +152,15 @@ describe("plan API", () => {
     expect(await result.json()).toMatchObject({ comments: [expect.objectContaining({ body: "Make this specific" })] });
   });
 
+  it("starts captions when an older plan board is opened", async () => {
+    const created = await post("/plans", { title: "Launch", document: calendarDocument });
+    const planId = (await created.json() as { plan: { id: string } }).plan.id;
+    const opened = await app.request(`/plans/${planId}`, { headers: { Cookie: cookie } });
+    expect(opened.status).toBe(200);
+    expect(await opened.json()).toMatchObject({ contentJob: { status: "submitted", planVersion: 1 }, contentItems: [] });
+    expect(await database.db.select().from(campaignJobs)).toHaveLength(0);
+  });
+
   it("accepts board comments and schedules only ready excluded-aware rows", async () => {
     const created = await post("/plans", { title: "Launch", document: calendarDocument });
     const planId = (await created.json() as { plan: { id: string } }).plan.id;
