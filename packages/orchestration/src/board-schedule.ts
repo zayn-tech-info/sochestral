@@ -3,6 +3,7 @@ import {
 } from "@sochestral/database";
 import type { ConnectorService } from "./connectors.js";
 import type { SocialMcpGateway } from "./mcp.js";
+import { platformImageLimits } from "./platform-media-limits.js";
 import { resolveScheduleTime } from "./schedule-time.js";
 
 const platforms = ["threads", "instagram", "linkedin_personal"] as const;
@@ -27,6 +28,7 @@ export async function confirmBoardSchedule(db: Database["db"], input: {
   rows: BoardScheduleRow[];
   connectors: ConnectorService;
   mcp: SocialMcpGateway;
+  resolveMediaUrls?: (assetIds: string[]) => Promise<string[]>;
   now?: Date;
 }) {
   if (input.confirm !== true) throw new PlanWorkflowError("INVALID_DOCUMENT");
@@ -52,27 +54,37 @@ export async function confirmBoardSchedule(db: Database["db"], input: {
     }
   }
   const excludedItemIds = [...byItem.values()].filter(item => item.excludedAt || byRow.get(item.id)?.excluded).map(item => item.id);
-  const skippedItemIds = [...byItem.values()].filter(item => !excludedItemIds.includes(item.id) && item.status !== "ready").map(item => item.id);
+  const skippedItemIds: string[] = [];
   const now = input.now ?? new Date();
   const destinations: Parameters<typeof persistBoardSchedule>[1]["destinations"] = [];
   for (const item of byItem.values()) {
-    if (excludedItemIds.includes(item.id) || skippedItemIds.includes(item.id)) continue;
+    if (excludedItemIds.includes(item.id)) continue;
     const row = byRow.get(item.id);
-    if (!row?.localTime) throw new PlanWorkflowError("INVALID_SCHEDULE", { itemIds: [item.id] });
+    if (item.status !== "ready" || !row?.localTime) {
+      skippedItemIds.push(item.id);
+      continue;
+    }
     let publishAt: string;
     try {
       publishAt = resolveScheduleTime(row.localTime, detail.board.timezone);
-    } catch (error) {
-      throw new PlanWorkflowError("INVALID_SCHEDULE", { itemIds: [item.id], reason: error instanceof Error ? error.message : "INVALID_LOCAL_TIME" });
+    } catch {
+      skippedItemIds.push(item.id);
+      continue;
     }
-    if (Date.parse(publishAt) <= now.getTime()) throw new PlanWorkflowError("INVALID_SCHEDULE", { itemIds: [item.id], reason: "PAST_TIME" });
+    if (Date.parse(publishAt) <= now.getTime()) {
+      skippedItemIds.push(item.id);
+      continue;
+    }
     const chosen = Object.entries(row.accounts ?? {}).filter((entry): entry is [Platform, string] => isPlatform(entry[0]) && Boolean(entry[1]));
-    if (!chosen.length) throw new PlanWorkflowError("ACCOUNT_REQUIRED", { itemIds: [item.id] });
-    for (const [destination, accountId] of chosen) {
+    const accepted = chosen.filter(([destination, accountId]) => {
       const account = owned.get(accountId);
-      if (!account || account.platform !== destination || !account.connected) {
-        throw new PlanWorkflowError("ACCOUNT_REQUIRED", { itemIds: [item.id], destination });
-      }
+      return Boolean(account && account.platform === destination && account.connected);
+    });
+    if (!accepted.length) {
+      skippedItemIds.push(item.id);
+      continue;
+    }
+    for (const [destination, accountId] of accepted) {
       destinations.push({
         itemId: item.id, revisionId: item.revision.id, destination, connectedAccountId: accountId,
         localTime: row.localTime, publishAt: new Date(publishAt), timezone: detail.board.timezone,
@@ -93,6 +105,27 @@ export async function confirmBoardSchedule(db: Database["db"], input: {
     await markBoardScheduleOperation(db, { operationId: operation.id, status: "scheduling" });
     const item = byItem.get(operation.itemId)!;
     try {
+      const limits = platformImageLimits(operation.destination);
+      let mediaUrls: string[] = [];
+      if (item.draftAssetIds?.length) {
+        try {
+          if (!input.resolveMediaUrls) throw new Error("MEDIA_REQUIRED");
+          mediaUrls = (await input.resolveMediaUrls(item.draftAssetIds)).filter(url => url.startsWith("https://")).slice(0, limits.max);
+        } catch {
+          mediaUrls = [];
+        }
+        if (!mediaUrls.length || mediaUrls.length < limits.min) {
+          operations.push(await markBoardScheduleOperation(db, {
+            operationId: operation.id, status: "needs_attention", errorCode: "MEDIA_REQUIRED",
+          }));
+          continue;
+        }
+      } else if (limits.min > 0) {
+        operations.push(await markBoardScheduleOperation(db, {
+          operationId: operation.id, status: "needs_attention", errorCode: "MEDIA_REQUIRED",
+        }));
+        continue;
+      }
       const result = await input.mcp.callTool({
         userId: input.userId,
         name: "schedule_post",
@@ -103,6 +136,7 @@ export async function confirmBoardSchedule(db: Database["db"], input: {
           connectedAccountId: operation.connectedAccountId,
           scheduledAt: operation.publishAt.toISOString(),
           idempotencyKey: operation.idempotencyKey,
+          ...(mediaUrls.length ? { options: { mediaUrls } } : {}),
         },
       });
       const value = result.value && typeof result.value === "object" ? result.value as Record<string, unknown> : { value: result.value };

@@ -2,12 +2,12 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PlanViewer } from "./plan-viewer";
-import { commentOnPlan, createPlanContent, excludePlanItem, getPlan, schedulePlanPosts, submitPlanComments, type PlanDetail } from "@/lib/plans-api";
+import { commentOnPlan, createPlanContent, excludePlanItem, getPlan, saveContentDraft, schedulePlanPosts, submitPlanComments, type PlanDetail } from "@/lib/plans-api";
 import { apiRequest, ApiError } from "@/lib/product-api";
 
 vi.mock("@/lib/plans-api", () => ({
   getPlan: vi.fn(), commentOnPlan: vi.fn(), submitPlanComments: vi.fn(), createPlanContent: vi.fn(),
-  excludePlanItem: vi.fn(), schedulePlanPosts: vi.fn(), listPlans: vi.fn(), approvePlan: vi.fn(), reattachComment: vi.fn(),
+  excludePlanItem: vi.fn(), schedulePlanPosts: vi.fn(), saveContentDraft: vi.fn(), listPlans: vi.fn(), approvePlan: vi.fn(), reattachComment: vi.fn(),
 }));
 vi.mock("@/lib/product-api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/product-api")>("@/lib/product-api");
@@ -34,6 +34,7 @@ const detail: PlanDetail = {
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(getPlan).mockResolvedValue(structuredClone(detail));
+  vi.mocked(saveContentDraft).mockImplementation(async (_id, itemId) => ({ ...structuredClone(detail).contentItems![0]!, id: itemId }));
   vi.mocked(apiRequest).mockResolvedValue({ connectors: [{ platform: "threads", state: "connected", accounts: [{ id: "acct_1", username: "shop", displayName: "Shop", state: "connected" }] }] });
 });
 
@@ -65,6 +66,23 @@ describe("post board", () => {
     await userEvent.click(screen.getByRole("checkbox", { name: /Abdulbasit Adeniyi/ }));
     await userEvent.click(screen.getByRole("button", { name: "Schedule posts" }));
     expect(schedulePlanPosts).toHaveBeenCalledWith("plan_1", 1, [expect.objectContaining({ accounts: { threads: "acct_2" } })]);
+  });
+
+  it("saves a time change and blocks a missing image only for Instagram", async () => {
+    vi.mocked(saveContentDraft).mockResolvedValue(detail.contentItems![0]!);
+    vi.mocked(getPlan).mockResolvedValue({
+      ...structuredClone(detail),
+      contentItems: [
+        detail.contentItems![0]!,
+        { id: "citem_ig", calendarItemId: "item_ig", status: "blocked", excludedAt: null, revision: { revision: 1, caption: "A photo caption.", destinations: ["instagram"], format: "image", assetNeeds: ["photo"], blockReason: "missing_media" } },
+      ],
+    });
+    render(<PlanViewer planId="plan_1" />);
+    await screen.findByText("A shop-floor caption for builders.");
+    expect(screen.getAllByText("Blocked: missing image")).toHaveLength(1);
+    await userEvent.click(screen.getByRole("button", { name: /Schedule on Shop/ }));
+    fireEvent.change(screen.getByLabelText("Schedule on Shop"), { target: { value: "2031-02-02T10:15" } });
+    await waitFor(() => expect(saveContentDraft).toHaveBeenCalledWith("plan_1", "citem_1", expect.objectContaining({ localTime: "2031-02-02T10:15", assetIds: [] })));
   });
 
   it("turns the primary action into Review when a board comment is unsent", async () => {

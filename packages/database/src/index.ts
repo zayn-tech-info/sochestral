@@ -291,7 +291,7 @@ export { usageAttempts } from "./schema.js";
 export { planDocumentSchema, planAnchorText, planCalendarItems, type PlanDocument, type PlanCalendarItem } from "./plan-document.js";
 export { reattachPlanComment, claimPlanRevision, finishPlanRevisionFailure, recoverExpiredPlanRevisions, createPlan, getPlan, listPlans, addPlanComment, submitPlanComments, revisePlan, approvePlanDirection, ensurePlanCaptions, PlanWorkflowError } from "./plans.js";
 export {
-  enqueueCreateContent, claimContentJob, finishContentJobFailure, recoverExpiredContentJobs, applyContentSet, applyContentReview, setContentExcluded, loadContentForVersion, contentBlockState,
+  enqueueCreateContent, claimContentJob, finishContentJobFailure, recoverExpiredContentJobs, applyContentSet, applyContentReview, setContentExcluded, saveContentDraft, loadContentForVersion, contentBlockState,
 } from "./content.js";
 export { persistBoardSchedule, markBoardScheduleOperation } from "./board-schedule.js";
 export { plans, planVersions, planComments, planRevisionBatches, workflowApprovals, contentGenerationJobs, contentItems, contentRevisions, boardScheduleConfirmations, boardScheduleOperations } from "./schema.js";

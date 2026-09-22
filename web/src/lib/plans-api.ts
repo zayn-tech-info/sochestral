@@ -15,6 +15,10 @@ export type ContentItem = {
   calendarItemId: string;
   status: "blocked" | "ready";
   excludedAt?: string | null;
+  draftLocalTime?: string | null;
+  draftAccounts?: Partial<Record<string, string>> | null;
+  draftAssetIds?: string[];
+  draftMedia?: Array<{ assetId: string; externalUrl: string; previewUrl: string }>;
   revision: { id?: string; revision: number; caption: string; destinations: string[]; format: string; assetNeeds: string[]; blockReason: string | null };
 };
 export type PlanDetail = {
@@ -37,6 +41,8 @@ export const submitPlanComments = (id: string, version: number, commentIds: stri
 export const approvePlan = (id: string, version: number) => post(id, "approve", { version, confirm: true });
 export const createPlanContent = (id: string, version: number) => post(id, "create-content", { version, confirm: true });
 export const excludePlanItem = (id: string, itemId: string, version: number, excluded: boolean) => post(id, `content-items/${encodeURIComponent(itemId)}`, { version, excluded });
+export const saveContentDraft = (id: string, itemId: string, input: { version: number; localTime: string | null; accounts: Record<string, string>; assetIds: string[] }) =>
+  post<ContentItem>(id, `content-items/${encodeURIComponent(itemId)}/draft`, input);
 export const schedulePlanPosts = (id: string, version: number, rows: Array<{ itemId: string; excluded?: boolean; localTime?: string; accounts?: Record<string, string> }>) =>
   post(id, "schedule-posts", { version, confirm: true, rows });
 

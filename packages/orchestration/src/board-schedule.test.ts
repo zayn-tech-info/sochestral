@@ -102,6 +102,46 @@ describe("board schedule posts", () => {
     expect(loaded.contentItems.find(item => item.id === imageItemId)?.excludedAt).toBeNull();
   });
 
+  it("queues every future ready post and skips a past time", async () => {
+    const { contentItems } = await import("@sochestral/database");
+    const { eq } = await import("drizzle-orm");
+    await database.db.update(contentItems).set({
+      draftAssetIds: ["asset_ig"], draftAccounts: { instagram: "acct_ig" },
+    }).where(eq(contentItems.id, imageItemId));
+    const gateway = mcp();
+    const result = await confirmBoardSchedule(database.db, {
+      userId, planId, version: 1, confirm: true, connectors, mcp: gateway, now: new Date("2031-01-03T00:00:00Z"),
+      resolveMediaUrls: async ids => ids.map(id => `https://cdn.example/${id}.jpg`),
+      rows: [
+        { itemId: textItemId, localTime: "2031-01-02T09:00", accounts: { threads: "acct_threads" } },
+        { itemId: imageItemId, localTime: "2031-01-04T10:00", accounts: { instagram: "acct_ig" } },
+      ],
+    });
+    expect(result.skippedItemIds).toContain(textItemId);
+    expect(result.operations).toHaveLength(1);
+    expect(result.operations[0]).toMatchObject({ status: "scheduled", destination: "instagram" });
+    expect(gateway.callTool).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends saved images with the scheduled post", async () => {
+    const { contentItems } = await import("@sochestral/database");
+    const { eq } = await import("drizzle-orm");
+    await database.db.update(contentItems).set({ draftAssetIds: ["asset_board"] }).where(eq(contentItems.id, textItemId));
+    const gateway = mcp();
+    const result = await confirmBoardSchedule(database.db, {
+      userId, planId, version: 1, confirm: true, connectors, mcp: gateway, now: new Date("2030-01-01T00:00:00Z"),
+      resolveMediaUrls: async ids => ids.map(id => `https://cdn.example/${id}.jpg`),
+      rows: [
+        { itemId: textItemId, localTime: "2031-01-02T09:00", accounts: { threads: "acct_threads" } },
+        { itemId: imageItemId, excluded: true },
+      ],
+    });
+    expect(result.operations[0]).toMatchObject({ status: "scheduled" });
+    expect(gateway.callTool).toHaveBeenCalledWith(expect.objectContaining({
+      arguments: expect.objectContaining({ options: { mediaUrls: ["https://cdn.example/asset_board.jpg"] } }),
+    }));
+  });
+
   it("retries a needs_attention row without inserting a duplicate operation", async () => {
     const gateway = mcp();
     vi.mocked(gateway.callTool).mockRejectedValueOnce(new Error("down"));

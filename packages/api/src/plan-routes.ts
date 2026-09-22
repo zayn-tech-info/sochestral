@@ -3,7 +3,7 @@ import { getCookie } from "hono/cookie";
 import { SESSION_COOKIE_NAME, validateSessionToken } from "@sochestral/auth";
 import {
   reattachPlanComment, createPlan, getPlan, listPlans, addPlanComment, submitPlanComments, revisePlan, approvePlanDirection,
-  enqueueCreateContent, ensurePlanCaptions, setContentExcluded, PlanWorkflowError, isUniqueViolation, type Database,
+  enqueueCreateContent, ensurePlanCaptions, setContentExcluded, saveContentDraft, PlanWorkflowError, isUniqueViolation, type Database,
 } from "@sochestral/database";
 import { confirmBoardSchedule, parseBoardScheduleRows, type ConnectorService, type SocialMcpGateway } from "@sochestral/orchestration";
 import { isAllowedCorsOrigin } from "./cors-origin.js";
@@ -33,9 +33,37 @@ async function respond(c: Context<PlanEnv>, work: () => Promise<unknown>) {
   }
 }
 
+type PlanMedia = {
+  previewUrl(userId: string, assetId: string): Promise<string>;
+  viewUrl(userId: string, assetId: string): string;
+  publishUrl(userId: string, assetId: string): Promise<string>;
+};
+
+async function withDraftMedia<T extends { contentItems?: Array<{ draftAssetIds?: string[] | null }> }>(
+  detail: T,
+  userId: string,
+  media?: () => PlanMedia,
+): Promise<T> {
+  if (!media || !detail.contentItems?.length) return detail;
+  const service = media();
+  const contentItems = await Promise.all(detail.contentItems.map(async item => {
+    const assetIds = item.draftAssetIds ?? [];
+    const draftMedia = await Promise.all(assetIds.map(async assetId => {
+      let previewUrl = "";
+      try { previewUrl = await service.previewUrl(userId, assetId); } catch { previewUrl = ""; }
+      let externalUrl = "";
+      try { externalUrl = service.viewUrl(userId, assetId); } catch { externalUrl = ""; }
+      return { assetId, previewUrl, externalUrl };
+    }));
+    return { ...item, draftMedia };
+  }));
+  return { ...detail, contentItems };
+}
+
 export function registerPlanRoutes(app: Hono<Env>, db: Database["db"], deps?: {
   connectors?: () => ConnectorService;
   mcp?: () => SocialMcpGateway;
+  media?: () => PlanMedia;
 }) {
   const routes = new Hono<PlanEnv>();
   routes.use("*", async (c, next) => {
@@ -54,9 +82,10 @@ export function registerPlanRoutes(app: Hono<Env>, db: Database["db"], deps?: {
     if (requested !== undefined && (!/^[1-9]\d*$/.test(requested) || !version(Number(requested)))) throw new PlanWorkflowError("INVALID_DOCUMENT");
     const requestedVersion = requested === undefined ? undefined : Number(requested);
     const detail = await getPlan(db, c.get("userId"), c.req.param("id"), requestedVersion);
-    if (requestedVersion !== undefined && requestedVersion !== detail.plan.currentVersion) return detail;
-    if (detail.contentJob) return detail;
-    return ensurePlanCaptions(db, { userId: c.get("userId"), planId: c.req.param("id") });
+    const userId = c.get("userId");
+    if (requestedVersion !== undefined && requestedVersion !== detail.plan.currentVersion) return withDraftMedia(detail, userId, deps?.media);
+    if (detail.contentJob) return withDraftMedia(detail, userId, deps?.media);
+    return withDraftMedia(await ensurePlanCaptions(db, { userId, planId: c.req.param("id") }), userId, deps?.media);
   }));
   routes.post("/", c => respond(c, async () => {
     const input = await body(c);
@@ -107,6 +136,18 @@ export function registerPlanRoutes(app: Hono<Env>, db: Database["db"], deps?: {
     if (typeof input.excluded !== "boolean" || !version(input.version)) throw new PlanWorkflowError("INVALID_DOCUMENT");
     return setContentExcluded(db, { userId: c.get("userId"), planId: c.req.param("id"), itemId: c.req.param("itemId"), version: input.version, excluded: input.excluded });
   }));
+  routes.post("/:id/content-items/:itemId/draft", c => respond(c, async () => {
+    const input = await body(c);
+    if (!version(input.version) || (input.localTime !== null && typeof input.localTime !== "string")) throw new PlanWorkflowError("INVALID_SCHEDULE");
+    if (!input.accounts || typeof input.accounts !== "object" || Array.isArray(input.accounts)) throw new PlanWorkflowError("INVALID_SCHEDULE");
+    if (!Array.isArray(input.assetIds) || input.assetIds.some(assetId => typeof assetId !== "string")) throw new PlanWorkflowError("INVALID_CONTENT");
+    return saveContentDraft(db, {
+      userId: c.get("userId"), planId: c.req.param("id"), itemId: c.req.param("itemId"), version: input.version,
+      localTime: input.localTime as string | null,
+      accounts: input.accounts as Partial<Record<"threads" | "instagram" | "linkedin_personal", string>>,
+      assetIds: input.assetIds as string[],
+    });
+  }));
   routes.post("/:id/schedule-posts", c => respond(c, async () => {
     const input = await body(c);
     if (input.confirm !== true || !version(input.version)) throw new PlanWorkflowError("INVALID_DOCUMENT");
@@ -118,6 +159,11 @@ export function registerPlanRoutes(app: Hono<Env>, db: Database["db"], deps?: {
       return await confirmBoardSchedule(db, {
         userId: c.get("userId"), planId: c.req.param("id"), version: input.version, confirm: true,
         rows: parseBoardScheduleRows(input.rows), connectors: deps.connectors(), mcp,
+        resolveMediaUrls: deps.media ? async assetIds => {
+          const media = deps.media!();
+          const urls = await Promise.all(assetIds.map(assetId => media.publishUrl(c.get("userId"), assetId)));
+          return urls;
+        } : undefined,
       });
     } catch (error) {
       if (isUniqueViolation(error)) throw new PlanWorkflowError("INVALID_SCHEDULE");
