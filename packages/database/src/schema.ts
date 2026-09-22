@@ -171,6 +171,9 @@ export const contentItems = pgTable("content_items", {
   calendarItemId: text("calendar_item_id").notNull(),
   status: text("status").notNull(),
   excludedAt: timestamp("excluded_at", { withTimezone: true }),
+  draftLocalTime: text("draft_local_time"),
+  draftAccounts: jsonb("draft_accounts").$type<Partial<Record<"threads" | "instagram" | "linkedin_personal", string>>>(),
+  draftAssetIds: jsonb("draft_asset_ids").$type<string[]>().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, table => [
   uniqueIndex("content_items_plan_version_calendar_uidx").on(table.planId, table.planVersion, table.calendarItemId),

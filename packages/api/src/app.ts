@@ -227,6 +227,7 @@ export function createApp(
         Number.isFinite(timeout) && timeout > 0 ? timeout : 30000,
       );
     },
+    media: () => getMediaService(),
   });
   registerProfileRoutes(app, db);
   registerCalendarRoutes(app, db, () => {

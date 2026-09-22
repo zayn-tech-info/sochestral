@@ -3,8 +3,8 @@ import { createDb, type Database } from "./client.js";
 import { requireTestDatabaseUrl } from "./env.js";
 import { provisionUser } from "./users.js";
 import { createPlan, getPlan, approvePlanDirection, revisePlan, addPlanComment, submitPlanComments, claimPlanRevision } from "./plans.js";
-import { enqueueCreateContent, claimContentJob, finishContentJobFailure, applyContentSet, applyContentReview, setContentExcluded, contentBlockState } from "./content.js";
-import { campaignJobs, contentGenerationJobs, contentItems, contentRevisions } from "./schema.js";
+import { enqueueCreateContent, claimContentJob, finishContentJobFailure, applyContentSet, applyContentReview, setContentExcluded, saveContentDraft, contentBlockState } from "./content.js";
+import { campaignJobs, contentGenerationJobs, contentItems, contentRevisions, mediaAssets } from "./schema.js";
 import type { PlanDocument } from "./plan-document.js";
 
 function document(items: PlanDocument["sections"][number]["blocks"] = [{ id: "block_calendar", kind: "paragraph", text: "No rows yet" }]): PlanDocument {
@@ -99,6 +99,8 @@ describe("durable content generation", () => {
     expect(contentBlockState(calendarItems[0]!, "Ship the clamp this week.")).toEqual({ status: "ready", blockReason: null });
     expect(contentBlockState({ ...calendarItems[0]!, assetNeeds: ["None required — evergreen educational content"] }, "Ship the clamp this week.")).toEqual({ status: "ready", blockReason: null });
     expect(contentBlockState(calendarItems[1]!, "Show the bench.")).toEqual({ status: "blocked", blockReason: "missing_media" });
+    expect(contentBlockState(calendarItems[1]!, "Show the bench.", 1)).toEqual({ status: "ready", blockReason: null });
+    expect(contentBlockState({ ...calendarItems[0]!, format: "image", assetNeeds: ["hero photo"] }, "Ship the clamp this week.")).toEqual({ status: "ready", blockReason: null });
   });
 
   it("stores a partial caption set and retries only by resubmitting the same job", async () => {
@@ -162,5 +164,35 @@ describe("durable content generation", () => {
     expect(next.comments[0]?.status).toBe("addressed");
     await setContentExcluded(database.db, { userId, planId, version: 1, itemId: text.id, excluded: true });
     expect((await getPlan(database.db, userId, planId)).contentItems.find(item => item.id === text.id)?.excludedAt).toBeInstanceOf(Date);
+  });
+
+  it("keeps a chosen time, profile, and image after reload", async () => {
+    await approvePlanDirection(database.db, { userId, planId, version: 1 });
+    await enqueueCreateContent(database.db, { userId, planId, version: 1 });
+    const claimed = await claimContentJob(database.db);
+    await applyContentSet(database.db, {
+      userId, planId, jobId: claimed!.job.id, claimToken: claimed!.job.claimToken!, document: claimed!.version.document,
+      captions: [
+        { calendarItemId: "item_text", caption: "A concrete shop-floor caption." },
+        { calendarItemId: "item_image", caption: "Show the bench photo with the new clamp." },
+      ],
+    });
+    const loaded = await getPlan(database.db, userId, planId);
+    const image = loaded.contentItems.find(item => item.calendarItemId === "item_image")!;
+    expect(image.status).toBe("blocked");
+    await database.db.insert(mediaAssets).values({
+      id: "asset_board", userId, storageKey: `board/${userId}/asset_board`, state: "ready", pendingExpiresAt: new Date(Date.now() + 60_000),
+    });
+    await saveContentDraft(database.db, {
+      userId, planId, version: 1, itemId: image.id, localTime: "2031-04-02T09:30", accounts: { instagram: "acct_ig" }, assetIds: ["asset_board"],
+    });
+    const again = await getPlan(database.db, userId, planId);
+    expect(again.contentItems.find(item => item.id === image.id)).toMatchObject({
+      status: "ready", draftLocalTime: "2031-04-02T09:30", draftAccounts: { instagram: "acct_ig" }, draftAssetIds: ["asset_board"],
+    });
+    await expect(saveContentDraft(database.db, {
+      userId, planId, version: 1, itemId: image.id, localTime: "6032-06-02T11:06", accounts: { instagram: "acct_ig" }, assetIds: ["asset_board"],
+    })).rejects.toMatchObject({ code: "INVALID_SCHEDULE" });
+    expect((await getPlan(database.db, userId, planId)).contentItems.find(item => item.id === image.id)?.draftLocalTime).toBe("2031-04-02T09:30");
   });
 });

@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { and, eq, inArray, isNull, lte, exists, notExists } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { PlanWorkflowError } from "./plan-errors.js";
-import { planCalendarItems, type PlanCalendarItem, type PlanDocument } from "./plan-document.js";
-import { contentGenerationJobs, contentItems, contentRevisions, plans, planVersions, workflowApprovals, planComments, planRevisionBatches, boardScheduleOperations } from "./schema.js";
+import { planCalendarItems, type PlanDocument } from "./plan-document.js";
+import { contentGenerationJobs, contentItems, contentRevisions, plans, planVersions, workflowApprovals, planComments, planRevisionBatches, boardScheduleOperations, mediaAssets } from "./schema.js";
 
 type Db = Database["db"];
 const id = (prefix: string) => `${prefix}_${randomUUID()}`;
@@ -22,22 +22,21 @@ function latestRevisions(revisions: Array<typeof contentRevisions.$inferSelect>)
   return byItem;
 }
 
-function isDismissedMediaNote(value: string): boolean {
-  const text = value.trim().toLowerCase().replace(/[.!]+$/g, "").replace(/\s+/g, " ");
-  return /^(none|none required|n\/a|na|not required|no media|no image|nothing)(\b|$)/.test(text)
-    || text.startsWith("none required")
-    || text.startsWith("no media")
-    || text.startsWith("not required");
-}
+const imageRequiredPlatforms = new Set(["instagram"]);
 
-export function contentBlockState(item: PlanCalendarItem, caption: string): { status: "blocked" | "ready"; blockReason: "missing_media" | "unverified_placeholder" | null } {
-  const realNeeds = item.assetNeeds.filter(need => !isDismissedMediaNote(need));
-  const needsMedia = item.format !== "text" || realNeeds.length > 0;
-  if (needsMedia) return { status: "blocked", blockReason: "missing_media" };
+export function contentBlockState(item: { destinations: readonly string[] }, caption: string, imageCount = 0): { status: "blocked" | "ready"; blockReason: "missing_media" | "unverified_placeholder" | null } {
+  const needsImage = item.destinations.some(platform => imageRequiredPlatforms.has(platform));
+  if (needsImage && imageCount < 1) return { status: "blocked", blockReason: "missing_media" };
   if (caption.includes("[") || /\bTODO\b/i.test(caption) || /unverified/i.test(caption)) {
     return { status: "blocked", blockReason: "unverified_placeholder" };
   }
   return { status: "ready", blockReason: null };
+}
+
+function presentContentItem(item: typeof contentItems.$inferSelect, revision: typeof contentRevisions.$inferSelect): PublicContentItem {
+  const selected = item.draftAccounts && Object.keys(item.draftAccounts).length ? Object.keys(item.draftAccounts) : revision.destinations;
+  const state = contentBlockState({ destinations: selected }, revision.caption, item.draftAssetIds?.length ?? 0);
+  return { ...item, status: state.status, revision: { ...revision, blockReason: state.blockReason } };
 }
 
 async function ownPlan(db: Db, userId: string, planId: string, version?: number) {
@@ -66,7 +65,7 @@ export async function loadContentForVersion(db: Db, planId: string, planVersion:
     contentJob: job ? publicJob(job) : null,
     contentItems: items.flatMap(item => {
       const revision = byItem.get(item.id);
-      return revision ? [{ ...item, revision }] : [];
+      return revision ? [presentContentItem(item, revision)] : [];
     }),
   };
 }
@@ -223,6 +222,53 @@ export async function setContentExcluded(db: Db, input: { userId: string; planId
     if (!item) throw new PlanWorkflowError("INVALID_CONTENT");
     const [updated] = await tx.update(contentItems).set({ excludedAt: input.excluded ? new Date() : null }).where(eq(contentItems.id, item.id)).returning();
     return updated!;
+  });
+}
+
+const draftPlatforms = ["threads", "instagram", "linkedin_personal"] as const;
+
+export async function saveContentDraft(db: Db, input: {
+  userId: string;
+  planId: string;
+  version: number;
+  itemId: string;
+  localTime: string | null;
+  accounts: Partial<Record<(typeof draftPlatforms)[number], string>>;
+  assetIds: string[];
+}) {
+  if (input.localTime !== null && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(input.localTime)) throw new PlanWorkflowError("INVALID_SCHEDULE");
+  if (input.localTime !== null) {
+    const year = Number(input.localTime.slice(0, 4));
+    if (year < 2024 || year > 2100) throw new PlanWorkflowError("INVALID_SCHEDULE");
+  }
+  const accounts: Partial<Record<(typeof draftPlatforms)[number], string>> = {};
+  for (const [platform, accountId] of Object.entries(input.accounts)) {
+    if (!draftPlatforms.includes(platform as (typeof draftPlatforms)[number]) || typeof accountId !== "string" || !accountId.trim()) throw new PlanWorkflowError("INVALID_SCHEDULE");
+    accounts[platform as (typeof draftPlatforms)[number]] = accountId.trim();
+  }
+  const assetIds = [...new Set(input.assetIds)];
+  if (assetIds.length > 20 || assetIds.some(assetId => !assetId.trim())) throw new PlanWorkflowError("INVALID_CONTENT");
+  return db.transaction(async tx => {
+    await ownPlan(tx as unknown as Db, input.userId, input.planId, input.version);
+    const [item] = await tx.select().from(contentItems).where(and(
+      eq(contentItems.id, input.itemId), eq(contentItems.planId, input.planId), eq(contentItems.planVersion, input.version), eq(contentItems.userId, input.userId),
+    ));
+    if (!item) throw new PlanWorkflowError("INVALID_CONTENT");
+    if (assetIds.length) {
+      const owned = await tx.select({ id: mediaAssets.id }).from(mediaAssets).where(and(
+        eq(mediaAssets.userId, input.userId), eq(mediaAssets.state, "ready"), inArray(mediaAssets.id, assetIds),
+      ));
+      if (owned.length !== assetIds.length) throw new PlanWorkflowError("INVALID_CONTENT");
+    }
+    await tx.update(contentItems).set({
+      draftLocalTime: input.localTime,
+      draftAccounts: accounts,
+      draftAssetIds: assetIds,
+    }).where(eq(contentItems.id, item.id));
+    const loaded = await loadContentForVersion(tx as unknown as Db, input.planId, input.version);
+    const saved = loaded.contentItems.find(row => row.id === item.id);
+    if (!saved) throw new PlanWorkflowError("INVALID_CONTENT");
+    return saved;
   });
 }
 

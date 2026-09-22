@@ -11,7 +11,7 @@ import { ApiError, apiRequest, type CalendarAccount, type ConnectorPlatform, typ
 import { uploadImagesForSchedule, type UploadedMediaItem } from "@/lib/media-upload";
 import { platformImageLimits } from "@/lib/platform-media-limits";
 import {
-  excludePlanItem, commentOnPlan, createPlanContent, getPlan, listPlans, schedulePlanPosts, submitPlanComments,
+  excludePlanItem, commentOnPlan, createPlanContent, getPlan, listPlans, saveContentDraft, schedulePlanPosts, submitPlanComments,
   type ContentItem, type PlanComment, type PlanDetail, type PlanItem, type PlanSummary,
 } from "@/lib/plans-api";
 
@@ -58,16 +58,29 @@ function PostPreview({ platform, caption, account, media }: { platform: Connecto
   return <ThreadsPreview {...props} />;
 }
 
-function blockLabel(item: ContentItem, calendar: PlanItem | undefined, timezoneConfirmed: boolean, accounts: ConnectorSummary[] | null) {
-  if (item.status === "blocked") {
-    return item.revision.blockReason === "unverified_placeholder" ? "Blocked: unverified claim" : "Blocked: missing image";
-  }
+function imageRequired(platforms: string[]) {
+  return platforms.some(platform => platform === "threads" || platform === "instagram" || platform === "linkedin_personal"
+    ? platformImageLimits(platform).min > 0
+    : false);
+}
+
+function acceptableLocalTime(value: string) {
+  if (!value) return true;
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return false;
+  const year = Number(value.slice(0, 4));
+  return year >= 2024 && year <= 2100;
+}
+
+function blockLabel(item: ContentItem, platforms: string[], imageCount: number, localTime: string, calendar: PlanItem | undefined, timezoneConfirmed: boolean, accounts: ConnectorSummary[] | null) {
+  if (item.revision.blockReason === "unverified_placeholder") return "Blocked: unverified claim";
+  if (imageRequired(platforms) && imageCount < 1) return "Blocked: missing image";
   if (!timezoneConfirmed) return "Blocked: missing timezone";
   if (accounts) {
-    const missing = item.revision.destinations.some(platform => !accounts.some(connector => connector.platform === platform && connector.accounts.some(account => account.state === "connected")));
+    const missing = platforms.some(platform => !accounts.some(connector => connector.platform === platform && connector.accounts.some(account => account.state === "connected")));
     if (missing) return "Blocked: disconnected account";
   }
-  if (calendar && !proposedLocalTime(calendar.proposedTime)) return "Ready · set a local time";
+  if (localTime && new Date(localTime).getTime() <= Date.now()) return "Pick a future time";
+  if (!localTime && !(calendar && proposedLocalTime(calendar.proposedTime))) return "Ready · set a local time";
   return "Ready";
 }
 
@@ -99,6 +112,9 @@ export function PlanViewer({ planId }: { planId: string }) {
   const [media, setMedia] = useState<Record<string, UploadedMediaItem[]>>({});
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  const draftWrites = useRef<Promise<unknown>[]>([]);
+  const draftChain = useRef<Record<string, Promise<void>>>({});
+  const latestDraft = useRef<Record<string, { localTime: string; accounts: Record<string, string>; assetIds: string[] }>>({});
   const load = useCallback(async () => { setDetail(await getPlan(planId)); }, [planId]);
   useEffect(() => { void load().catch(() => setError("Could not load this board.")); }, [load]);
   useEffect(() => {
@@ -121,18 +137,38 @@ export function PlanViewer({ planId }: { planId: string }) {
   }, [revisionActive, contentActive, historical, busy, planId]);
   useEffect(() => {
     if (!detail) return;
+    const calendar = new Map(calendarItems(detail).map(item => [item.id, item]));
     setTimes(current => {
       const next = { ...current };
-      const calendar = new Map(calendarItems(detail).map(item => [item.id, item]));
       for (const item of detail.contentItems ?? []) {
-        if (!next[item.id]) next[item.id] = proposedLocalTime(calendar.get(item.calendarItemId)?.proposedTime ?? null);
+        if (next[item.id] !== undefined) continue;
+        next[item.id] = item.draftLocalTime ?? proposedLocalTime(calendar.get(item.calendarItemId)?.proposedTime ?? null);
+      }
+      return next;
+    });
+    setChosen(current => {
+      const next = { ...current };
+      for (const item of detail.contentItems ?? []) {
+        if (Object.prototype.hasOwnProperty.call(next, item.id)) continue;
+        const saved = item.draftAccounts ? Object.values(item.draftAccounts).filter(Boolean) : [];
+        if (saved.length) next[item.id] = saved as string[];
+      }
+      return next;
+    });
+    setMedia(current => {
+      const next = { ...current };
+      for (const item of detail.contentItems ?? []) {
+        if (next[item.id] !== undefined) continue;
+        next[item.id] = (item.draftMedia ?? []).filter(file => file.assetId).map(file => ({
+          assetId: file.assetId, externalUrl: file.externalUrl, previewUrl: file.previewUrl || file.externalUrl,
+        }));
       }
       return next;
     });
   }, [detail]);
   async function action(work: () => Promise<unknown>, success: string) {
     setBusy(true); setError(null);
-    try { await work(); await load(); setNotice(success); }
+    try { const custom = await work(); await load(); setNotice(typeof custom === "string" ? custom : success); }
     catch (err) { setError(message(err)); }
     finally { setBusy(false); }
   }
@@ -162,14 +198,48 @@ export function PlanViewer({ planId }: { planId: string }) {
       accounts: accountsFor(item),
     }));
   }
-  const readyItems = (detail?.contentItems ?? []).filter(item => !item.excludedAt && item.status === "ready");
+  function platformsFor(item: ContentItem) {
+    const picked = calendarAccounts.filter(account => selectedIds(item).includes(account.id)).map(account => account.platform);
+    return picked.length ? picked : item.revision.destinations;
+  }
+  function imageCount(item: ContentItem) {
+    return (media[item.id] ?? item.draftMedia ?? []).length;
+  }
+  function rowReady(item: ContentItem) {
+    if (item.excludedAt || item.revision.blockReason === "unverified_placeholder") return false;
+    if (imageRequired(platformsFor(item)) && imageCount(item) < 1) return false;
+    return Boolean(times[item.id]) && Object.keys(accountsFor(item)).length > 0;
+  }
+  function rememberDraft(item: ContentItem, snapshot: { localTime: string; accounts: Record<string, string>; assetIds: string[] }) {
+    if (!detail || historical || !acceptableLocalTime(snapshot.localTime)) return;
+    latestDraft.current[item.id] = snapshot;
+    const version = detail.plan.currentVersion;
+    const prev = draftChain.current[item.id] ?? Promise.resolve();
+    const write = prev.catch(() => undefined).then(async () => {
+      const snap = latestDraft.current[item.id];
+      if (!snap || !acceptableLocalTime(snap.localTime)) return;
+      const saved = await saveContentDraft(planId, item.id, {
+        version, localTime: snap.localTime || null, accounts: snap.accounts, assetIds: snap.assetIds,
+      });
+      if (latestDraft.current[item.id] !== snap) return;
+      setDetail(current => current ? {
+        ...current,
+        contentItems: (current.contentItems ?? []).map(row => row.id === saved.id ? { ...row, ...saved, draftMedia: row.draftMedia } : row),
+      } : current);
+    });
+    const tracked = write.catch(err => { setError(message(err)); throw err; });
+    draftChain.current[item.id] = tracked.then(() => undefined, () => undefined);
+    draftWrites.current.push(tracked);
+    void tracked.finally(() => {
+      draftWrites.current = draftWrites.current.filter(pending => pending !== tracked);
+    });
+  }
+  const readyItems = (detail?.contentItems ?? []).filter(rowReady);
   const scheduleBlocker = !timezoneConfirmed
     ? "Confirm your timezone in settings before scheduling."
     : !readyItems.length
       ? "No post is ready to schedule yet."
-      : readyItems.some(item => !times[item.id] || !Object.keys(accountsFor(item)).length)
-        ? "Each included post needs a future local time and a connected account."
-        : null;
+      : null;
   return <AppShell><div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6">
     <Link href="/app/plans" className="text-sm underline">All posts</Link>
     {error && <p role="alert" className="my-4 rounded-lg border border-destructive p-3">{error}</p>}
@@ -183,7 +253,17 @@ export function PlanViewer({ planId }: { planId: string }) {
         <div className="flex flex-wrap gap-2">
           <button className="min-h-11 rounded-lg border px-4" onClick={() => void action(() => load(), "Board refreshed.")} disabled={busy}>Refresh</button>
           {pending.length ? <button className="min-h-11 rounded-lg bg-primary px-4 text-primary-foreground disabled:opacity-50" disabled={busy || historical || revisionActive || contentActive || !detail.contentItems?.length} onClick={() => void action(() => submitPlanComments(planId, detail.plan.currentVersion, pending.map(item => item.id)), "Comments sent for review.")}>Review</button>
-            : <button className="min-h-11 rounded-lg bg-primary px-4 text-primary-foreground disabled:opacity-50" disabled={busy || historical || revisionActive || contentActive || Boolean(scheduleBlocker)} onClick={() => void action(() => schedulePlanPosts(planId, detail.plan.currentVersion, scheduleRows()), readyItems.length < (detail.contentItems ?? []).filter(item => !item.excludedAt).length ? "Ready posts queued. Blocked posts stayed on the board." : "Posts queued for the scheduled times.")}>Schedule posts</button>}
+            : <button className="min-h-11 rounded-lg bg-primary px-4 text-primary-foreground disabled:opacity-50" disabled={busy || historical || revisionActive || contentActive || Boolean(scheduleBlocker)} onClick={() => void action(async () => {
+              await Promise.all(draftWrites.current);
+              const result = await schedulePlanPosts(planId, detail.plan.currentVersion, scheduleRows()) as { operations?: Array<{ status: string }>; skippedItemIds?: string[]; imageWarnings?: string[] } | undefined;
+              const queued = result?.operations?.filter(operation => operation.status === "scheduled").length ?? 0;
+              const failed = result?.operations?.filter(operation => operation.status !== "scheduled").length ?? 0;
+              const skipped = result?.skippedItemIds?.length ?? 0;
+              if (result?.operations && !queued) return "No post was scheduled. Check the time, profile, and Instagram images.";
+              if (failed || skipped) return "Ready posts queued. The rest stayed on the board.";
+              if (result?.imageWarnings?.length) return "Posts queued. An image could not be attached on some of them.";
+              return "Posts queued for the scheduled times.";
+            }, "Posts queued for the scheduled times.")}>Schedule posts</button>}
         </div>
       </header>
       {!historical && !timezoneConfirmed && <p className="mb-5 rounded-lg border p-3 text-sm" role="status">Confirm your timezone in settings before scheduling. <Link className="underline" href="/app/settings/personal">Open settings</Link></p>}
@@ -212,7 +292,7 @@ export function PlanViewer({ planId }: { planId: string }) {
             const itemMedia = media[item.id] ?? [];
             return <article key={item.id} className={`board-post-card cal-modal-preview-stack ${excluded ? "opacity-60" : ""}`} aria-label={meta?.angle ?? item.calendarItemId}>
               {!historical && calendarAccounts.length > 0 && <div className="cal-modal-platform-rail" role="group" aria-label="Target accounts">
-                <PlatformAccountPicker accounts={calendarAccounts} selectedAccountIds={selectedIds(item)} onChange={ids => setChosen(current => ({ ...current, [item.id]: ids }))} mode="target" aria-label="Choose accounts to preview and schedule" />
+                <PlatformAccountPicker accounts={calendarAccounts} selectedAccountIds={selectedIds(item)} onChange={ids => { setChosen(current => ({ ...current, [item.id]: ids })); const nextAccounts = Object.fromEntries(calendarAccounts.filter(account => ids.includes(account.id)).map(account => [account.platform, account.id])); rememberDraft(item, { localTime: times[item.id] ?? "", accounts: nextAccounts, assetIds: (media[item.id] ?? []).map(file => file.assetId) }); }} mode="target" aria-label="Choose accounts to preview and schedule" />
               </div>}
               <div className="cal-modal-preview-row">
               {panes.map(account => {
@@ -228,10 +308,10 @@ export function PlanViewer({ planId }: { planId: string }) {
                     </button>
                     {itemMedia.length > 0 && <ul className="cal-modal-media-list">{itemMedia.map((file, index) => <li key={file.assetId}>
                       <span>Image {index + 1}</span>
-                      <button type="button" className="cal-modal-media-remove" aria-label={`Remove image ${index + 1}`} disabled={busy} onClick={() => setMedia(current => ({ ...current, [item.id]: (current[item.id] ?? []).filter(row => row.assetId !== file.assetId) }))}><X className="size-3" aria-hidden="true" /></button>
+                      <button type="button" className="cal-modal-media-remove" aria-label={`Remove image ${index + 1}`} disabled={busy} onClick={() => { const next = (media[item.id] ?? []).filter(row => row.assetId !== file.assetId); setMedia(current => ({ ...current, [item.id]: next })); rememberDraft(item, { localTime: times[item.id] ?? "", accounts: accountsFor(item), assetIds: next.map(row => row.assetId) }); }}><X className="size-3" aria-hidden="true" /></button>
                     </li>)}</ul>}
                   </div>}
-                  {!historical && <ScheduleTimeCollapse accountLabel={account?.label || meta?.angle || "this post"} value={times[item.id] ?? ""} onChange={value => setTimes(current => ({ ...current, [item.id]: value }))} disabled={busy || excluded} />}
+                  {!historical && <ScheduleTimeCollapse accountLabel={account?.label || meta?.angle || "this post"} value={times[item.id] ?? ""} onChange={value => { setTimes(current => ({ ...current, [item.id]: value })); rememberDraft(item, { localTime: value, accounts: accountsFor(item), assetIds: (media[item.id] ?? []).map(file => file.assetId) }); }} disabled={busy || excluded} />}
                 </div>;
               })}
               </div>
@@ -240,10 +320,10 @@ export function PlanViewer({ planId }: { planId: string }) {
                 event.target.value = "";
                 if (!files.length) return;
                 setUploadingId(item.id);
-                void uploadImagesForSchedule(files).then(added => setMedia(current => ({ ...current, [item.id]: [...(current[item.id] ?? []), ...added] }))).catch(err => setError(message(err))).finally(() => setUploadingId(null));
+                void uploadImagesForSchedule(files).then(added => { const next = [...(media[item.id] ?? []), ...added]; setMedia(current => ({ ...current, [item.id]: next })); rememberDraft(item, { localTime: times[item.id] ?? "", accounts: accountsFor(item), assetIds: next.map(file => file.assetId) }); }).catch(err => setError(message(err))).finally(() => setUploadingId(null));
               }} />
               <div className="board-post-footer">
-              <p className="text-sm text-muted-foreground">{excluded ? "Excluded" : blockLabel(item, meta, timezoneConfirmed, accounts)}</p>
+              <p className="text-sm text-muted-foreground">{excluded ? "Excluded" : blockLabel(item, platformsFor(item), imageCount(item), times[item.id] ?? "", meta, timezoneConfirmed, accounts)}</p>
               {!historical && <div className="flex flex-wrap gap-2">
                 <button type="button" className="min-h-11 rounded-md border px-3 text-sm" disabled={busy} onClick={() => void action(() => excludePlanItem(planId, item.id, detail.plan.currentVersion, !excluded), excluded ? "Post included again." : "Post excluded from Schedule posts.")}>{excluded ? "Include" : "Exclude"}</button>
               </div>}
