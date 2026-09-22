@@ -22,8 +22,17 @@ function latestRevisions(revisions: Array<typeof contentRevisions.$inferSelect>)
   return byItem;
 }
 
+function isDismissedMediaNote(value: string): boolean {
+  const text = value.trim().toLowerCase().replace(/[.!]+$/g, "").replace(/\s+/g, " ");
+  return /^(none|none required|n\/a|na|not required|no media|no image|nothing)(\b|$)/.test(text)
+    || text.startsWith("none required")
+    || text.startsWith("no media")
+    || text.startsWith("not required");
+}
+
 export function contentBlockState(item: PlanCalendarItem, caption: string): { status: "blocked" | "ready"; blockReason: "missing_media" | "unverified_placeholder" | null } {
-  const needsMedia = item.format !== "text" || item.assetNeeds.length > 0;
+  const realNeeds = item.assetNeeds.filter(need => !isDismissedMediaNote(need));
+  const needsMedia = item.format !== "text" || realNeeds.length > 0;
   if (needsMedia) return { status: "blocked", blockReason: "missing_media" };
   if (caption.includes("[") || /\bTODO\b/i.test(caption) || /unverified/i.test(caption)) {
     return { status: "blocked", blockReason: "unverified_placeholder" };
@@ -77,15 +86,19 @@ export async function enqueueCreateContent(db: Db, input: { userId: string; plan
     if (!version) throw new PlanWorkflowError("PLAN_NOT_FOUND");
     if (!planCalendarItems(version.document).length) throw new PlanWorkflowError("NO_CALENDAR_ITEMS");
     const existing = await loadContentForVersion(connection, input.planId, input.version);
-    if (existing.contentJob?.status === "needs_attention" && existing.contentItems.length === 0) {
+    const have = new Set(existing.contentItems.map(item => item.calendarItemId));
+    const missing = planCalendarItems(version.document).some(item => !have.has(item.id));
+    if (existing.contentJob && !missing) return existing;
+    if (existing.contentJob && (existing.contentJob.status === "submitted" || existing.contentJob.status === "running")) return existing;
+    if (existing.contentJob && missing) {
       const [retried] = await tx.update(contentGenerationJobs).set({
         status: "submitted", errorCode: null, completedAt: null, claimToken: null, leaseExpiresAt: null,
       }).where(and(
         eq(contentGenerationJobs.id, existing.contentJob.id),
-        eq(contentGenerationJobs.status, "needs_attention"),
+        inArray(contentGenerationJobs.status, ["needs_attention", "applied"]),
         eq(contentGenerationJobs.planVersion, input.version),
       )).returning();
-      if (retried) return { contentJob: publicJob(retried), contentItems: [] };
+      if (retried) return { contentJob: publicJob(retried), contentItems: existing.contentItems };
     }
     if (existing.contentJob) return existing;
     await tx.insert(contentGenerationJobs).values({
@@ -159,13 +172,13 @@ export async function applyContentSet(db: Db, input: {
   document: PlanDocument;
 }) {
   const calendar = planCalendarItems(input.document);
-  const expected = new Set(calendar.map(item => item.id));
-  const received = new Set(input.captions.map(row => row.calendarItemId));
-  if (expected.size !== calendar.length || received.size !== input.captions.length || expected.size !== received.size || [...expected].some(itemId => !received.has(itemId))) {
-    throw new PlanWorkflowError("INVALID_CONTENT");
+  const byCalendar = new Map(calendar.map(item => [item.id, item]));
+  const captionById = new Map<string, string>();
+  for (const row of input.captions) {
+    const caption = row.caption.trim();
+    if (!byCalendar.has(row.calendarItemId) || !caption || caption.length > 10_000 || captionById.has(row.calendarItemId)) continue;
+    captionById.set(row.calendarItemId, caption);
   }
-  const captionById = new Map(input.captions.map(row => [row.calendarItemId, row.caption.trim()]));
-  if ([...captionById.values()].some(caption => !caption || caption.length > 10_000)) throw new PlanWorkflowError("INVALID_CONTENT");
   return db.transaction(async tx => {
     const [plan] = await tx.select().from(plans).where(and(eq(plans.id, input.planId), eq(plans.userId, input.userId))).for("update");
     if (!plan) throw new PlanWorkflowError("PLAN_NOT_FOUND");
@@ -176,11 +189,14 @@ export async function applyContentSet(db: Db, input: {
     if (!job || !job.leaseExpiresAt || job.leaseExpiresAt <= new Date() || job.planVersion !== plan.currentVersion) {
       throw new PlanWorkflowError("INVALID_CONTENT");
     }
-    const existing = await tx.select({ id: contentItems.id }).from(contentItems).where(and(
+    const existing = await tx.select({ calendarItemId: contentItems.calendarItemId }).from(contentItems).where(and(
       eq(contentItems.planId, input.planId), eq(contentItems.planVersion, job.planVersion),
     ));
-    if (existing.length) throw new PlanWorkflowError("INVALID_CONTENT");
-    for (const item of calendar) {
+    const have = new Set(existing.map(item => item.calendarItemId));
+    const pending = calendar.filter(item => !have.has(item.id));
+    const toInsert = pending.filter(item => captionById.has(item.id));
+    if (!toInsert.length && pending.length) throw new PlanWorkflowError("INVALID_CONTENT");
+    for (const item of toInsert) {
       const caption = captionById.get(item.id)!;
       const state = contentBlockState(item, caption);
       const [row] = await tx.insert(contentItems).values({

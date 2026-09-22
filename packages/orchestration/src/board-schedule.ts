@@ -52,12 +52,11 @@ export async function confirmBoardSchedule(db: Database["db"], input: {
     }
   }
   const excludedItemIds = [...byItem.values()].filter(item => item.excludedAt || byRow.get(item.id)?.excluded).map(item => item.id);
-  const blocked = [...byItem.values()].filter(item => !excludedItemIds.includes(item.id) && item.status !== "ready");
-  if (blocked.length) throw new PlanWorkflowError("SCHEDULE_NOT_READY", { itemIds: blocked.map(item => item.id) });
+  const skippedItemIds = [...byItem.values()].filter(item => !excludedItemIds.includes(item.id) && item.status !== "ready").map(item => item.id);
   const now = input.now ?? new Date();
   const destinations: Parameters<typeof persistBoardSchedule>[1]["destinations"] = [];
   for (const item of byItem.values()) {
-    if (excludedItemIds.includes(item.id)) continue;
+    if (excludedItemIds.includes(item.id) || skippedItemIds.includes(item.id)) continue;
     const row = byRow.get(item.id);
     if (!row?.localTime) throw new PlanWorkflowError("INVALID_SCHEDULE", { itemIds: [item.id] });
     let publishAt: string;
@@ -67,10 +66,11 @@ export async function confirmBoardSchedule(db: Database["db"], input: {
       throw new PlanWorkflowError("INVALID_SCHEDULE", { itemIds: [item.id], reason: error instanceof Error ? error.message : "INVALID_LOCAL_TIME" });
     }
     if (Date.parse(publishAt) <= now.getTime()) throw new PlanWorkflowError("INVALID_SCHEDULE", { itemIds: [item.id], reason: "PAST_TIME" });
-    for (const destination of item.revision.destinations) {
-      const accountId = row.accounts?.[destination];
-      const account = accountId ? owned.get(accountId) : undefined;
-      if (!accountId || !account || account.platform !== destination || !account.connected) {
+    const chosen = Object.entries(row.accounts ?? {}).filter((entry): entry is [Platform, string] => isPlatform(entry[0]) && Boolean(entry[1]));
+    if (!chosen.length) throw new PlanWorkflowError("ACCOUNT_REQUIRED", { itemIds: [item.id] });
+    for (const [destination, accountId] of chosen) {
+      const account = owned.get(accountId);
+      if (!account || account.platform !== destination || !account.connected) {
         throw new PlanWorkflowError("ACCOUNT_REQUIRED", { itemIds: [item.id], destination });
       }
       destinations.push({
@@ -79,7 +79,7 @@ export async function confirmBoardSchedule(db: Database["db"], input: {
       });
     }
   }
-  if (!destinations.length) throw new PlanWorkflowError("SCHEDULE_NOT_READY", { itemIds: [] });
+  if (!destinations.length) throw new PlanWorkflowError("SCHEDULE_NOT_READY", { itemIds: skippedItemIds });
   const persisted = await persistBoardSchedule(db, {
     userId: input.userId, planId: input.planId, planVersion: input.version,
     timezone: detail.board.timezone, destinations, excludedItemIds,
@@ -119,7 +119,7 @@ export async function confirmBoardSchedule(db: Database["db"], input: {
       operations.push(await markBoardScheduleOperation(db, { operationId: operation.id, status: "needs_attention", errorCode: "SOCIALMCP_UNAVAILABLE" }));
     }
   }
-  return { confirmation: persisted.confirmation, operations };
+  return { confirmation: persisted.confirmation, operations, skippedItemIds };
 }
 
 function mcpAccepted(value: Record<string, unknown>) {

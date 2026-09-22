@@ -97,6 +97,27 @@ describe("durable content generation", () => {
   it("marks unverified placeholders on an otherwise ready text item", () => {
     expect(contentBlockState(calendarItems[0]!, "See [source] for details")).toEqual({ status: "blocked", blockReason: "unverified_placeholder" });
     expect(contentBlockState(calendarItems[0]!, "Ship the clamp this week.")).toEqual({ status: "ready", blockReason: null });
+    expect(contentBlockState({ ...calendarItems[0]!, assetNeeds: ["None required — evergreen educational content"] }, "Ship the clamp this week.")).toEqual({ status: "ready", blockReason: null });
+    expect(contentBlockState(calendarItems[1]!, "Show the bench.")).toEqual({ status: "blocked", blockReason: "missing_media" });
+  });
+
+  it("stores a partial caption set and retries only by resubmitting the same job", async () => {
+    await approvePlanDirection(database.db, { userId, planId, version: 1 });
+    await enqueueCreateContent(database.db, { userId, planId, version: 1 });
+    const claimed = await claimContentJob(database.db);
+    await applyContentSet(database.db, {
+      userId, planId, jobId: claimed!.job.id, claimToken: claimed!.job.claimToken!,
+      document: claimed!.version.document,
+      captions: [{ calendarItemId: "item_text", caption: "A concrete shop-floor caption." }, { calendarItemId: "unknown", caption: "Drop me" }],
+    });
+    const partial = await getPlan(database.db, userId, planId);
+    expect(partial.contentJob?.status).toBe("applied");
+    expect(partial.contentItems.map(item => item.calendarItemId)).toEqual(["item_text"]);
+    const again = await enqueueCreateContent(database.db, { userId, planId, version: 1 });
+    expect(again.contentJob.status).toBe("submitted");
+    expect(again.contentItems).toHaveLength(1);
+    const held = await enqueueCreateContent(database.db, { userId, planId, version: 1 });
+    expect(held.contentJob.status).toBe("submitted");
   });
 
   it("does not apply captions after the plan version changes", async () => {

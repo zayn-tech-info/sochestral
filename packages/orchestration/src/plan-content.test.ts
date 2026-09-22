@@ -69,17 +69,26 @@ describe("durable content worker", () => {
     expect((await getPlan(database.db, userId, planId)).contentItems).toHaveLength(2);
   });
 
-  it("rejects truncated captions without writing rows", async () => {
-    expect(await run({ complete: async () => completion({ stopReason: "max_tokens" }) })).toBe("needs_attention");
+  it("rejects a response with no usable captions and writes no rows", async () => {
+    expect(await run({ complete: async () => ({ ...completion({ stopReason: "max_tokens" }), toolCalls: [] }) })).toBe("needs_attention");
     expect(await database.db.select().from(contentItems)).toHaveLength(0);
     expect((await getPlan(database.db, userId, planId)).contentJob).toMatchObject({ errorCode: "INVALID_CONTENT" });
   });
 
-  it("rejects a mismatched caption set without writing rows", async () => {
-    const otherPlan = (await createPlan(database.db, { userId, title: "Other", document: document(), contextId: null })).plan.id;
-    await approvePlanDirection(database.db, { userId, planId: otherPlan, version: 1 });
-    await enqueueCreateContent(database.db, { userId, planId: otherPlan, version: 1 });
-    expect(await run({ complete: async () => completion({ items: [{ calendarItemId: "item_text", caption: "Only one" }] }) })).toBe("needs_attention");
-    expect((await getPlan(database.db, userId, otherPlan)).contentItems).toHaveLength(0);
+  it("keeps matching captions and asks again only for the missing ids", async () => {
+    const complete = vi.fn(async (input: Parameters<ModelProvider["complete"]>[0]) => {
+      const body = JSON.parse((input.messages[0]?.content[0] as { text: string }).text) as { calendarItemIds: string[] };
+      return completion({ items: body.calendarItemIds.map(calendarItemId => ({ calendarItemId, caption: `Caption for ${calendarItemId}` })) });
+    });
+    complete.mockImplementationOnce(async () => completion({ items: [{ calendarItemId: "item_text", caption: "Only one" }, { calendarItemId: "extra", caption: "Ignore" }] }));
+    expect(await run({ complete })).toBe("applied");
+    expect((await getPlan(database.db, userId, planId)).contentItems.map(item => item.calendarItemId)).toEqual(["item_text"]);
+    await enqueueCreateContent(database.db, { userId, planId, version: 1 });
+    expect(await run({ complete })).toBe("applied");
+    const saved = await getPlan(database.db, userId, planId);
+    expect(saved.contentItems.map(item => item.calendarItemId).sort()).toEqual(["item_image", "item_text"]);
+    expect(saved.contentItems.find(item => item.calendarItemId === "item_text")?.revision.caption).toBe("Only one");
+    const secondCall = JSON.parse((complete.mock.calls[1]?.[0].messages[0]?.content[0] as { text: string }).text) as { calendarItemIds: string[] };
+    expect(secondCall.calendarItemIds).toEqual(["item_image"]);
   });
 });
