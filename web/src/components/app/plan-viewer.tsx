@@ -2,11 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { ImagePlus, X } from "lucide-react";
 import { AppShell } from "./app-shell";
 import { PlatformAccountPicker } from "./platform-account-picker";
 import { ScheduleTimeCollapse } from "./schedule-time-collapse";
 import { InstagramPreview, LinkedInPreview, ThreadsPreview } from "@/components/preview";
 import { ApiError, apiRequest, type CalendarAccount, type ConnectorPlatform, type ConnectorSummary } from "@/lib/product-api";
+import { uploadImagesForSchedule, type UploadedMediaItem } from "@/lib/media-upload";
+import { platformImageLimits } from "@/lib/platform-media-limits";
 import {
   excludePlanItem, commentOnPlan, createPlanContent, getPlan, listPlans, schedulePlanPosts, submitPlanComments,
   type ContentItem, type PlanComment, type PlanDetail, type PlanItem, type PlanSummary,
@@ -41,11 +44,14 @@ function proposedLocalTime(value: string | null): string {
   return value && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value) ? value : "";
 }
 
-function PostPreview({ platform, caption, account }: { platform: ConnectorPlatform; caption: string; account: { id: string; username: string | null; displayName: string | null } | null }) {
+function PostPreview({ platform, caption, account, media }: { platform: ConnectorPlatform; caption: string; account: { id: string; username: string | null; displayName: string | null; avatarHint?: string | null } | null; media: UploadedMediaItem[] }) {
+  const avatarUrl = account?.avatarHint?.startsWith("https:") ? account.avatarHint : null;
   const props = {
-    platform, body: caption || " ", mediaItems: [], mediaPreviews: {},
-    account: account ? { ...account, state: "connected" as const } : null,
-    locked: true, live: false, onBodyChange: () => undefined, avatarUrl: null,
+    platform, body: caption || " ",
+    mediaItems: media.map(item => ({ assetId: item.assetId, externalUrl: item.externalUrl })),
+    mediaPreviews: Object.fromEntries(media.map(item => [item.assetId, item.previewUrl])),
+    account: account ? { id: account.id, username: account.username, displayName: account.displayName, state: "connected" as const } : null,
+    locked: true, live: false, onBodyChange: () => undefined, avatarUrl,
   };
   if (platform === "linkedin_personal") return <LinkedInPreview {...props} />;
   if (platform === "instagram") return <InstagramPreview {...props} />;
@@ -90,6 +96,8 @@ export function PlanViewer({ planId }: { planId: string }) {
   const [accounts, setAccounts] = useState<ConnectorSummary[] | null>(null);
   const [times, setTimes] = useState<Record<string, string>>({});
   const [chosen, setChosen] = useState<Record<string, string[]>>({});
+  const [media, setMedia] = useState<Record<string, UploadedMediaItem[]>>({});
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const load = useCallback(async () => { setDetail(await getPlan(planId)); }, [planId]);
   useEffect(() => { void load().catch(() => setError("Could not load this board.")); }, [load]);
@@ -200,23 +208,46 @@ export function PlanViewer({ planId }: { planId: string }) {
             const meta = calendar.get(item.calendarItemId);
             const excluded = Boolean(item.excludedAt);
             const picked = calendarAccounts.filter(account => selectedIds(item).includes(account.id));
-            const previewAccount = picked[0] ? { id: picked[0].id, username: picked[0].username, displayName: picked[0].label } : null;
-            const previewPlatform = (picked[0]?.platform ?? item.revision.destinations[0] ?? "threads") as ConnectorPlatform;
-            return <article key={item.id} className={`rounded-2xl border p-5 ${excluded ? "opacity-60" : ""}`} aria-label={meta?.angle ?? item.calendarItemId}>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-xl font-semibold">{meta?.angle ?? item.calendarItemId}</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">{item.revision.format} · {excluded ? "Excluded" : blockLabel(item, meta, timezoneConfirmed, accounts)}</p>
-                </div>
-                {!historical && <button type="button" className="min-h-11 rounded-md border px-3 text-sm" disabled={busy} onClick={() => void action(() => excludePlanItem(planId, item.id, detail.plan.currentVersion, !excluded), excluded ? "Post included again." : "Post excluded from Schedule posts.")}>{excluded ? "Include" : "Exclude"}</button>}
-              </div>
-              <div className="mt-4"><PostPreview platform={previewPlatform} caption={item.revision.caption} account={previewAccount} /></div>
-              {item.status === "blocked" && !!item.revision.assetNeeds.length && <p className="mt-3 text-sm text-muted-foreground">Media needed: {item.revision.assetNeeds.join(", ")}</p>}
-              {!historical && <div className="mt-4 space-y-3">
-                <PlatformAccountPicker accounts={calendarAccounts} selectedAccountIds={selectedIds(item)} onChange={ids => setChosen(current => ({ ...current, [item.id]: ids }))} mode="target" aria-label={`Platforms for ${meta?.angle ?? "post"}`} />
-                <ScheduleTimeCollapse accountLabel={previewAccount?.displayName || meta?.angle || "this post"} value={times[item.id] ?? ""} onChange={value => setTimes(current => ({ ...current, [item.id]: value }))} disabled={busy || excluded} />
+            const panes = picked.length ? picked : [null];
+            const itemMedia = media[item.id] ?? [];
+            return <article key={item.id} className={`board-post-card cal-modal-preview-stack ${excluded ? "opacity-60" : ""}`} aria-label={meta?.angle ?? item.calendarItemId}>
+              {!historical && calendarAccounts.length > 0 && <div className="cal-modal-platform-rail" role="group" aria-label="Target accounts">
+                <PlatformAccountPicker accounts={calendarAccounts} selectedAccountIds={selectedIds(item)} onChange={ids => setChosen(current => ({ ...current, [item.id]: ids }))} mode="target" aria-label="Choose accounts to preview and schedule" />
               </div>}
-              {!historical && <div className="mt-4 space-y-2">
+              <div className="cal-modal-preview-row">
+              {panes.map(account => {
+                const platform = (account?.platform ?? item.revision.destinations[0] ?? "threads") as ConnectorPlatform;
+                const limits = platformImageLimits(platform);
+                const atMax = itemMedia.length >= limits.max;
+                return <div key={account?.id ?? "preview"} className="cal-modal-preview-col">
+                  <PostPreview platform={platform} caption={item.revision.caption} media={itemMedia} account={account ? { id: account.id, username: account.username, displayName: account.label, avatarHint: account.avatarHint } : null} />
+                  {!historical && <div className="cal-modal-pane-media">
+                    <button type="button" className="cal-link-btn cal-modal-media-add" disabled={busy || Boolean(uploadingId) || atMax || excluded} onClick={() => document.getElementById(`board-images-${item.id}`)?.click()}>
+                      <ImagePlus className="size-3.5" aria-hidden="true" />
+                      {uploadingId === item.id ? "Uploading…" : atMax ? `Max ${limits.max} images` : "Add images"}
+                    </button>
+                    {itemMedia.length > 0 && <ul className="cal-modal-media-list">{itemMedia.map((file, index) => <li key={file.assetId}>
+                      <span>Image {index + 1}</span>
+                      <button type="button" className="cal-modal-media-remove" aria-label={`Remove image ${index + 1}`} disabled={busy} onClick={() => setMedia(current => ({ ...current, [item.id]: (current[item.id] ?? []).filter(row => row.assetId !== file.assetId) }))}><X className="size-3" aria-hidden="true" /></button>
+                    </li>)}</ul>}
+                  </div>}
+                  {!historical && <ScheduleTimeCollapse accountLabel={account?.label || meta?.angle || "this post"} value={times[item.id] ?? ""} onChange={value => setTimes(current => ({ ...current, [item.id]: value }))} disabled={busy || excluded} />}
+                </div>;
+              })}
+              </div>
+              <input id={`board-images-${item.id}`} type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple hidden onChange={event => {
+                const files = [...(event.target.files ?? [])];
+                event.target.value = "";
+                if (!files.length) return;
+                setUploadingId(item.id);
+                void uploadImagesForSchedule(files).then(added => setMedia(current => ({ ...current, [item.id]: [...(current[item.id] ?? []), ...added] }))).catch(err => setError(message(err))).finally(() => setUploadingId(null));
+              }} />
+              <div className="board-post-footer">
+              <p className="text-sm text-muted-foreground">{excluded ? "Excluded" : blockLabel(item, meta, timezoneConfirmed, accounts)}</p>
+              {!historical && <div className="flex flex-wrap gap-2">
+                <button type="button" className="min-h-11 rounded-md border px-3 text-sm" disabled={busy} onClick={() => void action(() => excludePlanItem(planId, item.id, detail.plan.currentVersion, !excluded), excluded ? "Post included again." : "Post excluded from Schedule posts.")}>{excluded ? "Include" : "Exclude"}</button>
+              </div>}
+              {!historical && <div className="space-y-2">
                 {postComment?.id === item.id ? <form className="space-y-2" onSubmit={event => { event.preventDefault(); if (!postComment.body.trim()) return;
                   void action(async () => { await commentOnPlan(planId, { version: detail.plan.currentVersion, blockId: item.id, body: postComment.body, scope: "post" }); setPostComment(null); }, "Comment saved."); }}>
                   <label className="block text-sm font-medium" htmlFor={`post-comment-${item.id}`}>Comment on this post</label>
@@ -227,6 +258,7 @@ export function PlanViewer({ planId }: { planId: string }) {
                   </div>
                 </form> : <button type="button" className="min-h-11 rounded-md border px-3 text-sm" disabled={busy} onClick={() => setPostComment({ id: item.id, body: "" })}>Comment on this post</button>}
               </div>}
+              </div>
             </article>;
           })}
           </div>

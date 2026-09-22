@@ -10173,6 +10173,43 @@
     cursor: grabbing;
   }
 
+  .board-post-card.cal-modal-preview-stack {
+    position: relative;
+    gap: 0.55rem;
+    overflow: visible;
+  }
+
+  .board-post-card:focus-within {
+    z-index: 30;
+  }
+
+  .board-post-card .cal-modal-platform-rail {
+    position: relative;
+    z-index: 5;
+    margin: 0 0 -0.85rem 0.15rem;
+    padding: 0;
+  }
+
+  .board-post-card .cal-modal-preview-row {
+    overflow-x: auto;
+    padding: 0.95rem 0 0;
+    scroll-snap-type: x mandatory;
+  }
+
+  .board-post-card .cal-modal-preview-col {
+    flex: 0 0 100%;
+    width: 100%;
+    min-width: 100%;
+    max-width: 100%;
+    scroll-snap-align: start;
+  }
+
+  .board-post-card .board-post-footer {
+    display: grid;
+    gap: 0.45rem;
+    padding: 0 0.15rem;
+  }
+
   .cal-modal-preview-col {
     flex: 0 0 min(22rem, 85%);
     min-width: min(22rem, 85%);

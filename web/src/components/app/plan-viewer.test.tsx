@@ -47,6 +47,24 @@ describe("post board", () => {
     await userEvent.click(screen.getByRole("button", { name: "View how this was planned" }));
     expect(screen.getByText("Reach workshop owners")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Schedule posts" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Add images" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Schedule on Shop/ })).toBeInTheDocument();
+  });
+
+  it("opens the calendar profile picker and schedules the selected profile", async () => {
+    vi.mocked(apiRequest).mockResolvedValue({ connectors: [{ platform: "threads", state: "connected", accounts: [
+      { id: "acct_1", username: "zayntechinfo", displayName: "Abdulbasit Adeniyi", state: "connected" },
+      { id: "acct_2", username: "other", displayName: "Other profile", state: "connected" },
+    ] }] });
+    render(<PlanViewer planId="plan_1" />);
+    await screen.findByText("A shop-floor caption for builders.");
+    await userEvent.click(screen.getByRole("button", { name: /Threads, 1 account selected/ }));
+    expect(screen.getByRole("dialog", { name: "Threads accounts" })).toBeInTheDocument();
+    expect(screen.getByText("@zayntechinfo")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("checkbox", { name: /Other profile/ }));
+    await userEvent.click(screen.getByRole("checkbox", { name: /Abdulbasit Adeniyi/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Schedule posts" }));
+    expect(schedulePlanPosts).toHaveBeenCalledWith("plan_1", 1, [expect.objectContaining({ accounts: { threads: "acct_2" } })]);
   });
 
   it("turns the primary action into Review when a board comment is unsent", async () => {
