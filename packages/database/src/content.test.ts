@@ -190,5 +190,9 @@ describe("durable content generation", () => {
     expect(again.contentItems.find(item => item.id === image.id)).toMatchObject({
       status: "ready", draftLocalTime: "2031-04-02T09:30", draftAccounts: { instagram: "acct_ig" }, draftAssetIds: ["asset_board"],
     });
+    await expect(saveContentDraft(database.db, {
+      userId, planId, version: 1, itemId: image.id, localTime: "6032-06-02T11:06", accounts: { instagram: "acct_ig" }, assetIds: ["asset_board"],
+    })).rejects.toMatchObject({ code: "INVALID_SCHEDULE" });
+    expect((await getPlan(database.db, userId, planId)).contentItems.find(item => item.id === image.id)?.draftLocalTime).toBe("2031-04-02T09:30");
   });
 });

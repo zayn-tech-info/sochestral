@@ -237,6 +237,10 @@ export async function saveContentDraft(db: Db, input: {
   assetIds: string[];
 }) {
   if (input.localTime !== null && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(input.localTime)) throw new PlanWorkflowError("INVALID_SCHEDULE");
+  if (input.localTime !== null) {
+    const year = Number(input.localTime.slice(0, 4));
+    if (year < 2024 || year > 2100) throw new PlanWorkflowError("INVALID_SCHEDULE");
+  }
   const accounts: Partial<Record<(typeof draftPlatforms)[number], string>> = {};
   for (const [platform, accountId] of Object.entries(input.accounts)) {
     if (!draftPlatforms.includes(platform as (typeof draftPlatforms)[number]) || typeof accountId !== "string" || !accountId.trim()) throw new PlanWorkflowError("INVALID_SCHEDULE");

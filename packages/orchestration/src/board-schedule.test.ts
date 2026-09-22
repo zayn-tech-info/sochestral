@@ -142,6 +142,26 @@ describe("board schedule posts", () => {
     }));
   });
 
+  it("still queues a text post when its image link cannot be resolved", async () => {
+    const { contentItems } = await import("@sochestral/database");
+    const { eq } = await import("drizzle-orm");
+    await database.db.update(contentItems).set({ draftAssetIds: ["asset_board"] }).where(eq(contentItems.id, textItemId));
+    const gateway = mcp();
+    const result = await confirmBoardSchedule(database.db, {
+      userId, planId, version: 1, confirm: true, connectors, mcp: gateway, now: new Date("2030-01-01T00:00:00Z"),
+      resolveMediaUrls: async () => { throw new Error("storage down"); },
+      rows: [
+        { itemId: textItemId, localTime: "2031-01-02T09:00", accounts: { threads: "acct_threads" } },
+        { itemId: imageItemId, excluded: true },
+      ],
+    });
+    expect(result.operations[0]).toMatchObject({ status: "scheduled", destination: "threads" });
+    expect(result.imageWarnings).toEqual([textItemId]);
+    expect(gateway.callTool).toHaveBeenCalledWith(expect.objectContaining({
+      arguments: expect.not.objectContaining({ options: expect.anything() }),
+    }));
+  });
+
   it("retries a needs_attention row without inserting a duplicate operation", async () => {
     const gateway = mcp();
     vi.mocked(gateway.callTool).mockRejectedValueOnce(new Error("down"));

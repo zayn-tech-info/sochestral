@@ -55,6 +55,7 @@ export async function confirmBoardSchedule(db: Database["db"], input: {
   }
   const excludedItemIds = [...byItem.values()].filter(item => item.excludedAt || byRow.get(item.id)?.excluded).map(item => item.id);
   const skippedItemIds: string[] = [];
+  const imageWarnings: string[] = [];
   const now = input.now ?? new Date();
   const destinations: Parameters<typeof persistBoardSchedule>[1]["destinations"] = [];
   for (const item of byItem.values()) {
@@ -114,12 +115,13 @@ export async function confirmBoardSchedule(db: Database["db"], input: {
         } catch {
           mediaUrls = [];
         }
-        if (!mediaUrls.length || mediaUrls.length < limits.min) {
+        if (mediaUrls.length < limits.min) {
           operations.push(await markBoardScheduleOperation(db, {
             operationId: operation.id, status: "needs_attention", errorCode: "MEDIA_REQUIRED",
           }));
           continue;
         }
+        if (!mediaUrls.length) imageWarnings.push(operation.itemId);
       } else if (limits.min > 0) {
         operations.push(await markBoardScheduleOperation(db, {
           operationId: operation.id, status: "needs_attention", errorCode: "MEDIA_REQUIRED",
@@ -153,7 +155,7 @@ export async function confirmBoardSchedule(db: Database["db"], input: {
       operations.push(await markBoardScheduleOperation(db, { operationId: operation.id, status: "needs_attention", errorCode: "SOCIALMCP_UNAVAILABLE" }));
     }
   }
-  return { confirmation: persisted.confirmation, operations, skippedItemIds };
+  return { confirmation: persisted.confirmation, operations, skippedItemIds, imageWarnings: [...new Set(imageWarnings)] };
 }
 
 function mcpAccepted(value: Record<string, unknown>) {

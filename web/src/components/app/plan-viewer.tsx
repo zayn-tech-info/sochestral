@@ -59,7 +59,16 @@ function PostPreview({ platform, caption, account, media }: { platform: Connecto
 }
 
 function imageRequired(platforms: string[]) {
-  return platforms.includes("instagram");
+  return platforms.some(platform => platform === "threads" || platform === "instagram" || platform === "linkedin_personal"
+    ? platformImageLimits(platform).min > 0
+    : false);
+}
+
+function acceptableLocalTime(value: string) {
+  if (!value) return true;
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return false;
+  const year = Number(value.slice(0, 4));
+  return year >= 2024 && year <= 2100;
 }
 
 function blockLabel(item: ContentItem, platforms: string[], imageCount: number, localTime: string, calendar: PlanItem | undefined, timezoneConfirmed: boolean, accounts: ConnectorSummary[] | null) {
@@ -104,6 +113,8 @@ export function PlanViewer({ planId }: { planId: string }) {
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const draftWrites = useRef<Promise<unknown>[]>([]);
+  const draftChain = useRef<Record<string, Promise<void>>>({});
+  const latestDraft = useRef<Record<string, { localTime: string; accounts: Record<string, string>; assetIds: string[] }>>({});
   const load = useCallback(async () => { setDetail(await getPlan(planId)); }, [planId]);
   useEffect(() => { void load().catch(() => setError("Could not load this board.")); }, [load]);
   useEffect(() => {
@@ -157,7 +168,7 @@ export function PlanViewer({ planId }: { planId: string }) {
   }, [detail]);
   async function action(work: () => Promise<unknown>, success: string) {
     setBusy(true); setError(null);
-    try { await work(); await load(); setNotice(success); }
+    try { const custom = await work(); await load(); setNotice(typeof custom === "string" ? custom : success); }
     catch (err) { setError(message(err)); }
     finally { setBusy(false); }
   }
@@ -197,24 +208,30 @@ export function PlanViewer({ planId }: { planId: string }) {
   function rowReady(item: ContentItem) {
     if (item.excludedAt || item.revision.blockReason === "unverified_placeholder") return false;
     if (imageRequired(platformsFor(item)) && imageCount(item) < 1) return false;
-    return Boolean(times[item.id]) && new Date(times[item.id]!).getTime() > Date.now() && Object.keys(accountsFor(item)).length > 0;
+    return Boolean(times[item.id]) && Object.keys(accountsFor(item)).length > 0;
   }
   function rememberDraft(item: ContentItem, snapshot: { localTime: string; accounts: Record<string, string>; assetIds: string[] }) {
-    if (!detail || historical) return;
-    const write = saveContentDraft(planId, item.id, {
-      version: detail.plan.currentVersion,
-      localTime: snapshot.localTime || null,
-      accounts: snapshot.accounts,
-      assetIds: snapshot.assetIds,
-    }).then(saved => {
+    if (!detail || historical || !acceptableLocalTime(snapshot.localTime)) return;
+    latestDraft.current[item.id] = snapshot;
+    const version = detail.plan.currentVersion;
+    const prev = draftChain.current[item.id] ?? Promise.resolve();
+    const write = prev.catch(() => undefined).then(async () => {
+      const snap = latestDraft.current[item.id];
+      if (!snap || !acceptableLocalTime(snap.localTime)) return;
+      const saved = await saveContentDraft(planId, item.id, {
+        version, localTime: snap.localTime || null, accounts: snap.accounts, assetIds: snap.assetIds,
+      });
+      if (latestDraft.current[item.id] !== snap) return;
       setDetail(current => current ? {
         ...current,
         contentItems: (current.contentItems ?? []).map(row => row.id === saved.id ? { ...row, ...saved, draftMedia: row.draftMedia } : row),
       } : current);
-    }).catch(err => setError(message(err)));
-    draftWrites.current.push(write);
-    void write.finally(() => {
-      draftWrites.current = draftWrites.current.filter(pending => pending !== write);
+    });
+    const tracked = write.catch(err => { setError(message(err)); throw err; });
+    draftChain.current[item.id] = tracked.then(() => undefined, () => undefined);
+    draftWrites.current.push(tracked);
+    void tracked.finally(() => {
+      draftWrites.current = draftWrites.current.filter(pending => pending !== tracked);
     });
   }
   const readyItems = (detail?.contentItems ?? []).filter(rowReady);
@@ -236,7 +253,17 @@ export function PlanViewer({ planId }: { planId: string }) {
         <div className="flex flex-wrap gap-2">
           <button className="min-h-11 rounded-lg border px-4" onClick={() => void action(() => load(), "Board refreshed.")} disabled={busy}>Refresh</button>
           {pending.length ? <button className="min-h-11 rounded-lg bg-primary px-4 text-primary-foreground disabled:opacity-50" disabled={busy || historical || revisionActive || contentActive || !detail.contentItems?.length} onClick={() => void action(() => submitPlanComments(planId, detail.plan.currentVersion, pending.map(item => item.id)), "Comments sent for review.")}>Review</button>
-            : <button className="min-h-11 rounded-lg bg-primary px-4 text-primary-foreground disabled:opacity-50" disabled={busy || historical || revisionActive || contentActive || Boolean(scheduleBlocker)} onClick={() => void action(async () => { await Promise.all(draftWrites.current); return schedulePlanPosts(planId, detail.plan.currentVersion, scheduleRows()); }, readyItems.length < (detail.contentItems ?? []).filter(item => !item.excludedAt).length ? "Ready posts queued. The rest stayed on the board." : "Posts queued for the scheduled times.")}>Schedule posts</button>}
+            : <button className="min-h-11 rounded-lg bg-primary px-4 text-primary-foreground disabled:opacity-50" disabled={busy || historical || revisionActive || contentActive || Boolean(scheduleBlocker)} onClick={() => void action(async () => {
+              await Promise.all(draftWrites.current);
+              const result = await schedulePlanPosts(planId, detail.plan.currentVersion, scheduleRows()) as { operations?: Array<{ status: string }>; skippedItemIds?: string[]; imageWarnings?: string[] } | undefined;
+              const queued = result?.operations?.filter(operation => operation.status === "scheduled").length ?? 0;
+              const failed = result?.operations?.filter(operation => operation.status !== "scheduled").length ?? 0;
+              const skipped = result?.skippedItemIds?.length ?? 0;
+              if (result?.operations && !queued) return "No post was scheduled. Check the time, profile, and Instagram images.";
+              if (failed || skipped) return "Ready posts queued. The rest stayed on the board.";
+              if (result?.imageWarnings?.length) return "Posts queued. An image could not be attached on some of them.";
+              return "Posts queued for the scheduled times.";
+            }, "Posts queued for the scheduled times.")}>Schedule posts</button>}
         </div>
       </header>
       {!historical && !timezoneConfirmed && <p className="mb-5 rounded-lg border p-3 text-sm" role="status">Confirm your timezone in settings before scheduling. <Link className="underline" href="/app/settings/personal">Open settings</Link></p>}
